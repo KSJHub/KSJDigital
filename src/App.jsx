@@ -18,20 +18,16 @@ function App() {
 
   useEffect(() => {
     async function loadContent() {
-      try {
-        const [serviceData, projectData] = await Promise.all([
-          client.fetch(`*[_type == "service"] | order(_createdAt asc) { _id, title, description }`),
-          client.fetch(`*[_type == "project"] | order(_createdAt asc) { _id, title, type, description, image }`),
-        ]);
+      const [serviceData, projectData] = await Promise.all([
+        client.fetch('*[_type == "service"] | order(_createdAt asc) { _id, title, description }'),
+        client.fetch('*[_type == "project"] | order(_createdAt asc) { _id, title, type, description, image }'),
+      ]);
 
-        if (serviceData?.length) setServices(serviceData);
-        if (projectData?.length) setProjects(projectData);
-      } catch (error) {
-        console.error('Sanity content failed to load:', error);
-      }
+      if (serviceData?.length) setServices(serviceData);
+      if (projectData?.length) setProjects(projectData);
     }
 
-    loadContent();
+    loadContent().catch(() => {});
   }, []);
 
   return (
