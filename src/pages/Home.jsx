@@ -9,7 +9,7 @@ export default function Home() {
       <section id="top" className="hero">
         <div className="container hero-grid">
           <div className="hero-copy">
-            <p className="eyebrow">KSJ Digital V2</p>
+            <p className="eyebrow">KSJ Digital</p>
             <h1>Digital solutions built properly for brands, creators, and communities.</h1>
             <p className="hero-text">Websites, Discord systems, dashboards, branding assets, automation tools, and hosted foundations built with a clean professional approach.</p>
             <div className="hero-buttons">
