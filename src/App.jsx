@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import './App.css';
 
 import { client } from './lib/sanity';
 import { fallbackProjects, fallbackServices } from './data/siteContent';
