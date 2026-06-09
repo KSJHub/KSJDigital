@@ -42,24 +42,23 @@ export const services = [
 
 export const projects = [
   {
-    title: 'KSJ Digital',
-    type: 'Business Platform',
-    status: 'In Development',
-    text: 'The main KSJ Digital brand hub for websites, Discord, automation, hosting, and support.',
-  },
-  {
     title: 'KSJ Goliath',
     type: 'Discord Platform',
     status: 'Active Development',
-    text: 'Tickets, forms, embeds, moderation, analytics, dashboard tools, and community systems.',
+    text: 'Moderation, tickets, forms, embeds, security, backups and dashboard tools.',
   },
   {
     title: 'TwoToneTaj',
-    type: 'Creator Website',
-    status: 'Live Static Build',
-    text: 'A branded creator website for content, community links, audio, contact, and merch direction.',
+    type: 'Creator Platform',
+    status: 'Live',
+    text: 'Creator website, content hub, community platform and future merch integration.',
   },
-  
+  {
+    title: 'KSJ Digital',
+    type: 'Business Platform',
+    status: 'Active Development',
+    text: 'Company website, hosting platform and client-facing digital services.',
+  },
 ];
 
 export const goliathFeatures = [
