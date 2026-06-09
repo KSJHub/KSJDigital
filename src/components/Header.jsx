@@ -1,9 +1,13 @@
+import KsjDigitalLogo from '../assets/logos/KsjDigitalLogo.png';
+
 export default function Header() {
   return (
     <header className="header">
       <div className="container header-inner">
         <a className="brand" href="#top" aria-label="KSJ Digital home">
-          <span className="brand-mark">KSJ</span>
+          <span className="brand-mark brand-logo-mark">
+            <img src={KsjDigitalLogo} alt="" />
+          </span>
           <span>
             <strong>KSJ Digital</strong>
             <small>Websites • Discord • Automation</small>
