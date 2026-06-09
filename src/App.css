@@ -31,10 +31,16 @@ a {
 }
 
 .nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
   height: 86px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  backdrop-filter: blur(12px);
+  background: rgba(6, 8, 13, 0.7);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
 }
 
 .brand {
@@ -60,13 +66,13 @@ a {
   font-weight: 700;
 }
 
-.nav-links a:hover {
-  color: #f8fafc;
-}
-
 .nav-links a {
   position: relative;
   padding: 6px 0;
+}
+
+.nav-links a:hover {
+  color: #f8fafc;
 }
 
 .nav-links a::after {
@@ -226,15 +232,33 @@ p {
   margin-bottom: 30px;
 }
 
-.grid {
+.grid,
+.project-grid,
+.pricing-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
   gap: 18px;
+}
+
+.grid {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.project-grid,
+.pricing-grid {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.card,
+.price-card,
+.project-card {
+  border-radius: 24px;
+  padding: 28px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
 }
 
 .card {
   min-height: 220px;
-  border-radius: 24px;
   padding: 26px;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
@@ -246,6 +270,54 @@ p {
 
 .card h3 {
   font-size: 22px;
+}
+
+.project-card,
+.price-card {
+  background:
+    linear-gradient(180deg, rgba(37, 99, 235, 0.14), rgba(15, 23, 42, 0.78)),
+    rgba(15, 23, 42, 0.78);
+}
+
+.project-card {
+  min-height: 260px;
+  border-radius: 26px;
+}
+
+.project-card span {
+  color: #60a5fa;
+  font-size: 13px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.project-card h3 {
+  margin-top: 20px;
+  font-size: 26px;
+}
+
+.project-image {
+  width: 100%;
+  height: 150px;
+  object-fit: cover;
+  border-radius: 18px;
+  margin-bottom: 22px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.price-card strong {
+  display: block;
+  margin: 12px 0 18px;
+  font-size: 28px;
+  color: #60a5fa;
+}
+
+.price-card ul {
+  margin: 0;
+  padding-left: 18px;
+  color: #aab8cf;
+  line-height: 1.9;
 }
 
 .split {
@@ -292,12 +364,21 @@ p {
     grid-template-columns: repeat(2, 1fr);
   }
 
+  .project-grid,
+  .pricing-grid {
+    grid-template-columns: 1fr;
+  }
+
   .nav-links {
     display: none;
   }
 }
 
 @media (max-width: 560px) {
+  .site {
+    width: min(100% - 28px, 1180px);
+  }
+
   .grid {
     grid-template-columns: 1fr;
   }
@@ -309,129 +390,4 @@ p {
   h1 {
     font-size: 44px;
   }
-
-  .pricing-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
-}
-
-.price-card {
-  border-radius: 24px;
-  padding: 28px;
-  background: rgba(15, 23, 42, 0.78);
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
-}
-
-.price-card strong {
-  display: block;
-  margin: 12px 0 18px;
-  font-size: 28px;
-  color: #60a5fa;
-}
-
-.price-card ul {
-  margin: 0;
-  padding-left: 18px;
-  color: #aab8cf;
-  line-height: 1.9;
-}
-
-@media (max-width: 900px) {
-  .pricing-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.project-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
-}
-
-.project-card {
-  min-height: 260px;
-  border-radius: 26px;
-  padding: 28px;
-  background:
-    linear-gradient(180deg, rgba(37, 99, 235, 0.14), rgba(15, 23, 42, 0.78)),
-    rgba(15, 23, 42, 0.78);
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
-}
-
-.project-card span {
-  color: #60a5fa;
-  font-size: 13px;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-}
-
-.project-card h3 {
-  margin-top: 20px;
-  font-size: 26px;
-}
-
-.project-image {
-  width: 100%;
-  height: 150px;
-  object-fit: cover;
-  border-radius: 18px;
-  margin-bottom: 22px;
-  border: 1px solid rgba(148, 163, 184, 0.14);
-}
-
-@media (max-width: 900px) {
-  .project-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.project-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
-}
-
-.project-card {
-  min-height: 260px;
-  border-radius: 26px;
-  padding: 28px;
-  background:
-    linear-gradient(180deg, rgba(37, 99, 235, 0.14), rgba(15, 23, 42, 0.78)),
-    rgba(15, 23, 42, 0.78);
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
-}
-
-.project-card span {
-  color: #60a5fa;
-  font-size: 13px;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-}
-
-.project-card h3 {
-  margin-top: 20px;
-  font-size: 26px;
-}
-
-@media (max-width: 900px) {
-  .project-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.nav {
-  position: sticky;
-  top: 0;
-  z-index: 50;
-
-  backdrop-filter: blur(12px);
-  background: rgba(6, 8, 13, 0.7);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
-}
 }
