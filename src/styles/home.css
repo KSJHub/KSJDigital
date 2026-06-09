@@ -162,29 +162,41 @@
 /* Projects */
 
 .project-card {
-  min-height: 340px;
+  min-height: 360px;
 }
 
 .project-preview {
   display: grid;
   place-items: center;
-  min-height: 132px;
+  min-height: 140px;
   margin-bottom: 22px;
   border: 1px solid rgba(119, 173, 255, 0.14);
   border-radius: 18px;
-  background: rgba(47, 124, 255, 0.12);
+  background:
+    linear-gradient(135deg, rgba(47, 124, 255, 0.2), rgba(255, 255, 255, 0.035)),
+    rgba(0, 0, 0, 0.18);
 }
 
 .project-preview span {
   color: var(--silver);
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .project-status {
-  margin-top: 22px;
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 6px 12px;
+  margin-top: 18px;
+  border: 1px solid rgba(119, 173, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(47, 124, 255, 0.12);
   color: var(--blue-soft);
-  font-weight: 800;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 /* Goliath */
