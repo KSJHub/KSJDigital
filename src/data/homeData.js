@@ -9,26 +9,32 @@ export const trustItems = [
 
 export const services = [
   {
+    icon: '🌐',
     title: 'Website Design & Development',
     text: 'Clean, responsive websites built with proper structure and long-term polish.',
   },
   {
+    icon: '🤖',
     title: 'Discord Bots & Automation',
     text: 'Custom Discord systems, moderation tools, ticket flows, embeds, and automation.',
   },
   {
+    icon: '📊',
     title: 'Dashboards & Portals',
     text: 'Modern admin panels, client portals, and control centres for growing platforms.',
   },
   {
+    icon: '💎',
     title: 'Branding & Digital Assets',
     text: 'Logo direction, creator graphics, banners, icons, and web-ready visual assets.',
   },
   {
+    icon: '🖥️',
     title: 'Hosting & Infrastructure',
     text: 'VPS-ready foundations, GitHub workflows, HTTPS setup, and deployment structure.',
   },
   {
+    icon: '🧩',
     title: 'Creator & Community Tools',
     text: 'Creator websites, community hubs, media sections, link pages, and future shop tools.',
   },
