@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { client } from './lib/sanity';
 import { fallbackProjects, fallbackServices } from './data/siteContent';
 import Navbar from './components/layout/Navbar';
+import Footer from './components/layout/Footer';
 import Hero from './sections/Hero';
 import Services from './sections/Services';
 import Projects from './sections/Projects';
@@ -49,6 +50,7 @@ function App() {
       <Projects projects={projects} />
       <Systems />
       <Contact />
+      <Footer />
     </main>
   );
 }
