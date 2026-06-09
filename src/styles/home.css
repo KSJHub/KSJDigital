@@ -3,7 +3,8 @@
   top: 0;
   z-index: 10;
   border-bottom: 1px solid var(--line);
-  background: rgba(5, 7, 13, 0.84);
+  background: rgba(3, 6, 13, 0.82);
+  backdrop-filter: blur(16px);
 }
 
 .header-inner,
@@ -27,7 +28,8 @@
   width: 46px;
   height: 46px;
   border-radius: 15px;
-  background: var(--blue);
+  background: linear-gradient(135deg, var(--blue), var(--blue-soft));
+  box-shadow: 0 0 38px rgba(47, 124, 255, 0.32);
   font-weight: 900;
 }
 
@@ -50,14 +52,18 @@
   font-weight: 700;
 }
 
+.nav a:hover {
+  color: var(--text);
+}
+
 .hero {
-  padding: 90px 0 48px;
+  padding: 104px 0 54px;
 }
 
 .hero-grid {
   display: grid;
-  grid-template-columns: 1.1fr 0.9fr;
-  gap: 44px;
+  grid-template-columns: 1.08fr 0.92fr;
+  gap: 54px;
   align-items: center;
 }
 
@@ -68,7 +74,7 @@
 }
 
 .hero-text {
-  max-width: 640px;
+  max-width: 650px;
   margin-top: 24px;
   font-size: 18px;
 }
@@ -86,41 +92,47 @@
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--card);
+  box-shadow: var(--shadow);
 }
 
 .hero-card {
   padding: 28px;
+  background:
+    radial-gradient(circle at 25% 20%, rgba(47, 124, 255, 0.22), transparent 16rem),
+    var(--card);
 }
 
 .logo-card {
   display: flex;
   align-items: center;
-  gap: 22px;
-  min-height: 210px;
+  gap: 24px;
+  min-height: 230px;
 }
 
 .logo-symbol {
   display: grid;
   place-items: center;
-  width: 120px;
-  height: 120px;
-  border-radius: 34px;
-  background: var(--blue);
+  width: 128px;
+  height: 128px;
+  border-radius: 36px;
+  background: linear-gradient(135deg, var(--blue), var(--blue-soft));
+  box-shadow: 0 0 48px rgba(47, 124, 255, 0.28);
   font-size: 30px;
   font-weight: 900;
 }
 
 .logo-divider {
   width: 1px;
-  height: 100px;
+  height: 104px;
   background: var(--line);
 }
 
 .logo-text strong,
 .logo-text span {
   display: block;
-  font-size: 34px;
+  font-size: 36px;
   font-weight: 900;
+  line-height: 1.05;
 }
 
 .logo-text span {
@@ -130,8 +142,20 @@
 .mini-card {
   margin-top: 18px;
   padding: 20px;
+  border: 1px solid rgba(119, 173, 255, 0.12);
   border-radius: 18px;
   background: var(--card-strong);
+}
+
+.mini-card span,
+.card-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--blue-soft);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .trust-bar {
@@ -149,7 +173,8 @@
   border: 1px solid var(--line);
   border-radius: 999px;
   text-align: center;
-  color: var(--muted);
+  color: var(--silver);
+  background: rgba(255, 255, 255, 0.035);
   font-size: 13px;
   font-weight: 800;
 }
@@ -166,7 +191,7 @@
 }
 
 .card {
-  min-height: 220px;
+  min-height: 230px;
   padding: 26px;
 }
 
@@ -175,15 +200,38 @@
   font-size: 24px;
 }
 
-.card-label,
-.project-status,
-.goliath-link {
-  color: var(--blue-soft);
-  font-weight: 800;
+.service-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 20px;
+  border-radius: 14px;
+  background: rgba(47, 124, 255, 0.14);
+  font-size: 22px;
 }
 
 .project-status {
   margin-top: 22px;
+  color: var(--blue-soft);
+  font-weight: 800;
+}
+
+.goliath-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  align-items: center;
+}
+
+.goliath-grid p {
+  max-width: 620px;
+}
+
+.goliath-link {
+  margin-top: 22px;
+  color: var(--blue-soft);
+  font-weight: 900;
 }
 
 .feature-grid {
