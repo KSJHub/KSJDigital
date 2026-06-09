@@ -64,15 +64,21 @@ export default function Home() {
       </section>
 
       <section id="goliath" className="section goliath">
-        <div className="container goliath-grid">
-          <div>
+        <div className="container goliath-showcase">
+          <div className="goliath-copy">
             <p className="eyebrow">Flagship product</p>
             <h2>KSJ Goliath</h2>
             <p>Goliath is the flagship KSJ Digital community platform, built around clean tools, useful workflows, and a focused dashboard.</p>
             <p className="goliath-link">goliath.ksjdigital.co.uk</p>
           </div>
-          <div className="feature-grid">
-            {goliathFeatures.map((feature) => <span key={feature}>{feature}</span>)}
+
+          <div className="goliath-panel">
+            <div className="dashboard-preview">
+              <span>Goliath Dashboard Preview</span>
+            </div>
+            <div className="feature-grid">
+              {goliathFeatures.map((feature) => <span key={feature}>{feature}</span>)}
+            </div>
           </div>
         </div>
       </section>
