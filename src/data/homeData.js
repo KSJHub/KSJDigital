@@ -42,6 +42,12 @@ export const services = [
 
 export const projects = [
   {
+    title: 'KSJ Digital',
+    type: 'Business Platform',
+    status: 'In Development',
+    text: 'The main KSJ Digital brand hub for websites, Discord, automation, hosting, and support.',
+  },
+  {
     title: 'KSJ Goliath',
     type: 'Discord Platform',
     status: 'Active Development',
@@ -53,12 +59,7 @@ export const projects = [
     status: 'Live Static Build',
     text: 'A branded creator website for content, community links, audio, contact, and merch direction.',
   },
-  {
-    title: 'KSJ Digital',
-    type: 'Business Platform',
-    status: 'In Development',
-    text: 'The main KSJ Digital brand hub for websites, Discord, automation, hosting, and support.',
-  },
+  
 ];
 
 export const goliathFeatures = [
