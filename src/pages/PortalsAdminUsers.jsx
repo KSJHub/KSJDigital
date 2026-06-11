@@ -5,6 +5,26 @@ import { clearSession, getStoredSession } from '../portals/auth/sessionManager';
 import { portalUsers } from '../portals/data/users';
 import { portalWebsites } from '../portals/data/websites';
 
+const roleDescriptions = {
+  owner: {
+    title: 'Owner Access',
+    text: 'Full KSJ Digital management access. Can view the client dashboard, access the Management Panel, manage users, assign websites, and review publishing workflows.',
+  },
+  staff: {
+    title: 'Staff Access',
+    text: 'Internal support access for KSJ Digital team members. Intended for helping manage client content, support requests, and website tasks without full owner control.',
+  },
+  client: {
+    title: 'Client Access',
+    text: 'Client-only access. Can view assigned websites, edit allowed content, save drafts, request publishing, and contact support. Cannot access Management Panel tools.',
+  },
+};
+
+const statusDescriptions = {
+  Active: 'User can sign in and access the areas allowed by their role and assigned website.',
+  Disabled: 'User should be blocked from portal access until the account is re-enabled.',
+};
+
 function getWebsiteNames(websiteIds) {
   return websiteIds
     .map((id) => portalWebsites.find((website) => website.id === id)?.name)
@@ -36,6 +56,14 @@ export default function PortalsAdminUsers() {
   );
 
   const [editor, setEditor] = useState(() => createEditorState(portalUsers[0]));
+
+  const selectedWebsite = useMemo(
+    () => portalWebsites.find((website) => website.id === editor.websiteId) ?? portalWebsites[0],
+    [editor.websiteId],
+  );
+
+  const roleInfo = roleDescriptions[editor.role] ?? roleDescriptions.client;
+  const statusInfo = statusDescriptions[editor.status] ?? statusDescriptions.Active;
 
   function handleLogout() {
     clearSession();
@@ -178,14 +206,28 @@ export default function PortalsAdminUsers() {
               {notice && <p className="portal-inline-notice">{notice}</p>}
             </section>
 
-            <section className="portal-help-card">
-              <h3>Selected User</h3>
-              <div className="portal-activity-list">
+            <section className="portal-help-card portal-selection-guide">
+              <p className="eyebrow">Selection Details</p>
+              <h3>{roleInfo.title}</h3>
+              <p>{roleInfo.text}</p>
+
+              <div className="portal-detail-group">
+                <strong>Status: {editor.status}</strong>
+                <small>{statusInfo}</small>
+              </div>
+
+              <div className="portal-detail-group">
+                <strong>Website: {selectedWebsite?.name}</strong>
+                <small>{selectedWebsite?.description}</small>
+                <small>Domain: {selectedWebsite?.domain}</small>
+                <small>Publishing: {selectedWebsite?.publishMode}</small>
+              </div>
+
+              <div className="portal-detail-group">
+                <strong>Selected User</strong>
                 <small>Name: {editor.name}</small>
                 <small>Email: {editor.email}</small>
-                <small>Role: {editor.role}</small>
-                <small>Status: {editor.status}</small>
-                <small>Website: {getWebsiteNames(editor.websiteId ? [editor.websiteId] : [])}</small>
+                <small>Assigned Access: {getWebsiteNames(editor.websiteId ? [editor.websiteId] : [])}</small>
               </div>
             </section>
           </div>
