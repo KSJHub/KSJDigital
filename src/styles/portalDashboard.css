@@ -3,7 +3,15 @@
   align-content: center;
 }
 
-.portal-logout-button {
+.portal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.portal-logout-button,
+.portal-management-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -15,6 +23,17 @@
   background: rgba(255, 255, 255, 0.05);
   font-weight: 900;
   cursor: pointer;
+}
+
+.portal-management-button,
+.portal-owner-link {
+  color: #fff !important;
+  background: linear-gradient(135deg, var(--blue), var(--blue-soft)) !important;
+  box-shadow: 0 16px 38px rgba(47, 124, 255, 0.22);
+}
+
+.portal-owner-link {
+  margin-top: 10px;
 }
 
 .portal-activity-list {
