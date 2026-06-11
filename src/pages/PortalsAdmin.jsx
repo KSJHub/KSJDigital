@@ -1,13 +1,7 @@
 import KsjDigitalLogo from '../assets/logos/KsjDigitalLogo.png';
-import { portalProject, portalUser } from '../data/portalData';
 import { clearSession, getStoredSession } from '../portals/auth/sessionManager';
-
-const adminStats = [
-  { label: 'Users', value: '1' },
-  { label: 'Websites', value: '1' },
-  { label: 'Drafts', value: '0' },
-  { label: 'Publish Requests', value: '0' },
-];
+import { portalUsers } from '../portals/data/users';
+import { portalWebsites } from '../portals/data/websites';
 
 const adminActions = [
   'Create client user',
@@ -18,7 +12,15 @@ const adminActions = [
 
 export default function PortalsAdmin() {
   const session = getStoredSession();
-  const user = session?.user ?? portalUser;
+  const user = session?.user ?? portalUsers[0];
+  const firstWebsite = portalWebsites[0];
+
+  const adminStats = [
+    { label: 'Users', value: String(portalUsers.length) },
+    { label: 'Websites', value: String(portalWebsites.length) },
+    { label: 'Drafts', value: '0' },
+    { label: 'Publish Requests', value: '0' },
+  ];
 
   function handleLogout() {
     clearSession();
@@ -81,8 +83,10 @@ export default function PortalsAdmin() {
                 </label>
                 <label>
                   Assign Website
-                  <select defaultValue="twotonetaj">
-                    <option value="twotonetaj">TwoToneTaj</option>
+                  <select defaultValue={firstWebsite.id}>
+                    {portalWebsites.map((website) => (
+                      <option value={website.id} key={website.id}>{website.name}</option>
+                    ))}
                   </select>
                 </label>
                 <label>
@@ -106,25 +110,25 @@ export default function PortalsAdmin() {
 
           <article className="portal-site-card">
             <div className="portal-site-preview">
-              <strong>{portalProject.name.toUpperCase()}</strong>
-              <span>{portalProject.domain}</span>
+              <strong>{firstWebsite.name.toUpperCase()}</strong>
+              <span>{firstWebsite.domain}</span>
             </div>
             <div>
-              <span className="portal-status">{portalProject.status}</span>
+              <span className="portal-status">{firstWebsite.status}</span>
               <h3>Website Assignment</h3>
-              <p>{portalProject.name} is ready to be assigned to approved client users.</p>
+              <p>{firstWebsite.name} is ready to be assigned to approved client users.</p>
               <dl>
                 <div>
                   <dt>Website</dt>
-                  <dd>{portalProject.name}</dd>
+                  <dd>{firstWebsite.name}</dd>
                 </div>
                 <div>
                   <dt>Access</dt>
-                  <dd>{portalProject.access}</dd>
+                  <dd>{firstWebsite.access}</dd>
                 </div>
                 <div>
                   <dt>Publishing</dt>
-                  <dd>{portalProject.publishMode}</dd>
+                  <dd>{firstWebsite.publishMode}</dd>
                 </div>
               </dl>
             </div>
