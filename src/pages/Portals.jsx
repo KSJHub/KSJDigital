@@ -12,7 +12,7 @@ export default function Portals() {
     <main className="portals-shell portals-access-only">
       <section className="portals-hero portals-public-hero">
         <div className="portals-brand-card portals-public-card">
-          <img src={KsjDigitalLogo} alt="KSJ Digital" className="portals-hero-logo" />
+          <img src={KsjDigitalLogo} alt="KSJ Digital" className="portals-logo" />
 
           <div>
             <p className="eyebrow">KSJ Digital Portals</p>
@@ -21,9 +21,9 @@ export default function Portals() {
               Secure access for approved KSJ Digital clients to manage content,
               request publishing, access support, and keep their digital presence under control.
             </p>
-            <div className="portal-highlight-list" aria-label="Portal features">
+            <div className="portal-feature-row" aria-label="Portal features">
               {portalHighlights.map((item) => (
-                <span key={item}>✓ {item}</span>
+                <span key={item}>{item}</span>
               ))}
             </div>
           </div>
