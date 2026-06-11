@@ -232,6 +232,17 @@
   font-size: clamp(30px, 4vw, 46px);
 }
 
+.portal-role-line {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.portal-role-line strong {
+  color: var(--blue-soft);
+  text-transform: capitalize;
+}
+
 .portal-avatar {
   display: grid;
   width: 48px;
@@ -492,6 +503,11 @@
 
 .portal-publish-card .secondary {
   box-shadow: none;
+}
+
+.portal-publish-card button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .portal-publish-card div {
