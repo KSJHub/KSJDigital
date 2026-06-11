@@ -43,7 +43,6 @@ export default function PortalsDashboard() {
               <p className="portal-role-line">Role: <strong>{user.role}</strong></p>
             </div>
             <div className="portal-header-actions">
-              {isOwner && <a className="portal-management-button" href="/portals/management">Management Panel</a>}
               <button className="portal-logout-button" type="button" onClick={handleLogout}>Logout</button>
             </div>
           </header>
