@@ -32,6 +32,7 @@ export default function Header() {
           <a href="#projects">Projects</a>
           <a href="#goliath">Goliath</a>
           <a href="#infrastructure">Infrastructure</a>
+          <a href="/portals">Portals</a>
           <a href="#contact">Contact</a>
         </nav>
 
