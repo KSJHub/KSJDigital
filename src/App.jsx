@@ -13,7 +13,7 @@ import { getStoredSession } from './portals/auth/sessionManager';
 
 export default function App() {
   const path = window.location.pathname;
-  const isPortalAdmin = path === '/portals/admin' || path.startsWith('/portals/admin/');
+  const isPortalAdmin = path === '/portals/admin' || path.startsWith('/portals/admin/') || path === '/portals/management';
   const isPortalDashboard = path === '/portals/dashboard';
   const isPortalDrafts = path === '/portals/drafts';
   const isPortalWebsiteEditor = path === '/portals/websites/twotonetaj';
