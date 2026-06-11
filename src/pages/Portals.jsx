@@ -1,40 +1,47 @@
 import KsjDigitalLogo from '../assets/logos/KsjDigitalLogo.png';
-import { portalUser } from '../data/portalData';
 
 export default function Portals() {
   return (
     <main className="portals-shell portals-access-only">
-      <section className="portals-hero">
-        <div className="portals-brand-card">
-          <img src={KsjDigitalLogo} alt="KSJ Digital" className="portals-logo" />
+      <section className="portals-hero portals-public-hero">
+        <div className="portals-brand-card portals-public-card">
+          <div className="portal-brand-lockup">
+            <img src={KsjDigitalLogo} alt="KSJ Digital" className="portals-logo" />
+            <span>KSJ Digital Portals</span>
+          </div>
+
           <div>
-            <p className="eyebrow">KSJ Digital Portals</p>
-            <h1>Secure website management for KSJ Digital clients.</h1>
+            <p className="eyebrow">Client portal access</p>
+            <h1>Manage your digital presence through KSJ Digital Portals.</h1>
             <p>
-              A protected access point for approved KSJ Digital clients to securely sign in,
-              manage their website content, preview updates, and request publication.
+              Secure access to website management, content updates, approvals, support,
+              billing, and account services for approved KSJ Digital clients.
             </p>
             <div className="portal-feature-row" aria-label="Portal features">
-              <span>Secure Login</span>
-              <span>Client Access</span>
               <span>Website Management</span>
-              <span>Approval Workflow</span>
+              <span>Content Updates</span>
+              <span>Publishing</span>
+              <span>Support</span>
             </div>
           </div>
         </div>
 
         <aside className="portal-login-card" aria-label="Client portal login">
+          <div className="portal-login-topline">
+            <span>Portal Access</span>
+            <small>ksjdigital.co.uk/portals</small>
+          </div>
           <img src={KsjDigitalLogo} alt="KSJ Digital" />
           <h2>Welcome Back</h2>
           <p>Login to access your client portal.</p>
           <form>
             <label>
               Email Address
-              <input type="email" placeholder={portalUser.email} />
+              <input type="email" placeholder="Enter your email address" />
             </label>
             <label>
               Password
-              <input type="password" placeholder="••••••••" />
+              <input type="password" placeholder="Enter your password" />
             </label>
             <div className="portal-login-options">
               <span>Remember me</span>
@@ -51,11 +58,11 @@ export default function Portals() {
           <p className="eyebrow">Private client area</p>
           <h2>Client website details are only shown after login.</h2>
           <p>
-            This public page is only the secure entry point. Website dashboards, client projects,
+            This page is only the secure entry point. Website dashboards, client projects,
             editable content, billing, and support tools remain hidden until an approved account signs in.
           </p>
         </div>
-        <a href="mailto:support@ksjdigital.co.uk">Need access?</a>
+        <a href="/">Need access?</a>
       </section>
     </main>
   );
