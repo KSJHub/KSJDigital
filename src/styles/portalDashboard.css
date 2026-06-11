@@ -1,0 +1,27 @@
+.portals-dashboard-page {
+  display: grid;
+  align-content: center;
+}
+
+.portal-logout-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  padding: 0 18px;
+  border: 1px solid rgba(139, 178, 255, 0.18);
+  border-radius: 14px;
+  color: var(--silver);
+  background: rgba(255, 255, 255, 0.05);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.portal-activity-list {
+  display: grid;
+  gap: 10px;
+}
+
+.portal-activity-list small {
+  color: var(--muted);
+}
