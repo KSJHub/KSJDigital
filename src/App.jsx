@@ -5,6 +5,7 @@ import PortalsAdmin from './pages/PortalsAdmin';
 import PortalsAdminUsers from './pages/PortalsAdminUsers';
 import PortalsAdminWebsites from './pages/PortalsAdminWebsites';
 import PortalsDashboard from './pages/PortalsDashboard';
+import PortalsWebsiteEditor from './pages/PortalsWebsiteEditor';
 import Footer from './components/Footer';
 import { PORTAL_ROLES } from './portals/auth/permissions';
 import { getStoredSession } from './portals/auth/sessionManager';
@@ -13,6 +14,7 @@ export default function App() {
   const path = window.location.pathname;
   const isPortalAdmin = path === '/portals/admin' || path.startsWith('/portals/admin/');
   const isPortalDashboard = path === '/portals/dashboard';
+  const isPortalWebsiteEditor = path === '/portals/websites/twotonetaj';
   const isPortalsRoute = path === '/portals' || path.startsWith('/portals/');
 
   if (isPortalAdmin) {
@@ -29,7 +31,7 @@ export default function App() {
     return <PortalsAdmin />;
   }
 
-  if (isPortalDashboard) {
+  if (isPortalDashboard || isPortalWebsiteEditor) {
     const session = getStoredSession();
 
     if (!session) {
@@ -37,6 +39,7 @@ export default function App() {
       return null;
     }
 
+    if (isPortalWebsiteEditor) return <PortalsWebsiteEditor />;
     return <PortalsDashboard />;
   }
 
