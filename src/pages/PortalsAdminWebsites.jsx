@@ -12,6 +12,7 @@ const emptyWebsiteForm = {
   access: 'Website Management',
   publishMode: 'Approval Required',
   plan: 'Managed Website',
+  ownerUserId: '',
   description: '',
   assignedUserIds: [],
 };
@@ -27,6 +28,24 @@ function getHostingStatus(website) {
 
 function getPortalStatus(website) {
   return website.portalStatus ?? 'Active';
+}
+
+function formatStorage(website) {
+  const used = website.storageUsedMb ?? 0;
+  const limit = website.storageLimitMb ?? 0;
+  if (!limit) return `${used} MB used`;
+  return `${used} MB / ${limit} MB`;
+}
+
+function getStoragePercent(website) {
+  const used = website.storageUsedMb ?? 0;
+  const limit = website.storageLimitMb ?? 0;
+  if (!limit) return 0;
+  return Math.min(100, Math.round((used / limit) * 100));
+}
+
+function getOwnerName(website, users) {
+  return users.find((portalUser) => portalUser.id === website.ownerUserId)?.name ?? 'Unassigned';
 }
 
 export default function PortalsAdminWebsites() {
@@ -65,7 +84,7 @@ export default function PortalsAdminWebsites() {
   function startCreate() {
     setMode('create');
     setSelectedWebsiteId(null);
-    setForm(emptyWebsiteForm);
+    setForm({ ...emptyWebsiteForm, ownerUserId: portalUsers[0]?.id ?? '' });
   }
 
   function startEdit(website) {
@@ -80,6 +99,7 @@ export default function PortalsAdminWebsites() {
       access: website.access ?? 'Website Management',
       publishMode: website.publishMode ?? 'Approval Required',
       plan: website.plan ?? 'Managed Website',
+      ownerUserId: website.ownerUserId ?? website.assignedUserIds?.[0] ?? '',
       description: website.description ?? '',
       assignedUserIds: website.assignedUserIds ?? [],
     });
@@ -98,9 +118,7 @@ export default function PortalsAdminWebsites() {
   function toggleAssignedUser(userId) {
     setForm((current) => {
       const currentIds = current.assignedUserIds ?? [];
-      const assignedUserIds = currentIds.includes(userId)
-        ? currentIds.filter((id) => id !== userId)
-        : [...currentIds, userId];
+      const assignedUserIds = currentIds.includes(userId) ? currentIds.filter((id) => id !== userId) : [...currentIds, userId];
       return { ...current, assignedUserIds };
     });
   }
@@ -122,22 +140,31 @@ export default function PortalsAdminWebsites() {
     const cleanedDomain = form.domain.trim();
     if (!cleanedName || !cleanedDomain) return;
 
+    const assignedUserIds = Array.from(new Set([...(form.assignedUserIds ?? []), form.ownerUserId].filter(Boolean)));
+
     if (mode === 'create') {
       const baseId = createWebsiteId(cleanedName);
       const id = websites.some((website) => website.id === baseId) ? `${baseId}-${Date.now()}` : baseId;
       const newWebsite = {
         id,
         ...form,
+        assignedUserIds,
         name: cleanedName,
         domain: cleanedDomain,
         status: form.hostingStatus,
         url: cleanedDomain.startsWith('http') ? cleanedDomain : `https://${cleanedDomain}/`,
+        storageUsedMb: 0,
+        storageLimitMb: 2048,
+        analytics: { monthlyViews: 0, monthlyVisitors: 0, lastChecked: 'Not connected yet' },
+        backup: { status: 'No active backup', expiresAt: '', lastCreatedAt: '' },
+        lastPublish: 'Not published through portal yet',
+        lastEditor: user?.name ?? 'KSJ Digital Admin',
       };
 
       commitPortalData({
         ...portalData,
         websites: [...websites, newWebsite],
-        users: syncUserWebsiteAccess(portalUsers, id, form.assignedUserIds),
+        users: syncUserWebsiteAccess(portalUsers, id, assignedUserIds),
       });
       setSelectedWebsiteId(id);
       setMode('view');
@@ -150,6 +177,7 @@ export default function PortalsAdminWebsites() {
       return {
         ...website,
         ...form,
+        assignedUserIds,
         name: cleanedName,
         domain: cleanedDomain,
         status: form.hostingStatus,
@@ -157,11 +185,7 @@ export default function PortalsAdminWebsites() {
       };
     });
 
-    commitPortalData({
-      ...portalData,
-      websites: nextWebsites,
-      users: syncUserWebsiteAccess(portalUsers, selectedWebsiteId, form.assignedUserIds),
-    });
+    commitPortalData({ ...portalData, websites: nextWebsites, users: syncUserWebsiteAccess(portalUsers, selectedWebsiteId, assignedUserIds) });
     setMode('view');
     setForm(emptyWebsiteForm);
   }
@@ -169,18 +193,14 @@ export default function PortalsAdminWebsites() {
   function setWebsiteHostingStatus(websiteId, hostingStatus) {
     commitPortalData({
       ...portalData,
-      websites: websites.map((website) => (
-        website.id === websiteId ? { ...website, hostingStatus, status: hostingStatus } : website
-      )),
+      websites: websites.map((website) => (website.id === websiteId ? { ...website, hostingStatus, status: hostingStatus } : website)),
     });
   }
 
   function setWebsitePortalStatus(websiteId, portalStatus) {
     commitPortalData({
       ...portalData,
-      websites: websites.map((website) => (
-        website.id === websiteId ? { ...website, portalStatus } : website
-      )),
+      websites: websites.map((website) => (website.id === websiteId ? { ...website, portalStatus } : website)),
     });
   }
 
@@ -190,11 +210,7 @@ export default function PortalsAdminWebsites() {
     if (!confirmed) return;
 
     const remainingWebsites = websites.filter((item) => item.id !== websiteId);
-    const nextUsers = portalUsers.map((portalUser) => ({
-      ...portalUser,
-      websiteIds: portalUser.websiteIds?.filter((id) => id !== websiteId) ?? [],
-    }));
-
+    const nextUsers = portalUsers.map((portalUser) => ({ ...portalUser, websiteIds: portalUser.websiteIds?.filter((id) => id !== websiteId) ?? [] }));
     commitPortalData({ ...portalData, websites: remainingWebsites, users: nextUsers });
     setSelectedWebsiteId(remainingWebsites[0]?.id ?? null);
   }
@@ -229,40 +245,17 @@ export default function PortalsAdminWebsites() {
 
           {(mode === 'create' || mode === 'edit') && (
             <form className="portal-management-card" onSubmit={saveWebsite}>
-              <div className="portal-section-title-row">
-                <strong>{mode === 'create' ? 'Create Website' : `Edit ${selectedWebsite?.name ?? 'Website'}`}</strong>
-                <span>{mode === 'create' ? 'New Website' : 'Editing'}</span>
-              </div>
+              <div className="portal-section-title-row"><strong>{mode === 'create' ? 'Create Website' : `Edit ${selectedWebsite?.name ?? 'Website'}`}</strong><span>{mode === 'create' ? 'New Website' : 'Editing'}</span></div>
 
               <div className="portal-form-grid">
                 <label>Website Name<input value={form.name} onChange={(event) => updateForm('name', event.target.value)} placeholder="TwoToneTaj" required /></label>
                 <label>Domain<input value={form.domain} onChange={(event) => updateForm('domain', event.target.value)} placeholder="example.ksjdigital.co.uk" required /></label>
                 <label>Website Type<input value={form.type} onChange={(event) => updateForm('type', event.target.value)} placeholder="Creator Website" /></label>
                 <label>Plan<input value={form.plan} onChange={(event) => updateForm('plan', event.target.value)} placeholder="Managed Website" /></label>
-                <label>
-                  Hosting Status
-                  <select value={form.hostingStatus} onChange={(event) => updateForm('hostingStatus', event.target.value)}>
-                    <option>Live</option>
-                    <option>Maintenance</option>
-                    <option>Offline</option>
-                  </select>
-                </label>
-                <label>
-                  Portal Access
-                  <select value={form.portalStatus} onChange={(event) => updateForm('portalStatus', event.target.value)}>
-                    <option>Active</option>
-                    <option>Suspended</option>
-                    <option>Archived</option>
-                  </select>
-                </label>
-                <label>
-                  Publish Mode
-                  <select value={form.publishMode} onChange={(event) => updateForm('publishMode', event.target.value)}>
-                    <option>Approval Required</option>
-                    <option>Owner Controlled</option>
-                    <option>Direct Publish</option>
-                  </select>
-                </label>
+                <label>Owner<select value={form.ownerUserId} onChange={(event) => updateForm('ownerUserId', event.target.value)}>{portalUsers.map((portalUser) => <option key={portalUser.id} value={portalUser.id}>{portalUser.name}</option>)}</select></label>
+                <label>Hosting Status<select value={form.hostingStatus} onChange={(event) => updateForm('hostingStatus', event.target.value)}><option>Live</option><option>Maintenance</option><option>Offline</option></select></label>
+                <label>Portal Access<select value={form.portalStatus} onChange={(event) => updateForm('portalStatus', event.target.value)}><option>Active</option><option>Suspended</option><option>Archived</option></select></label>
+                <label>Publish Mode<select value={form.publishMode} onChange={(event) => updateForm('publishMode', event.target.value)}><option>Approval Required</option><option>Owner Controlled</option><option>Direct Publish</option></select></label>
               </div>
 
               <label className="portal-full-field">Description<textarea value={form.description} onChange={(event) => updateForm('description', event.target.value)} rows="3" placeholder="Short internal website description" /></label>
@@ -270,19 +263,11 @@ export default function PortalsAdminWebsites() {
               <div className="portal-management-card compact">
                 <div className="portal-section-title-row"><strong>Website Access</strong><span>{form.assignedUserIds.length} Assigned</span></div>
                 <div className="portal-checkbox-list">
-                  {portalUsers.map((portalUser) => (
-                    <label key={portalUser.id}>
-                      <input type="checkbox" checked={form.assignedUserIds.includes(portalUser.id)} onChange={() => toggleAssignedUser(portalUser.id)} />
-                      <span>{portalUser.name} - {portalUser.role}</span>
-                    </label>
-                  ))}
+                  {portalUsers.map((portalUser) => <label key={portalUser.id}><input type="checkbox" checked={form.assignedUserIds.includes(portalUser.id)} onChange={() => toggleAssignedUser(portalUser.id)} /><span>{portalUser.name} - {portalUser.role}</span></label>)}
                 </div>
               </div>
 
-              <div className="portal-inline-actions">
-                <button type="submit">{mode === 'create' ? 'Create Website' : 'Save Changes'}</button>
-                <button type="button" onClick={cancelForm}>Cancel</button>
-              </div>
+              <div className="portal-inline-actions"><button type="submit">{mode === 'create' ? 'Create Website' : 'Save Changes'}</button><button type="button" onClick={cancelForm}>Cancel</button></div>
             </form>
           )}
 
@@ -298,9 +283,9 @@ export default function PortalsAdminWebsites() {
                     <div className="portal-section-title-row"><strong>{website.name}</strong><span>{hostingStatus}</span></div>
                     <p>{website.domain}</p>
                     <ul>
-                      <li>{website.type}</li>
+                      <li>Owner: {getOwnerName(website, portalUsers)}</li>
                       <li>Portal Access: {portalStatus}</li>
-                      <li>Publishing: {website.publishMode}</li>
+                      <li>Storage: {formatStorage(website)}</li>
                       <li>{liveAssignedUsers.length} Assigned User(s)</li>
                     </ul>
                   </div>
@@ -322,12 +307,22 @@ export default function PortalsAdminWebsites() {
             <aside className="portal-management-card">
               <div className="portal-section-title-row"><strong>{selectedWebsite.name} Details</strong><span>{getHostingStatus(selectedWebsite)}</span></div>
               <p>{selectedWebsite.description}</p>
+              <div className="portal-admin-stats">
+                <article className="portal-help-card"><p className="eyebrow">Owner</p><h3>{getOwnerName(selectedWebsite, portalUsers)}</h3></article>
+                <article className="portal-help-card"><p className="eyebrow">Storage</p><h3>{getStoragePercent(selectedWebsite)}%</h3></article>
+                <article className="portal-help-card"><p className="eyebrow">Views</p><h3>{selectedWebsite.analytics?.monthlyViews ?? 0}</h3></article>
+                <article className="portal-help-card"><p className="eyebrow">Backup</p><h3>{selectedWebsite.backup?.status ?? 'No active backup'}</h3></article>
+              </div>
               <ul>
                 <li><strong>Domain:</strong> {selectedWebsite.domain}</li>
                 <li><strong>Hosting Status:</strong> {getHostingStatus(selectedWebsite)}</li>
                 <li><strong>Portal Access:</strong> {getPortalStatus(selectedWebsite)}</li>
-                <li><strong>Plan:</strong> {selectedWebsite.plan}</li>
                 <li><strong>Publish Mode:</strong> {selectedWebsite.publishMode}</li>
+                <li><strong>Storage Usage:</strong> {formatStorage(selectedWebsite)}</li>
+                <li><strong>Analytics:</strong> {selectedWebsite.analytics?.monthlyVisitors ?? 0} visitors this month · Last checked: {selectedWebsite.analytics?.lastChecked ?? 'Not connected yet'}</li>
+                <li><strong>48 Hour Backup:</strong> {selectedWebsite.backup?.status ?? 'No active backup'}{selectedWebsite.backup?.expiresAt ? ` · Expires ${selectedWebsite.backup.expiresAt}` : ''}</li>
+                <li><strong>Last Publish:</strong> {selectedWebsite.lastPublish ?? 'Not published through portal yet'}</li>
+                <li><strong>Last Editor:</strong> {selectedWebsite.lastEditor ?? 'Unknown'}</li>
                 <li><strong>Assigned Users:</strong> {selectedAssignedUsers.length ? selectedAssignedUsers.map((assignedUser) => assignedUser.name).join(', ') : 'None'}</li>
               </ul>
             </aside>
