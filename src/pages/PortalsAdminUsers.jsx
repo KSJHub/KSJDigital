@@ -25,6 +25,11 @@ const statusDescriptions = {
   Disabled: 'The user is blocked from portal access until their account is re-enabled.',
 };
 
+function formatRole(role) {
+  if (!role) return '';
+  return role.charAt(0).toUpperCase() + role.slice(1);
+}
+
 function getWebsiteNames(websiteIds) {
   return websiteIds
     .map((id) => portalWebsites.find((website) => website.id === id)?.name)
@@ -39,7 +44,7 @@ function createEditorState(user) {
     email: user.email,
     role: user.role,
     status: user.status,
-    websiteId: user.websiteIds[0] ?? portalWebsites[0]?.id ?? '',
+    websiteIds: user.websiteIds?.length ? user.websiteIds : [portalWebsites[0]?.id].filter(Boolean),
   };
 }
 
@@ -50,7 +55,7 @@ function createBlankUserState() {
     email: '',
     role: 'client',
     status: 'Active',
-    websiteId: portalWebsites[0]?.id ?? '',
+    websiteIds: [portalWebsites[0]?.id].filter(Boolean),
   };
 }
 
@@ -72,9 +77,9 @@ export default function PortalsAdminUsers() {
     [selectedUserId, users],
   );
 
-  const selectedWebsite = useMemo(
-    () => portalWebsites.find((website) => website.id === editor.websiteId) ?? portalWebsites[0],
-    [editor.websiteId],
+  const selectedWebsites = useMemo(
+    () => portalWebsites.filter((website) => editor.websiteIds.includes(website.id)),
+    [editor.websiteIds],
   );
 
   const roleInfo = roleDescriptions[editor.role] ?? roleDescriptions.client;
@@ -99,11 +104,25 @@ export default function PortalsAdminUsers() {
     setMode('create');
     setSelectedUserId('');
     setEditor(createBlankUserState());
-    setNotice('Create a new portal login, assign their role, and choose the website they can access.');
+    setNotice('Create a new portal login, assign their role, and choose every website they can access.');
   }
 
   function updateEditor(field, value) {
     setEditor((current) => ({ ...current, [field]: value }));
+  }
+
+  function toggleWebsiteAccess(websiteId) {
+    setEditor((current) => {
+      const hasWebsite = current.websiteIds.includes(websiteId);
+      const nextWebsiteIds = hasWebsite
+        ? current.websiteIds.filter((id) => id !== websiteId)
+        : [...current.websiteIds, websiteId];
+
+      return {
+        ...current,
+        websiteIds: nextWebsiteIds,
+      };
+    });
   }
 
   function handleSaveUser() {
@@ -112,6 +131,11 @@ export default function PortalsAdminUsers() {
 
     if (!cleanName || !cleanEmail) {
       setNotice('Name and email are required before saving.');
+      return;
+    }
+
+    if (editor.websiteIds.length === 0) {
+      setNotice('Assign at least one website before saving this user.');
       return;
     }
 
@@ -127,7 +151,7 @@ export default function PortalsAdminUsers() {
         email: cleanEmail,
         role: editor.role,
         status: editor.status,
-        websiteIds: editor.websiteId ? [editor.websiteId] : [],
+        websiteIds: editor.websiteIds,
         lastLogin: 'Invite pending',
       };
 
@@ -135,7 +159,7 @@ export default function PortalsAdminUsers() {
       setSelectedUserId(newUser.id);
       setEditor(createEditorState(newUser));
       setMode('edit');
-      setNotice('User created for this session. Permanent storage and invite emails come with the backend step.');
+      setNotice('User created for this session.');
       return;
     }
 
@@ -148,7 +172,7 @@ export default function PortalsAdminUsers() {
         email: cleanEmail,
         role: editor.role,
         status: editor.status,
-        websiteIds: editor.websiteId ? [editor.websiteId] : [],
+        websiteIds: editor.websiteIds,
       };
     });
 
@@ -215,7 +239,7 @@ export default function PortalsAdminUsers() {
             <div>
               <p className="eyebrow">Client Management</p>
               <h2>Clients & Portal Access</h2>
-              <p className="portal-role-line">Create logins, edit users, assign websites, disable access, and manage client permissions.</p>
+              <p className="portal-role-line">Create logins, edit users, assign multiple websites, disable access, and manage client permissions.</p>
             </div>
             <button className="portal-logout-button" type="button" onClick={handleLogout}>Logout</button>
           </header>
@@ -270,14 +294,19 @@ export default function PortalsAdminUsers() {
                     <option value="client">Client</option>
                   </select>
                 </label>
-                <label>
-                  Assigned Website
-                  <select value={editor.websiteId} onChange={(event) => updateEditor('websiteId', event.target.value)}>
-                    {portalWebsites.map((website) => (
-                      <option value={website.id} key={website.id}>{website.name}</option>
-                    ))}
-                  </select>
-                </label>
+                <fieldset className="portal-website-checklist">
+                  <legend>Assigned Websites</legend>
+                  {portalWebsites.map((website) => (
+                    <label key={website.id}>
+                      <input
+                        type="checkbox"
+                        checked={editor.websiteIds.includes(website.id)}
+                        onChange={() => toggleWebsiteAccess(website.id)}
+                      />
+                      <span>{website.name}</span>
+                    </label>
+                  ))}
+                </fieldset>
                 <button type="button" onClick={handleSaveUser}>{mode === 'create' ? 'Create User' : 'Save User'}</button>
                 <button type="button" onClick={handleToggleStatus} className="portal-secondary-button">
                   {editor.status === 'Active' ? 'Disable User' : 'Enable User'}
@@ -300,17 +329,22 @@ export default function PortalsAdminUsers() {
               </div>
 
               <div className="portal-detail-group">
-                <strong>Website: {selectedWebsite?.name}</strong>
-                <small>{selectedWebsite?.description}</small>
-                <small>Domain: {selectedWebsite?.domain}</small>
-                <small>Publishing: {selectedWebsite?.publishMode}</small>
+                <strong>Assigned Websites</strong>
+                {selectedWebsites.length > 0 ? (
+                  selectedWebsites.map((website) => (
+                    <small key={website.id}>{website.name} — {website.domain} · {website.publishMode}</small>
+                  ))
+                ) : (
+                  <small>No websites assigned yet.</small>
+                )}
               </div>
 
               <div className="portal-detail-group">
                 <strong>{mode === 'create' ? 'New User Preview' : 'Selected User'}</strong>
                 <small>Name: {editor.name || 'Not set'}</small>
                 <small>Email: {editor.email || 'Not set'}</small>
-                <small>Assigned Access: {getWebsiteNames(editor.websiteId ? [editor.websiteId] : [])}</small>
+                <small>Role: {formatRole(editor.role)}</small>
+                <small>Assigned Access: {getWebsiteNames(editor.websiteIds) || 'None'}</small>
               </div>
             </section>
           </div>
@@ -337,7 +371,7 @@ export default function PortalsAdminUsers() {
                 <div className="portal-admin-table-row" key={portalUser.id}>
                   <span>{portalUser.name}</span>
                   <span>{portalUser.email}</span>
-                  <span>{portalUser.role}</span>
+                  <span>{formatRole(portalUser.role)}</span>
                   <span>{portalUser.status}</span>
                   <span>{getWebsiteNames(portalUser.websiteIds)}</span>
                   <span>
