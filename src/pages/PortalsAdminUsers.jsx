@@ -58,6 +58,16 @@ function getWebsiteCountText(websiteIds) {
   return `${count} Assigned Website${count === 1 ? '' : 's'}`;
 }
 
+function getWebsiteSummary(websiteIds) {
+  const names = websiteIds
+    .map((id) => portalWebsites.find((website) => website.id === id)?.name)
+    .filter(Boolean);
+
+  if (names.length === 0) return 'No Websites Assigned';
+  if (names.length <= 2) return names.join(', ');
+  return `${names[0]} + ${names.length - 1} more`;
+}
+
 function createEditorState(user) {
   return {
     id: user.id,
@@ -271,7 +281,7 @@ export default function PortalsAdminUsers() {
           </div>
 
           <div className="portal-grid-two">
-            <section className="portal-editor-panel">
+            <section className="portal-editor-panel portal-client-editor-panel">
               <div className="portal-editor-header">
                 <div>
                   <p className="eyebrow">{mode === 'create' ? 'Create User' : 'Edit User'}</p>
@@ -281,7 +291,7 @@ export default function PortalsAdminUsers() {
                 <button className="portal-logout-button" type="button" onClick={handleCreateMode}>Create New</button>
               </div>
 
-              <div className="portal-admin-form">
+              <div className="portal-admin-form portal-client-management-form">
                 <label>
                   Select User
                   <select value={selectedUserId} onChange={(event) => handleSelectUser(event.target.value)} disabled={mode === 'create'}>
@@ -306,10 +316,10 @@ export default function PortalsAdminUsers() {
                     ))}
                   </select>
                 </label>
-                <div className="portal-websites-dropdown">
+                <div className="portal-websites-dropdown portal-full-width-field">
                   <span>Assigned Websites</span>
                   <details>
-                    <summary>{getWebsiteCountText(editor.websiteIds)}</summary>
+                    <summary>{getWebsiteSummary(editor.websiteIds)}</summary>
                     <div className="portal-websites-menu">
                       {portalWebsites.map((website) => (
                         <label key={website.id}>
@@ -324,12 +334,17 @@ export default function PortalsAdminUsers() {
                     </div>
                   </details>
                 </div>
-                <button type="button" onClick={handleSaveUser}>{mode === 'create' ? 'Create User' : 'Save User'}</button>
-                <button type="button" onClick={handleToggleStatus} className="portal-secondary-button">
-                  {editor.status === 'Active' ? 'Disable User' : 'Enable User'}
-                </button>
-                <button type="button" onClick={handleResetEditor} className="portal-secondary-button">Reset</button>
-                <button type="button" onClick={handleDeleteUser} className="portal-danger-button">Delete User</button>
+
+                <div className="portal-action-row portal-action-row-primary">
+                  <button type="button" onClick={handleSaveUser}>{mode === 'create' ? 'Create User' : 'Save User'}</button>
+                  <button type="button" onClick={handleResetEditor} className="portal-secondary-button">Reset</button>
+                </div>
+                <div className="portal-action-row portal-action-row-danger">
+                  <button type="button" onClick={handleToggleStatus} className="portal-warning-button">
+                    {editor.status === 'Active' ? 'Disable User' : 'Enable User'}
+                  </button>
+                  <button type="button" onClick={handleDeleteUser} className="portal-danger-button">Delete User</button>
+                </div>
               </div>
 
               {notice && <p className="portal-inline-notice">{notice}</p>}
