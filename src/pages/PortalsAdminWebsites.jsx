@@ -17,10 +17,9 @@ export default function PortalsAdminWebsites() {
       <section className="portal-dashboard-frame" aria-label="Portal websites management">
         <aside className="portal-sidebar">
           <img src={KsjDigitalLogo} alt="KSJ Digital" />
-          <span>Admin</span>
+          <span>Management</span>
           <nav>
-            <a href="/portals/admin">Admin Home</a>
-            <a href="/portals/admin/users">Users</a>
+            <a href="/portals/admin">Client Management</a>
             <a href="/portals/admin/websites" className="active">Websites</a>
             <a href="/portals/admin/publish-requests">Publish Requests</a>
             <a href="/portals/dashboard">Client View</a>
@@ -54,7 +53,7 @@ export default function PortalsAdminWebsites() {
                       <li>{website.type}</li>
                       <li>{website.access}</li>
                       <li>{website.publishMode}</li>
-                      <li>{assignedUsers.length} assigned user(s)</li>
+                      <li>{assignedUsers.length} Assigned User(s)</li>
                     </ul>
                   </div>
                   <button type="button">Manage</button>
