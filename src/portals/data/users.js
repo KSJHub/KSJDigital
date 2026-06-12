@@ -5,7 +5,7 @@ export const portalUsers = [
     email: 'ksj@ksjdigital.co.uk',
     role: 'owner',
     status: 'Active',
-    websiteIds: ['twotonetaj'],
+    websiteIds: ['ksjdigital', 'twotonetaj'],
     lastLogin: 'Demo session',
   },
   {
