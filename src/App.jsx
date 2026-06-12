@@ -3,6 +3,7 @@ import Home from './pages/Home';
 import Portals from './pages/Portals';
 import PortalsAccount from './pages/PortalsAccount';
 import PortalsAdmin from './pages/PortalsAdmin';
+import PortalsAdminBackups from './pages/PortalsAdminBackups';
 import PortalsAdminSettings from './pages/PortalsAdminSettings';
 import PortalsAdminUsers from './pages/PortalsAdminUsers';
 import PortalsAdminWebsites from './pages/PortalsAdminWebsites';
@@ -35,6 +36,7 @@ export default function App() {
     if (path === '/portals/admin') return <PortalsAdmin />;
     if (path === '/portals/admin/users' || path === '/portals/management') return <PortalsAdminUsers />;
     if (path === '/portals/admin/websites') return <PortalsAdminWebsites />;
+    if (path === '/portals/admin/backups') return <PortalsAdminBackups />;
     if (path === '/portals/admin/settings') return <PortalsAdminSettings />;
 
     return <PortalsAdmin />;
