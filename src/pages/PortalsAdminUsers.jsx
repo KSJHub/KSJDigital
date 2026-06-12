@@ -276,7 +276,7 @@ export default function PortalsAdminUsers() {
                 <div>
                   <p className="eyebrow">{mode === 'create' ? 'Create User' : 'Edit User'}</p>
                   <h2>{mode === 'create' ? 'Create Client Login' : selectedUser?.name}</h2>
-                  <p>{mode === 'create' ? 'Create a new client/staff login and assign their website access.' : 'Edit role, status, email, and website access for the selected portal user.'}</p>
+                  <p>{mode === 'create' ? 'Create a new client/staff login and assign their website access.' : 'Edit role, email, and website access for the selected portal user.'}</p>
                 </div>
                 <button className="portal-logout-button" type="button" onClick={handleCreateMode}>Create New</button>
               </div>
@@ -288,13 +288,6 @@ export default function PortalsAdminUsers() {
                     {users.map((portalUser) => (
                       <option value={portalUser.id} key={portalUser.id}>{portalUser.name}</option>
                     ))}
-                  </select>
-                </label>
-                <label>
-                  Status
-                  <select value={editor.status} onChange={(event) => updateEditor('status', event.target.value)}>
-                    <option value="Active">Active</option>
-                    <option value="Disabled">Disabled</option>
                   </select>
                 </label>
                 <label>
@@ -313,19 +306,24 @@ export default function PortalsAdminUsers() {
                     ))}
                   </select>
                 </label>
-                <fieldset className="portal-website-checklist">
-                  <legend>Assigned Websites</legend>
-                  {portalWebsites.map((website) => (
-                    <label key={website.id}>
-                      <input
-                        type="checkbox"
-                        checked={editor.websiteIds.includes(website.id)}
-                        onChange={() => toggleWebsiteAccess(website.id)}
-                      />
-                      <span>{website.name}</span>
-                    </label>
-                  ))}
-                </fieldset>
+                <div className="portal-websites-dropdown">
+                  <span>Assigned Websites</span>
+                  <details>
+                    <summary>{getWebsiteCountText(editor.websiteIds)}</summary>
+                    <div className="portal-websites-menu">
+                      {portalWebsites.map((website) => (
+                        <label key={website.id}>
+                          <input
+                            type="checkbox"
+                            checked={editor.websiteIds.includes(website.id)}
+                            onChange={() => toggleWebsiteAccess(website.id)}
+                          />
+                          <span>{website.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </details>
+                </div>
                 <button type="button" onClick={handleSaveUser}>{mode === 'create' ? 'Create User' : 'Save User'}</button>
                 <button type="button" onClick={handleToggleStatus} className="portal-secondary-button">
                   {editor.status === 'Active' ? 'Disable User' : 'Enable User'}
