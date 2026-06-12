@@ -53,11 +53,9 @@ function formatRole(role) {
   return roleDescriptions[role]?.label ?? 'Client Administrator';
 }
 
-function getWebsiteNames(websiteIds) {
-  return websiteIds
-    .map((id) => portalWebsites.find((website) => website.id === id)?.name)
-    .filter(Boolean)
-    .join(', ');
+function getWebsiteCountText(websiteIds) {
+  const count = websiteIds?.length ?? 0;
+  return `${count} Assigned Website${count === 1 ? '' : 's'}`;
 }
 
 function createEditorState(user) {
@@ -101,11 +99,6 @@ export default function PortalsAdminUsers() {
   const selectedUser = useMemo(
     () => users.find((portalUser) => portalUser.id === selectedUserId) ?? users[0],
     [selectedUserId, users],
-  );
-
-  const selectedWebsites = useMemo(
-    () => portalWebsites.filter((website) => editor.websiteIds.includes(website.id)),
-    [editor.websiteIds],
   );
 
   const roleInfo = roleDescriptions[editor.role] ?? roleDescriptions.clientAdmin;
@@ -360,22 +353,11 @@ export default function PortalsAdminUsers() {
               </div>
 
               <div className="portal-detail-group">
-                <strong>Assigned Websites</strong>
-                {selectedWebsites.length > 0 ? (
-                  selectedWebsites.map((website) => (
-                    <small key={website.id}>{website.name} — {website.domain} · {website.publishMode}</small>
-                  ))
-                ) : (
-                  <small>No websites assigned yet.</small>
-                )}
-              </div>
-
-              <div className="portal-detail-group">
                 <strong>{mode === 'create' ? 'New User Preview' : 'Selected User'}</strong>
                 <small>Name: {editor.name || 'Not set'}</small>
                 <small>Email: {editor.email || 'Not set'}</small>
                 <small>Role: {formatRole(editor.role)}</small>
-                <small>Assigned Access: {getWebsiteNames(editor.websiteIds) || 'None'}</small>
+                <small>{getWebsiteCountText(editor.websiteIds)}</small>
               </div>
             </section>
           </div>
@@ -395,7 +377,7 @@ export default function PortalsAdminUsers() {
                 <span>Email</span>
                 <span>Role</span>
                 <span>Status</span>
-                <span>Websites</span>
+                <span>Access</span>
                 <span>Actions</span>
               </div>
               {users.map((portalUser) => (
@@ -404,7 +386,7 @@ export default function PortalsAdminUsers() {
                   <span>{portalUser.email}</span>
                   <span>{formatRole(portalUser.role)}</span>
                   <span>{portalUser.status}</span>
-                  <span>{getWebsiteNames(portalUser.websiteIds)}</span>
+                  <span>{getWebsiteCountText(portalUser.websiteIds)}</span>
                   <span>
                     <button type="button" onClick={() => handleSelectUser(portalUser.id)}>Manage</button>
                   </span>
