@@ -10,7 +10,7 @@ export const initialPortalData = {
       id: 'ksj-admin',
       name: 'KSJ Digital Admin',
       email: 'ksj@ksjdigital.co.uk',
-      role: 'Owner',
+      role: 'owner',
       status: 'Active',
       websiteIds: ['ksjdigital', 'twotonetaj'],
       lastLogin: 'Demo session',
@@ -19,7 +19,7 @@ export const initialPortalData = {
       id: 'twotonetaj-client',
       name: 'TwoToneTaj',
       email: 'media@ksjdigital.co.uk',
-      role: 'Client Administrator',
+      role: 'clientAdmin',
       status: 'Active',
       websiteIds: ['twotonetaj'],
       lastLogin: 'Not connected yet',
@@ -55,8 +55,37 @@ export const initialPortalData = {
     },
   ],
 
-  drafts: [],
-  publishRequests: [],
+  drafts: [
+    {
+      id: 'twotonetaj-homepage-draft',
+      websiteId: 'twotonetaj',
+      section: 'Homepage',
+      status: 'Draft Ready',
+      updatedBy: 'TwoToneTaj',
+      summary: 'Homepage content is ready to be edited through the portal editor.',
+    },
+    {
+      id: 'twotonetaj-about-draft',
+      websiteId: 'twotonetaj',
+      section: 'About',
+      status: 'Needs Review',
+      updatedBy: 'TwoToneTaj',
+      summary: 'About page story content is prepared for draft editing.',
+    },
+  ],
+
+  publishRequests: [
+    {
+      id: 'request-homepage-draft',
+      websiteId: 'twotonetaj',
+      title: 'Homepage draft review',
+      requestedBy: 'TwoToneTaj',
+      status: 'Draft',
+      updatedAt: 'Awaiting first portal draft',
+      summary: 'No live publish request has been submitted yet.',
+    },
+  ],
+
   supportTickets: [],
   backups: [],
   activityLogs: [],
