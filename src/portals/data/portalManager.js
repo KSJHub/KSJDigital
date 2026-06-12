@@ -66,6 +66,18 @@ export function getPortalWebsites() {
   return getPortalData().websites ?? [];
 }
 
+export function getPortalDrafts() {
+  return getPortalData().drafts ?? [];
+}
+
+export function getPortalPublishRequests() {
+  return getPortalData().publishRequests ?? [];
+}
+
+export function getPortalSupportTickets() {
+  return getPortalData().supportTickets ?? [];
+}
+
 export function getPortalWebsiteById(websiteId) {
   return getPortalWebsites().find((website) => website.id === websiteId) ?? null;
 }
@@ -81,4 +93,12 @@ export function getPortalUserById(userId) {
 
 export function getPortalUsersByWebsite(websiteId) {
   return getPortalUsers().filter((user) => user.websiteIds?.includes(websiteId));
+}
+
+export function getDraftsByWebsite(websiteId) {
+  return getPortalDrafts().filter((draft) => draft.websiteId === websiteId);
+}
+
+export function getPublishRequestsByWebsite(websiteId) {
+  return getPortalPublishRequests().filter((request) => request.websiteId === websiteId);
 }
