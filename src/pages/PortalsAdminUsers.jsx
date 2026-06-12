@@ -8,21 +8,21 @@ import { portalWebsites } from '../portals/data/websites';
 const roleDescriptions = {
   owner: {
     title: 'Owner Access',
-    text: 'Full KSJ Digital management access. Can view the client dashboard, access the Management Panel, manage users, assign websites, and review publishing workflows.',
+    text: 'Full KSJ Digital management access. Can manage clients, users, websites, support, publishing workflows, and owner-only portal settings.',
   },
   staff: {
     title: 'Staff Access',
-    text: 'Internal support access for KSJ Digital team members. Intended for helping manage client content, support requests, and website tasks without full owner control.',
+    text: 'Internal KSJ Digital support access. Staff can help manage client website content, requests, and support tasks without full owner control.',
   },
   client: {
     title: 'Client Access',
-    text: 'Client-only access. Can view assigned websites, edit allowed content, save drafts, request publishing, and contact support. Cannot access Management Panel tools.',
+    text: 'Client-only access. Clients can view assigned websites, edit allowed content, save drafts, request publishing, and contact support.',
   },
 };
 
 const statusDescriptions = {
-  Active: 'User can sign in and access the areas allowed by their role and assigned website.',
-  Disabled: 'User should be blocked from portal access until the account is re-enabled.',
+  Active: 'The user can access the portal according to their role and assigned website permissions.',
+  Disabled: 'The user is blocked from portal access until their account is re-enabled.',
 };
 
 function getWebsiteNames(websiteIds) {
@@ -43,19 +43,34 @@ function createEditorState(user) {
   };
 }
 
+function createBlankUserState() {
+  return {
+    id: '',
+    name: '',
+    email: '',
+    role: 'client',
+    status: 'Active',
+    websiteId: portalWebsites[0]?.id ?? '',
+  };
+}
+
+function createUserId(email) {
+  return email.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `client-${Date.now()}`;
+}
+
 export default function PortalsAdminUsers() {
   const session = getStoredSession();
   const user = session?.user ?? portalUsers[0];
   const [users, setUsers] = useState(portalUsers);
+  const [mode, setMode] = useState('edit');
   const [selectedUserId, setSelectedUserId] = useState(portalUsers[0]?.id ?? '');
+  const [editor, setEditor] = useState(() => createEditorState(portalUsers[0]));
   const [notice, setNotice] = useState('');
 
   const selectedUser = useMemo(
     () => users.find((portalUser) => portalUser.id === selectedUserId) ?? users[0],
     [selectedUserId, users],
   );
-
-  const [editor, setEditor] = useState(() => createEditorState(portalUsers[0]));
 
   const selectedWebsite = useMemo(
     () => portalWebsites.find((website) => website.id === editor.websiteId) ?? portalWebsites[0],
@@ -74,9 +89,17 @@ export default function PortalsAdminUsers() {
     const nextUser = users.find((portalUser) => portalUser.id === nextUserId);
     if (!nextUser) return;
 
+    setMode('edit');
     setSelectedUserId(nextUser.id);
     setEditor(createEditorState(nextUser));
     setNotice('');
+  }
+
+  function handleCreateMode() {
+    setMode('create');
+    setSelectedUserId('');
+    setEditor(createBlankUserState());
+    setNotice('Create a new portal login, assign their role, and choose the website they can access.');
   }
 
   function updateEditor(field, value) {
@@ -88,7 +111,31 @@ export default function PortalsAdminUsers() {
     const cleanEmail = editor.email.trim().toLowerCase();
 
     if (!cleanName || !cleanEmail) {
-      setNotice('Name and email are required before saving changes.');
+      setNotice('Name and email are required before saving.');
+      return;
+    }
+
+    if (mode === 'create') {
+      if (users.some((portalUser) => portalUser.email.toLowerCase() === cleanEmail)) {
+        setNotice('A user with this email already exists. Select that user from the table to edit them.');
+        return;
+      }
+
+      const newUser = {
+        id: createUserId(cleanEmail),
+        name: cleanName,
+        email: cleanEmail,
+        role: editor.role,
+        status: editor.status,
+        websiteIds: editor.websiteId ? [editor.websiteId] : [],
+        lastLogin: 'Invite pending',
+      };
+
+      setUsers((current) => [...current, newUser]);
+      setSelectedUserId(newUser.id);
+      setEditor(createEditorState(newUser));
+      setMode('edit');
+      setNotice('User created for this session. Permanent storage and invite emails come with the backend step.');
       return;
     }
 
@@ -106,15 +153,43 @@ export default function PortalsAdminUsers() {
     });
 
     setUsers(updatedUsers);
-    setNotice('User updated in this admin session. Backend persistence is the next build step.');
+    setNotice('User changes saved for this session.');
   }
 
   function handleToggleStatus() {
     const nextStatus = editor.status === 'Active' ? 'Disabled' : 'Active';
     updateEditor('status', nextStatus);
+    setNotice(nextStatus === 'Disabled' ? 'User marked as disabled for this session.' : 'User marked as active for this session.');
+  }
+
+  function handleDeleteUser() {
+    if (mode === 'create') {
+      setNotice('Nothing to delete yet. This user has not been created.');
+      return;
+    }
+
+    if (editor.role === 'owner') {
+      setNotice('Owner accounts cannot be deleted from this interface.');
+      return;
+    }
+
+    const nextUsers = users.filter((portalUser) => portalUser.id !== editor.id);
+    const fallbackUser = nextUsers[0] ?? portalUsers[0];
+
+    setUsers(nextUsers);
+    setSelectedUserId(fallbackUser.id);
+    setEditor(createEditorState(fallbackUser));
+    setMode('edit');
+    setNotice('User removed for this session.');
   }
 
   function handleResetEditor() {
+    if (mode === 'create') {
+      setEditor(createBlankUserState());
+      setNotice('Create form reset.');
+      return;
+    }
+
     if (!selectedUser) return;
     setEditor(createEditorState(selectedUser));
     setNotice('Changes reset for the selected user.');
@@ -122,13 +197,12 @@ export default function PortalsAdminUsers() {
 
   return (
     <main className="portals-shell portals-dashboard-page">
-      <section className="portal-dashboard-frame" aria-label="Portal users management">
+      <section className="portal-dashboard-frame" aria-label="Client management">
         <aside className="portal-sidebar">
           <img src={KsjDigitalLogo} alt="KSJ Digital" />
-          <span>Admin</span>
+          <span>Management</span>
           <nav>
-            <a href="/portals/admin">Admin Home</a>
-            <a href="/portals/admin/users" className="active">Users</a>
+            <a href="/portals/admin" className="active">Client Management</a>
             <a href="/portals/admin/websites">Websites</a>
             <a href="/portals/admin/publish-requests">Publish Requests</a>
             <a href="/portals/dashboard">Client View</a>
@@ -139,27 +213,35 @@ export default function PortalsAdminUsers() {
         <div className="portal-dashboard-main">
           <header className="portal-dashboard-header">
             <div>
-              <p className="eyebrow">User Management</p>
-              <h2>Portal Users</h2>
-              <p className="portal-role-line">Signed in as <strong>{user.name}</strong></p>
+              <p className="eyebrow">Client Management</p>
+              <h2>Clients & Portal Access</h2>
+              <p className="portal-role-line">Create logins, edit users, assign websites, disable access, and manage client permissions.</p>
             </div>
             <button className="portal-logout-button" type="button" onClick={handleLogout}>Logout</button>
           </header>
+
+          <div className="portal-admin-stats">
+            <article className="portal-help-card"><p className="eyebrow">Users</p><h3>{users.length}</h3></article>
+            <article className="portal-help-card"><p className="eyebrow">Active</p><h3>{users.filter((item) => item.status === 'Active').length}</h3></article>
+            <article className="portal-help-card"><p className="eyebrow">Disabled</p><h3>{users.filter((item) => item.status === 'Disabled').length}</h3></article>
+            <article className="portal-help-card"><p className="eyebrow">Websites</p><h3>{portalWebsites.length}</h3></article>
+          </div>
 
           <div className="portal-grid-two">
             <section className="portal-editor-panel">
               <div className="portal-editor-header">
                 <div>
-                  <p className="eyebrow">Edit User</p>
-                  <h2>{selectedUser?.name ?? 'Select User'}</h2>
-                  <p>Edit role, status, email, and website access for the selected portal user.</p>
+                  <p className="eyebrow">{mode === 'create' ? 'Create User' : 'Edit User'}</p>
+                  <h2>{mode === 'create' ? 'Create Client Login' : selectedUser?.name}</h2>
+                  <p>{mode === 'create' ? 'Create a new client/staff login and assign their website access.' : 'Edit role, status, email, and website access for the selected portal user.'}</p>
                 </div>
+                <button className="portal-logout-button" type="button" onClick={handleCreateMode}>Create New</button>
               </div>
 
               <div className="portal-admin-form">
                 <label>
                   Select User
-                  <select value={selectedUserId} onChange={(event) => handleSelectUser(event.target.value)}>
+                  <select value={selectedUserId} onChange={(event) => handleSelectUser(event.target.value)} disabled={mode === 'create'}>
                     {users.map((portalUser) => (
                       <option value={portalUser.id} key={portalUser.id}>{portalUser.name}</option>
                     ))}
@@ -174,11 +256,11 @@ export default function PortalsAdminUsers() {
                 </label>
                 <label>
                   Name
-                  <input value={editor.name} onChange={(event) => updateEditor('name', event.target.value)} />
+                  <input value={editor.name} placeholder="Client name" onChange={(event) => updateEditor('name', event.target.value)} />
                 </label>
                 <label>
                   Email
-                  <input value={editor.email} onChange={(event) => updateEditor('email', event.target.value)} />
+                  <input value={editor.email} placeholder="client@example.com" onChange={(event) => updateEditor('email', event.target.value)} />
                 </label>
                 <label>
                   Role
@@ -196,11 +278,12 @@ export default function PortalsAdminUsers() {
                     ))}
                   </select>
                 </label>
-                <button type="button" onClick={handleSaveUser}>Save User</button>
+                <button type="button" onClick={handleSaveUser}>{mode === 'create' ? 'Create User' : 'Save User'}</button>
                 <button type="button" onClick={handleToggleStatus} className="portal-secondary-button">
                   {editor.status === 'Active' ? 'Disable User' : 'Enable User'}
                 </button>
-                <button type="button" onClick={handleResetEditor} className="portal-secondary-button">Reset Changes</button>
+                <button type="button" onClick={handleResetEditor} className="portal-secondary-button">Reset</button>
+                <button type="button" onClick={handleDeleteUser} className="portal-danger-button">Delete User</button>
               </div>
 
               {notice && <p className="portal-inline-notice">{notice}</p>}
@@ -224,9 +307,9 @@ export default function PortalsAdminUsers() {
               </div>
 
               <div className="portal-detail-group">
-                <strong>Selected User</strong>
-                <small>Name: {editor.name}</small>
-                <small>Email: {editor.email}</small>
+                <strong>{mode === 'create' ? 'New User Preview' : 'Selected User'}</strong>
+                <small>Name: {editor.name || 'Not set'}</small>
+                <small>Email: {editor.email || 'Not set'}</small>
                 <small>Assigned Access: {getWebsiteNames(editor.websiteId ? [editor.websiteId] : [])}</small>
               </div>
             </section>
@@ -235,9 +318,9 @@ export default function PortalsAdminUsers() {
           <section className="portal-editor-panel">
             <div className="portal-editor-header">
               <div>
-                <p className="eyebrow">Users</p>
-                <h2>Manage Client Logins</h2>
-                <p>Select a user from the table below or use the editor above.</p>
+                <p className="eyebrow">Client Access</p>
+                <h2>Manage Logins</h2>
+                <p>View, edit, disable, or delete portal users from one management page.</p>
               </div>
             </div>
 
@@ -258,7 +341,7 @@ export default function PortalsAdminUsers() {
                   <span>{portalUser.status}</span>
                   <span>{getWebsiteNames(portalUser.websiteIds)}</span>
                   <span>
-                    <button type="button" onClick={() => handleSelectUser(portalUser.id)}>Edit</button>
+                    <button type="button" onClick={() => handleSelectUser(portalUser.id)}>Manage</button>
                   </span>
                 </div>
               ))}
