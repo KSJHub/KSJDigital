@@ -1,0 +1,15 @@
+{
+  "websiteId": "twotonetaj",
+  "pageId": "homepage",
+  "schemaId": "creator",
+  "status": "live",
+  "updatedBy": "KSJ Digital",
+  "updatedAt": "2026-06-13T00:00:00.000Z",
+  "content": {
+    "heroTitle": "TwoToneTaj",
+    "heroSubtitle": "Average Gamer • Est. 1989",
+    "heroSummary": "Gaming, laughs, community moments, and TajSquad updates.",
+    "buttonText": "Join TajSquad",
+    "buttonUrl": "#community"
+  }
+}
