@@ -1,4 +1,4 @@
-import KsjDigitalLogo from '../assets/logos/KsjDigitalLogo.png';
+import PortalSidebar from '../components/PortalSidebar';
 import { clearSession, getStoredSession } from '../portals/auth/sessionManager';
 import { getPortalData } from '../portals/data/portalManager';
 
@@ -36,18 +36,7 @@ export default function PortalsAdmin() {
   return (
     <main className="portals-shell portals-dashboard-page">
       <section className="portal-dashboard-frame" aria-label="KSJ Digital Portals admin dashboard">
-        <aside className="portal-sidebar">
-          <img src={KsjDigitalLogo} alt="KSJ Digital" />
-          <span>Management</span>
-          <nav>
-            <a href="/portals/admin" className="active">Admin Home</a>
-            <a href="/portals/admin/users">Client Management</a>
-            <a href="/portals/admin/websites">Websites</a>
-            <a href="/portals/admin/publish-requests">Publish Requests</a>
-            <a href="/portals/dashboard">Client View</a>
-            <a href="/portals/admin/settings">Settings</a>
-          </nav>
-        </aside>
+        <PortalSidebar title="Management" section="admin" />
 
         <div className="portal-dashboard-main">
           <header className="portal-dashboard-header">
@@ -102,7 +91,7 @@ export default function PortalsAdmin() {
               <div className="portal-inline-actions">
                 <a href="/portals/admin/users">Create Client</a>
                 <a href="/portals/admin/websites">Create Website</a>
-                <a href="/portals/admin/publish-requests">Review Publishes</a>
+                <a href="/portals/publish-requests">Review Publishes</a>
                 <a href="/portals/support">View Tickets</a>
               </div>
             </section>
