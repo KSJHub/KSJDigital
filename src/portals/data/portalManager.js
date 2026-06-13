@@ -46,6 +46,18 @@ function mergePortalDefaults(storedData) {
     });
   });
 
+  mergedData.websites = (mergedData.websites ?? []).map((website) => {
+    const defaultWebsite = initialData.websites?.find((item) => item.id === website.id) ?? {};
+    return {
+      ...website,
+      deployment: { ...(defaultWebsite.deployment ?? {}), ...(website.deployment ?? {}) },
+      backup: { ...(defaultWebsite.backup ?? {}), ...(website.backup ?? {}) },
+    };
+  });
+
+  mergedData.deploymentQueue = mergedData.deploymentQueue ?? [];
+  mergedData.deploymentHistory = mergedData.deploymentHistory ?? [];
+
   return mergedData;
 }
 
@@ -83,12 +95,15 @@ export function getPortalWebsites() { return getPortalData().websites ?? []; }
 export function getPortalDrafts() { return getPortalData().drafts ?? []; }
 export function getPortalPublishRequests() { return getPortalData().publishRequests ?? []; }
 export function getPortalSupportTickets() { return getPortalData().supportTickets ?? []; }
+export function getPortalDeploymentQueue() { return getPortalData().deploymentQueue ?? []; }
+export function getPortalDeploymentHistory() { return getPortalData().deploymentHistory ?? []; }
 export function getPortalWebsiteById(websiteId) { return getPortalWebsites().find((website) => website.id === websiteId) ?? null; }
 export function getPortalWebsitesByUser(user) { if (!user?.websiteIds) return []; return getPortalWebsites().filter((website) => user.websiteIds.includes(website.id)); }
 export function getPortalUserById(userId) { return getPortalUsers().find((user) => user.id === userId) ?? null; }
 export function getPortalUsersByWebsite(websiteId) { return getPortalUsers().filter((user) => user.websiteIds?.includes(websiteId)); }
 export function getDraftsByWebsite(websiteId) { return getPortalDrafts().filter((draft) => draft.websiteId === websiteId); }
 export function getPublishRequestsByWebsite(websiteId) { return getPortalPublishRequests().filter((request) => request.websiteId === websiteId); }
+export function getDeploymentsByWebsite(websiteId) { return getPortalDeploymentHistory().filter((deployment) => deployment.websiteId === websiteId); }
 export function getWebsiteRegistry() { return getPortalData().websiteRegistry ?? {}; }
 export function getContentSchemas() { return getPortalData().contentSchemas ?? {}; }
 export function getWebsiteContent(websiteId) { return getPortalData().content?.[websiteId] ?? {}; }
