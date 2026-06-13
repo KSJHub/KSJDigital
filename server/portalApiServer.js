@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { publishContentFile } from './githubContentPublisher.js';
+import { getContentFileState, publishContentFile } from './githubContentPublisher.js';
 
 const PORT = Number(process.env.PORT || process.env.PORTAL_API_PORT || 4174);
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -46,9 +46,26 @@ async function handlePublishContent(request, response) {
     const result = await publishContentFile(preparedWrite);
     sendJson(response, 200, result);
   } catch (error) {
+    sendJson(response, error.code === 'CONTENT_FILE_CONFLICT' ? 409 : 400, {
+      ok: false,
+      code: error.code,
+      message: error.message || 'Unable to publish content file.',
+      details: error.details,
+    });
+  }
+}
+
+async function handleContentState(request, response) {
+  try {
+    const url = new URL(request.url, `http://${request.headers.host}`);
+    const path = url.searchParams.get('path');
+    const result = await getContentFileState(path);
+    sendJson(response, 200, result);
+  } catch (error) {
     sendJson(response, 400, {
       ok: false,
-      message: error.message || 'Unable to publish content file.',
+      message: error.message || 'Unable to read content file state.',
+      details: error.details,
     });
   }
 }
@@ -56,12 +73,14 @@ async function handlePublishContent(request, response) {
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
 
-  if (request.method === 'OPTIONS') {
-    return sendJson(response, 204, {});
-  }
+  if (request.method === 'OPTIONS') return sendJson(response, 204, {});
 
   if (request.method === 'GET' && url.pathname === '/api/portal/health') {
     return sendJson(response, 200, { ok: true, service: 'KSJ Digital Portal API' });
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/portal/content/state') {
+    return handleContentState(request, response);
   }
 
   if (request.method === 'POST' && url.pathname === '/api/portal/content/publish') {
