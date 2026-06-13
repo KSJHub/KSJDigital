@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import KsjDigitalLogo from '../assets/logos/KsjDigitalLogo.png';
+import PortalSidebar from '../components/PortalSidebar';
 import { clearSession, getStoredSession } from '../portals/auth/sessionManager';
+import { hasPermission, PORTAL_PERMISSIONS } from '../portals/auth/permissions';
 import { getPortalData, savePortalData } from '../portals/data/portalManager';
 
 const ticketStatuses = ['Open', 'Waiting On Client', 'Waiting On Staff', 'Resolved', 'Closed'];
@@ -20,6 +21,8 @@ function isOpenTicket(ticket) {
 
 export default function PortalsSupport() {
   const session = getStoredSession();
+  const user = session?.user;
+  const canManageSupport = hasPermission(user, PORTAL_PERMISSIONS.MANAGE_SUPPORT);
   const initialPortalData = getPortalData();
   const [portalData, setPortalData] = useState(initialPortalData);
   const [activeStatus, setActiveStatus] = useState('Open');
@@ -30,7 +33,7 @@ export default function PortalsSupport() {
   const tickets = portalData.supportTickets ?? [];
   const websites = portalData.websites ?? [];
   const users = portalData.users ?? [];
-  const staffUsers = users.filter((user) => ['owner', 'websiteManager', 'supportAgent'].includes(user.role));
+  const staffUsers = users.filter((portalUser) => ['owner', 'websiteManager', 'supportAgent'].includes(portalUser.role));
 
   const selectedTicket = useMemo(
     () => tickets.find((ticket) => ticket.id === selectedTicketId) ?? tickets[0],
@@ -59,6 +62,7 @@ export default function PortalsSupport() {
   }
 
   function updateTicket(ticketId, updates) {
+    if (!canManageSupport) return;
     commitPortalData({
       ...portalData,
       supportTickets: tickets.map((ticket) => (
@@ -68,42 +72,50 @@ export default function PortalsSupport() {
   }
 
   function handleStatusChange(status) {
-    if (!selectedTicket) return;
+    if (!selectedTicket || !canManageSupport) return;
     updateTicket(selectedTicket.id, { status });
   }
 
   function handlePriorityChange(priority) {
-    if (!selectedTicket) return;
+    if (!selectedTicket || !canManageSupport) return;
     updateTicket(selectedTicket.id, { priority });
   }
 
   function handleAssignmentChange(assignedTo) {
-    if (!selectedTicket) return;
+    if (!selectedTicket || !canManageSupport) return;
     updateTicket(selectedTicket.id, { assignedTo });
   }
 
   function handleReply() {
     if (!selectedTicket || !replyText.trim()) return;
+    const isStaffReply = canManageSupport;
     const nextMessage = {
       id: `message-${Date.now()}`,
-      author: session?.user?.name ?? 'KSJ Digital User',
-      type: session?.user?.role === 'owner' ? 'staff' : 'client',
+      author: user?.name ?? 'KSJ Digital User',
+      type: isStaffReply ? 'staff' : 'client',
       body: replyText.trim(),
       createdAt: 'Just now',
     };
 
-    updateTicket(selectedTicket.id, {
-      messages: [...(selectedTicket.messages ?? []), nextMessage],
-      status: session?.user?.role === 'owner' ? 'Waiting On Client' : 'Waiting On Staff',
+    commitPortalData({
+      ...portalData,
+      supportTickets: tickets.map((ticket) => (
+        ticket.id === selectedTicket.id ? {
+          ...ticket,
+          messages: [...(ticket.messages ?? []), nextMessage],
+          status: isStaffReply ? 'Waiting On Client' : 'Waiting On Staff',
+          updatedAt: 'Just now',
+        } : ticket
+      )),
     });
     setReplyText('');
   }
 
   function handleInternalNote() {
-    if (!selectedTicket || !noteText.trim()) return;
+    if (!selectedTicket || !noteText.trim() || !canManageSupport) return;
     const nextNote = {
       id: `note-${Date.now()}`,
-      author: session?.user?.name ?? 'KSJ Digital Staff',
+      author: user?.name ?? 'KSJ Digital Staff',
       body: noteText.trim(),
       createdAt: 'Just now',
     };
@@ -117,25 +129,14 @@ export default function PortalsSupport() {
   return (
     <main className="portals-shell portals-dashboard-page">
       <section className="portal-dashboard-frame" aria-label="Portal support">
-        <aside className="portal-sidebar">
-          <img src={KsjDigitalLogo} alt="KSJ Digital" />
-          <span>Portals</span>
-          <nav>
-            <a href="/portals/dashboard">Dashboard</a>
-            <a href="/portals/websites/twotonetaj">My Website</a>
-            <a href="/portals/drafts">Drafts</a>
-            <a href="/portals/publish-requests">Publish Requests</a>
-            <a href="/portals/support" className="active">Support</a>
-            <a href="/portals/account">Account</a>
-          </nav>
-        </aside>
+        <PortalSidebar />
 
         <div className="portal-dashboard-main">
           <header className="portal-dashboard-header">
             <div>
               <p className="eyebrow">Support</p>
               <h2>KSJ Digital Support</h2>
-              <p className="portal-role-line">Signed in as <strong>{session?.user?.name ?? 'Client'}</strong></p>
+              <p className="portal-role-line">Signed in as <strong>{user?.name ?? 'Client'}</strong></p>
             </div>
             <button className="portal-logout-button" type="button" onClick={handleLogout}>Logout</button>
           </header>
@@ -158,8 +159,8 @@ export default function PortalsSupport() {
               <div className="portal-editor-header">
                 <div>
                   <p className="eyebrow">{activeStatus}</p>
-                  <h2>Ticket Queue</h2>
-                  <p>Track client support requests, website issues, and internal follow-ups.</p>
+                  <h2>{canManageSupport ? 'Ticket Queue' : 'My Support Tickets'}</h2>
+                  <p>{canManageSupport ? 'Track client support requests, website issues, and internal follow-ups.' : 'View your support requests and reply to KSJ Digital.'}</p>
                 </div>
               </div>
 
@@ -198,27 +199,29 @@ export default function PortalsSupport() {
                     <small>Updated: {selectedTicket.updatedAt}</small>
                   </div>
 
-                  <div className="portal-admin-form">
-                    <label>
-                      Status
-                      <select value={selectedTicket.status} onChange={(event) => handleStatusChange(event.target.value)}>
-                        {ticketStatuses.map((status) => <option key={status}>{status}</option>)}
-                      </select>
-                    </label>
-                    <label>
-                      Priority
-                      <select value={selectedTicket.priority} onChange={(event) => handlePriorityChange(event.target.value)}>
-                        {ticketPriorities.map((priority) => <option key={priority}>{priority}</option>)}
-                      </select>
-                    </label>
-                    <label>
-                      Assigned Staff
-                      <select value={selectedTicket.assignedTo ?? ''} onChange={(event) => handleAssignmentChange(event.target.value)}>
-                        <option value="">Unassigned</option>
-                        {staffUsers.map((staff) => <option value={staff.id} key={staff.id}>{staff.name}</option>)}
-                      </select>
-                    </label>
-                  </div>
+                  {canManageSupport && (
+                    <div className="portal-admin-form">
+                      <label>
+                        Status
+                        <select value={selectedTicket.status} onChange={(event) => handleStatusChange(event.target.value)}>
+                          {ticketStatuses.map((status) => <option key={status}>{status}</option>)}
+                        </select>
+                      </label>
+                      <label>
+                        Priority
+                        <select value={selectedTicket.priority} onChange={(event) => handlePriorityChange(event.target.value)}>
+                          {ticketPriorities.map((priority) => <option key={priority}>{priority}</option>)}
+                        </select>
+                      </label>
+                      <label>
+                        Assigned Staff
+                        <select value={selectedTicket.assignedTo ?? ''} onChange={(event) => handleAssignmentChange(event.target.value)}>
+                          <option value="">Unassigned</option>
+                          {staffUsers.map((staff) => <option value={staff.id} key={staff.id}>{staff.name}</option>)}
+                        </select>
+                      </label>
+                    </div>
+                  )}
 
                   <div className="portal-detail-group">
                     <strong>Conversation</strong>
@@ -235,25 +238,29 @@ export default function PortalsSupport() {
                     <button type="button" onClick={handleReply}>Reply</button>
                   </div>
 
-                  <div className="portal-detail-group">
-                    <strong>Internal Notes</strong>
-                    {(selectedTicket.internalNotes ?? []).length ? selectedTicket.internalNotes.map((note) => (
-                      <small key={note.id}>{note.author}: {note.body}</small>
-                    )) : <small>No internal notes yet.</small>}
-                  </div>
+                  {canManageSupport && (
+                    <>
+                      <div className="portal-detail-group">
+                        <strong>Internal Notes</strong>
+                        {(selectedTicket.internalNotes ?? []).length ? selectedTicket.internalNotes.map((note) => (
+                          <small key={note.id}>{note.author}: {note.body}</small>
+                        )) : <small>No internal notes yet.</small>}
+                      </div>
 
-                  <div className="portal-admin-form">
-                    <label>
-                      Add Internal Note
-                      <textarea value={noteText} onChange={(event) => setNoteText(event.target.value)} rows="3" placeholder="Staff-only note..." />
-                    </label>
-                    <button type="button" onClick={handleInternalNote}>Add Note</button>
-                  </div>
+                      <div className="portal-admin-form">
+                        <label>
+                          Add Internal Note
+                          <textarea value={noteText} onChange={(event) => setNoteText(event.target.value)} rows="3" placeholder="Staff-only note..." />
+                        </label>
+                        <button type="button" onClick={handleInternalNote}>Add Note</button>
+                      </div>
 
-                  <div className="portal-action-row portal-action-row-danger">
-                    <button type="button" className="portal-warning-button" onClick={() => handleStatusChange('Closed')}>Close Ticket</button>
-                    <button type="button" className="portal-secondary-button" onClick={() => handleStatusChange('Open')}>Reopen</button>
-                  </div>
+                      <div className="portal-action-row portal-action-row-danger">
+                        <button type="button" className="portal-warning-button" onClick={() => handleStatusChange('Closed')}>Close Ticket</button>
+                        <button type="button" className="portal-secondary-button" onClick={() => handleStatusChange('Open')}>Reopen</button>
+                      </div>
+                    </>
+                  )}
                 </>
               )}
             </section>
