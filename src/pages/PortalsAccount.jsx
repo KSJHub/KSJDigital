@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import KsjDigitalLogo from '../assets/logos/KsjDigitalLogo.png';
-import { clearSession, getStoredSession } from '../portals/auth/sessionManager';
+import { clearSession, getSessionExpiryLabel, getStoredSession } from '../portals/auth/sessionManager';
+import { changePortalPassword } from '../portals/auth/authService';
 
 const roleLabels = {
   owner: 'Owner',
@@ -16,10 +18,28 @@ export default function PortalsAccount() {
   const session = getStoredSession();
   const user = session?.user;
   const roleLabel = roleLabels[user?.role] ?? 'Client';
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [nextPassword, setNextPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordNotice, setPasswordNotice] = useState('');
 
   function handleLogout() {
     clearSession();
     window.location.href = '/portals';
+  }
+
+  async function handleChangePassword(event) {
+    event.preventDefault();
+    if (!user?.id) return setPasswordNotice('No active user session found. Please log in again.');
+
+    const result = await changePortalPassword(user.id, currentPassword, nextPassword, confirmPassword);
+    setPasswordNotice(result.message);
+
+    if (result.ok) {
+      setCurrentPassword('');
+      setNextPassword('');
+      setConfirmPassword('');
+    }
   }
 
   return (
@@ -48,6 +68,10 @@ export default function PortalsAccount() {
             <button className="portal-logout-button" type="button" onClick={handleLogout}>Logout</button>
           </header>
 
+          {user?.mustChangePassword && (
+            <p className="portal-inline-notice">Your account is using a temporary password. Please change it before continuing regular portal work.</p>
+          )}
+
           <div className="portal-grid-two">
             <section className="portal-editor-panel">
               <div className="portal-editor-header">
@@ -67,16 +91,42 @@ export default function PortalsAccount() {
                   <input type="text" value={roleLabel} readOnly />
                 </label>
                 <label>
-                  Access
-                  <input type="text" value="Managed website portal" readOnly />
+                  Session Expires
+                  <input type="text" value={getSessionExpiryLabel(session)} readOnly />
                 </label>
-                <button type="button">Request Account Update</button>
+                <label>
+                  Account Status
+                  <input type="text" value={user?.status ?? 'Active'} readOnly />
+                </label>
               </div>
             </section>
 
-            <section className="portal-help-card">
-              <h3>Security</h3>
-              <p>Password reset, invite links, and two-factor authentication will be connected when backend authentication is added.</p>
+            <section className="portal-editor-panel">
+              <div className="portal-editor-header">
+                <div>
+                  <p className="eyebrow">Security</p>
+                  <h2>Change Password</h2>
+                  <p>Update your portal password. Use at least 8 characters.</p>
+                </div>
+              </div>
+              <form className="portal-admin-form" onSubmit={handleChangePassword}>
+                <label>
+                  Current Password
+                  <input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" />
+                </label>
+                <label>
+                  New Password
+                  <input type="password" value={nextPassword} onChange={(event) => setNextPassword(event.target.value)} autoComplete="new-password" />
+                </label>
+                <label>
+                  Confirm New Password
+                  <input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" />
+                </label>
+                <div className="portal-action-row portal-action-row-primary">
+                  <button type="submit">Update Password</button>
+                </div>
+              </form>
+              {passwordNotice && <p className="portal-inline-notice">{passwordNotice}</p>}
             </section>
           </div>
         </div>
