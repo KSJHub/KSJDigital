@@ -15,6 +15,7 @@ const adminLinks = [
   { label: 'Client Management', href: '/portals/admin', permission: PORTAL_PERMISSIONS.MANAGE_USERS },
   { label: 'Websites', href: '/portals/admin/websites', permission: PORTAL_PERMISSIONS.MANAGE_WEBSITES },
   { label: 'Publish Requests', href: '/portals/publish-requests', permission: PORTAL_PERMISSIONS.APPROVE_PUBLISH },
+  { label: 'Deployments', href: '/portals/admin/deployments', permission: PORTAL_PERMISSIONS.APPROVE_PUBLISH },
   { label: 'Backups', href: '/portals/admin/backups', permission: PORTAL_PERMISSIONS.MANAGE_BACKUPS },
   { label: 'Client View', href: '/portals/dashboard', permission: PORTAL_PERMISSIONS.VIEW_DASHBOARD },
   { label: 'Settings', href: '/portals/admin/settings', permission: PORTAL_PERMISSIONS.MANAGE_SETTINGS },
@@ -23,6 +24,7 @@ const adminLinks = [
 const adminPermissions = [
   PORTAL_PERMISSIONS.MANAGE_USERS,
   PORTAL_PERMISSIONS.MANAGE_WEBSITES,
+  PORTAL_PERMISSIONS.APPROVE_PUBLISH,
   PORTAL_PERMISSIONS.MANAGE_BACKUPS,
   PORTAL_PERMISSIONS.MANAGE_SETTINGS,
 ];
