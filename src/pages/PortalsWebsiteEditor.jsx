@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import PortalSidebar from '../components/PortalSidebar';
 import { clearSession, getStoredSession } from '../portals/auth/sessionManager';
 import { hasPermission, PORTAL_PERMISSIONS } from '../portals/auth/permissions';
+import { getContentFilePath } from '../portals/content/contentFileRegistry';
 import {
   getPortalData,
   getPortalWebsiteById,
@@ -11,7 +12,10 @@ import {
   submitWebsiteDraftForApproval,
 } from '../portals/data/portalManager';
 
-const DEFAULT_WEBSITE_ID = 'twotonetaj';
+function getWebsiteIdFromRoute() {
+  const [, , , websiteId] = window.location.pathname.split('/');
+  return websiteId || 'twotonetaj';
+}
 
 function getInitialDraftValues(websiteId, pageId, fields) {
   const pageContent = getWebsiteContentPage(websiteId, pageId);
@@ -25,17 +29,19 @@ export default function PortalsWebsiteEditor() {
   const session = getStoredSession();
   const user = session?.user;
   const actorName = user?.name ?? 'Client';
+  const websiteId = getWebsiteIdFromRoute();
   const canEditContent = hasPermission(user, PORTAL_PERMISSIONS.EDIT_CONTENT);
   const canSaveDrafts = hasPermission(user, PORTAL_PERMISSIONS.SAVE_DRAFTS);
   const canRequestPublish = hasPermission(user, PORTAL_PERMISSIONS.REQUEST_PUBLISH);
-  const website = getPortalWebsiteById(DEFAULT_WEBSITE_ID);
+  const website = getPortalWebsiteById(websiteId);
   const [portalData, setPortalData] = useState(getPortalData());
-  const pages = getWebsiteSchemaPages(DEFAULT_WEBSITE_ID);
+  const pages = getWebsiteSchemaPages(websiteId);
   const [activePageId, setActivePageId] = useState(pages[0]?.id ?? 'homepage');
   const activePage = useMemo(() => pages.find((page) => page.id === activePageId) ?? pages[0], [pages, activePageId]);
-  const activePageContent = portalData.content?.[DEFAULT_WEBSITE_ID]?.[activePage?.id] ?? { live: {}, draft: {} };
-  const [draftValues, setDraftValues] = useState(() => getInitialDraftValues(DEFAULT_WEBSITE_ID, activePageId, activePage?.fields ?? []));
+  const activePageContent = portalData.content?.[websiteId]?.[activePage?.id] ?? { live: {}, draft: {} };
+  const [draftValues, setDraftValues] = useState(() => getInitialDraftValues(websiteId, activePageId, activePage?.fields ?? []));
   const [editorStatus, setEditorStatus] = useState(canEditContent ? 'Ready' : 'Read Only');
+  const contentFilePath = activePage ? getContentFilePath(websiteId, activePage.id) : `content/${websiteId}/page.json`;
 
   function refreshPortalData(nextData = getPortalData()) {
     setPortalData(nextData);
@@ -49,7 +55,7 @@ export default function PortalsWebsiteEditor() {
   function selectPage(pageId) {
     const nextPage = pages.find((page) => page.id === pageId);
     setActivePageId(pageId);
-    setDraftValues(getInitialDraftValues(DEFAULT_WEBSITE_ID, pageId, nextPage?.fields ?? []));
+    setDraftValues(getInitialDraftValues(websiteId, pageId, nextPage?.fields ?? []));
     setEditorStatus(canEditContent ? 'Ready' : 'Read Only');
   }
 
@@ -60,19 +66,19 @@ export default function PortalsWebsiteEditor() {
 
   function saveDraft() {
     if (!activePage || !canSaveDrafts) return;
-    const savedData = saveWebsiteDraftContent(DEFAULT_WEBSITE_ID, activePage.id, draftValues, actorName);
+    const savedData = saveWebsiteDraftContent(websiteId, activePage.id, draftValues, actorName);
     refreshPortalData(savedData);
     setEditorStatus('Draft saved');
   }
 
   function submitForApproval() {
     if (!activePage || !canRequestPublish) return;
-    const savedData = saveWebsiteDraftContent(DEFAULT_WEBSITE_ID, activePage.id, draftValues, actorName);
-    refreshPortalData(submitWebsiteDraftForApproval(DEFAULT_WEBSITE_ID, activePage.id, actorName));
+    const savedData = saveWebsiteDraftContent(websiteId, activePage.id, draftValues, actorName);
+    refreshPortalData(submitWebsiteDraftForApproval(websiteId, activePage.id, actorName));
     if (savedData) setEditorStatus('Submitted for approval');
   }
 
-  const draftCount = Object.values(portalData.content?.[DEFAULT_WEBSITE_ID] ?? {}).filter((page) => Object.keys(page.draft ?? {}).length).length;
+  const draftCount = Object.values(portalData.content?.[websiteId] ?? {}).filter((page) => Object.keys(page.draft ?? {}).length).length;
 
   return (
     <main className="portals-shell portals-dashboard-page">
@@ -96,12 +102,12 @@ export default function PortalsWebsiteEditor() {
             </div>
             <div>
               <span className="portal-status">{canEditContent ? 'Draft First' : 'Read Only'}</span>
-              <h3>Website Content Registry</h3>
-              <p>Clients edit approved content fields only. Layouts, styles, components, branding, and code stay locked.</p>
+              <h3>Git-Ready Website Content</h3>
+              <p>Layouts and code stay locked in React/CSS. Approved content is prepared for Git-backed JSON files.</p>
               <dl>
                 <div><dt>Publishing</dt><dd>{website?.publishMode}</dd></div>
                 <div><dt>Draft Pages</dt><dd>{draftCount}</dd></div>
-                <div><dt>Backup</dt><dd>48 Hour Restore Safety</dd></div>
+                <div><dt>Content File</dt><dd>{contentFilePath}</dd></div>
               </dl>
             </div>
           </article>
@@ -109,11 +115,11 @@ export default function PortalsWebsiteEditor() {
           <section className="portal-editor-panel">
             <div className="portal-editor-header">
               <div>
-                <p className="eyebrow">CMS Phase 2</p>
-                <h2>{canEditContent ? 'Draft Editor' : 'Content Viewer'}</h2>
-                <p>{canEditContent ? 'Edit content safely, save it as a draft, then submit it to KSJ Digital for approval.' : 'View approved website content. Your role does not allow content edits.'}</p>
+                <p className="eyebrow">CMS Phase 4.3</p>
+                <h2>{canEditContent ? 'Schema-Driven Draft Editor' : 'Content Viewer'}</h2>
+                <p>{canEditContent ? 'Edit approved fields safely. Future publishes will write approved content back to Git content files.' : 'View approved website content. Your role does not allow content edits.'}</p>
               </div>
-              <a href="/">View Live Site</a>
+              <a href={website?.url ?? '/'}>View Live Site</a>
             </div>
 
             <div className="portal-inline-actions">
@@ -148,13 +154,13 @@ export default function PortalsWebsiteEditor() {
                 ) : (
                   <p className="portal-inline-notice">Read-only access. You can view website content, but cannot save drafts or submit publish requests.</p>
                 )}
-                <p className="portal-inline-notice">Submitting does not publish the website. It creates a review item for KSJ Digital.</p>
+                <p className="portal-inline-notice">Submitting does not publish the website yet. It creates a review item for KSJ Digital.</p>
               </section>
 
               <section className="portal-help-card portal-selection-guide">
                 <p className="eyebrow">Live vs Draft</p>
                 <h3>{activePage?.title ?? 'Page'} Snapshot</h3>
-                <p>Live content remains protected until a publish request is approved and published.</p>
+                <p>Live content remains protected until a publish request is approved and written to the matching content file.</p>
 
                 <div className="portal-detail-group">
                   <strong>Current Live</strong>
@@ -164,6 +170,12 @@ export default function PortalsWebsiteEditor() {
                 <div className="portal-detail-group">
                   <strong>Current Draft</strong>
                   {(activePage?.fields ?? []).map((field) => <small key={field.id}>{field.label}: {draftValues[field.id] || 'Empty'}</small>)}
+                </div>
+
+                <div className="portal-detail-group">
+                  <strong>Git Content Target</strong>
+                  <small>{contentFilePath}</small>
+                  <small>Manual KSJ content edits and future portal publishes should both update this file path.</small>
                 </div>
               </section>
             </div>
