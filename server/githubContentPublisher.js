@@ -51,6 +51,45 @@ async function readExistingFile({ token, repository, branch, path }) {
   return body;
 }
 
+function createConflictError({ contentFilePath, expectedSha, actualSha }) {
+  const error = new Error(`Content file conflict detected for ${contentFilePath}. Pull the latest content before publishing.`);
+  error.code = 'CONTENT_FILE_CONFLICT';
+  error.details = {
+    contentFilePath,
+    expectedSha,
+    actualSha,
+    message: 'The content file changed in GitHub after this portal draft was prepared. Publishing was blocked to avoid overwriting manual KSJ/client updates.',
+  };
+  return error;
+}
+
+function assertNoConflict({ preparedWrite, existingFile, contentFilePath }) {
+  const expectedSha = preparedWrite?.baseFileSha || preparedWrite?.expectedFileSha || preparedWrite?.fileShaBeforeEdit;
+  const actualSha = existingFile?.sha;
+
+  if (!expectedSha) return;
+  if (!actualSha) return;
+  if (expectedSha !== actualSha) {
+    throw createConflictError({ contentFilePath, expectedSha, actualSha });
+  }
+}
+
+export async function getContentFileState(path) {
+  const { token, repository, branch } = requireConfig();
+  assertSafeContentPath(path);
+  const existingFile = await readExistingFile({ token, repository, branch, path });
+
+  return {
+    ok: true,
+    repository,
+    branch,
+    contentFilePath: path,
+    exists: Boolean(existingFile),
+    fileSha: existingFile?.sha ?? null,
+    htmlUrl: existingFile?.html_url ?? null,
+  };
+}
+
 export async function publishContentFile(preparedWrite) {
   const { token, repository, branch } = requireConfig();
   const contentFilePath = preparedWrite?.contentFilePath;
@@ -64,6 +103,8 @@ export async function publishContentFile(preparedWrite) {
   }
 
   const existingFile = await readExistingFile({ token, repository, branch, path: contentFilePath });
+  assertNoConflict({ preparedWrite, existingFile, contentFilePath });
+
   const url = `https://api.github.com/repos/${repository}/contents/${encodeURIComponent(contentFilePath).replace(/%2F/g, '/')}`;
   const response = await fetch(url, {
     method: 'PUT',
@@ -87,6 +128,7 @@ export async function publishContentFile(preparedWrite) {
     repository,
     branch,
     contentFilePath,
+    baseFileSha: existingFile?.sha ?? null,
     commitSha: body?.commit?.sha,
     fileSha: body?.content?.sha,
     htmlUrl: body?.content?.html_url,
