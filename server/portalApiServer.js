@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { runDeployment } from './deploymentRunner.js';
+import { getDeploymentStatus } from './deploymentStateStore.js';
 import { getContentFileState, publishContentFile } from './githubContentPublisher.js';
 
 const PORT = Number(process.env.PORT || process.env.PORTAL_API_PORT || 4174);
@@ -62,9 +63,25 @@ async function handleRunDeployment(request, response) {
     const result = await runDeployment({ deployment: body.deployment, website: body.website });
     sendJson(response, result.ok || result.dryRun ? 200 : 400, result);
   } catch (error) {
+    sendJson(response, error.code === 'DEPLOYMENT_LOCKED' ? 409 : 400, {
+      ok: false,
+      code: error.code,
+      message: error.message || 'Unable to run deployment.',
+      details: error.details,
+    });
+  }
+}
+
+async function handleDeploymentStatus(request, response) {
+  try {
+    const url = new URL(request.url, `http://${request.headers.host}`);
+    const deploymentId = url.searchParams.get('deploymentId');
+    const result = await getDeploymentStatus(deploymentId);
+    sendJson(response, 200, { ok: true, deploymentId, ...result });
+  } catch (error) {
     sendJson(response, 400, {
       ok: false,
-      message: error.message || 'Unable to run deployment.',
+      message: error.message || 'Unable to read deployment status.',
       details: error.details,
     });
   }
@@ -96,6 +113,10 @@ const server = http.createServer(async (request, response) => {
 
   if (request.method === 'GET' && url.pathname === '/api/portal/content/state') {
     return handleContentState(request, response);
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/portal/deployments/status') {
+    return handleDeploymentStatus(request, response);
   }
 
   if (request.method === 'POST' && url.pathname === '/api/portal/content/publish') {
