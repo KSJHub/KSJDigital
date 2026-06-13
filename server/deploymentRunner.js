@@ -1,5 +1,11 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import {
+  acquireDeploymentLock,
+  recordDeploymentLog,
+  recordDeploymentSnapshot,
+  releaseDeploymentLock,
+} from './deploymentStateStore.js';
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_TIMEOUT_MS = 1000 * 60 * 5;
@@ -65,8 +71,10 @@ function getDeploymentSteps(website) {
   return steps;
 }
 
-async function runStep(step, cwd) {
+async function runStep(step, cwd, deploymentId) {
   const startedAt = new Date().toISOString();
+  await recordDeploymentLog(deploymentId, { level: 'info', message: `Starting step: ${step.name}`, step: step.name });
+
   try {
     const { stdout, stderr } = await execFileAsync(step.command, step.args, {
       cwd,
@@ -75,7 +83,7 @@ async function runStep(step, cwd) {
       env: { ...process.env, CI: 'true' },
     });
 
-    return {
+    const result = {
       ...step,
       status: 'Success',
       startedAt,
@@ -83,8 +91,11 @@ async function runStep(step, cwd) {
       stdout: stdout?.slice(-4000) || '',
       stderr: stderr?.slice(-4000) || '',
     };
+
+    await recordDeploymentLog(deploymentId, { level: 'success', message: `Completed step: ${step.name}`, step: step.name, stdout: result.stdout, stderr: result.stderr });
+    return result;
   } catch (error) {
-    return {
+    const result = {
       ...step,
       status: 'Failed',
       startedAt,
@@ -92,22 +103,56 @@ async function runStep(step, cwd) {
       stdout: error.stdout?.slice?.(-4000) || '',
       stderr: error.stderr?.slice?.(-4000) || error.message,
     };
+
+    await recordDeploymentLog(deploymentId, { level: 'error', message: `Failed step: ${step.name}`, step: step.name, stdout: result.stdout, stderr: result.stderr });
+    return result;
   }
 }
 
-export function previewDeployment({ deployment, website }) {
-  assertSafeWebsite(website);
-  const steps = getDeploymentSteps(website);
+async function verifyDeployment(website, deploymentId) {
+  const verificationUrl = website.deployment?.verificationUrl || website.url;
+  if (!verificationUrl || process.env.PORTAL_DEPLOY_VERIFY_URLS === 'false') {
+    return { status: 'Skipped', message: 'Verification URL check skipped.' };
+  }
 
-  return {
+  await recordDeploymentLog(deploymentId, { level: 'info', message: `Verifying deployment URL: ${verificationUrl}` });
+
+  try {
+    const response = await fetch(verificationUrl, { method: 'GET' });
+    const ok = response.status >= 200 && response.status < 400;
+    const result = {
+      status: ok ? 'Success' : 'Failed',
+      url: verificationUrl,
+      statusCode: response.status,
+      message: ok ? 'Verification URL responded successfully.' : `Verification URL returned HTTP ${response.status}.`,
+    };
+    await recordDeploymentLog(deploymentId, { level: ok ? 'success' : 'error', message: result.message, verification: result });
+    return result;
+  } catch (error) {
+    const result = { status: 'Failed', url: verificationUrl, message: error.message || 'Verification request failed.' };
+    await recordDeploymentLog(deploymentId, { level: 'error', message: result.message, verification: result });
+    return result;
+  }
+}
+
+export async function previewDeployment({ deployment, website }) {
+  assertSafeWebsite(website);
+  const deploymentId = deployment?.id ?? deployment?.deploymentId ?? `deployment-${website.id}-${Date.now()}`;
+  const steps = getDeploymentSteps(website);
+  const result = {
     ok: true,
     dryRun: true,
-    deploymentId: deployment?.id ?? deployment?.deploymentId ?? null,
+    deploymentId,
     websiteId: website.id,
+    status: 'Preview',
     vpsPath: website.deployment.vpsPath,
     steps: steps.map((step) => ({ ...step, status: 'Planned' })),
     message: 'Deployment preview created. Real command execution is disabled until PORTAL_DEPLOYMENTS_ENABLED=true.',
   };
+
+  await recordDeploymentLog(deploymentId, { level: 'info', message: result.message, dryRun: true });
+  await recordDeploymentSnapshot(result);
+  return result;
 }
 
 export async function runDeployment({ deployment, website }) {
@@ -120,34 +165,55 @@ export async function runDeployment({ deployment, website }) {
     return previewDeployment({ deployment: { ...deployment, id: deploymentId }, website });
   }
 
-  const results = [];
-  for (const step of steps) {
-    const result = await runStep(step, website.deployment.vpsPath);
-    results.push(result);
-    if (result.status === 'Failed') {
-      return {
-        ok: false,
-        dryRun: false,
-        deploymentId,
-        websiteId: website.id,
-        status: 'Failed',
-        startedAt,
-        completedAt: new Date().toISOString(),
-        steps: results,
-        message: `${step.name} failed. Deployment stopped safely.`,
-      };
-    }
-  }
+  await acquireDeploymentLock(deploymentId, { websiteId: website.id, actor: deployment?.actor ?? 'Portal Worker' });
+  await recordDeploymentLog(deploymentId, { level: 'info', message: 'Deployment lock acquired. Worker started.' });
 
-  return {
-    ok: true,
-    dryRun: false,
-    deploymentId,
-    websiteId: website.id,
-    status: 'Success',
-    startedAt,
-    completedAt: new Date().toISOString(),
-    steps: results,
-    message: 'Deployment completed successfully.',
-  };
+  try {
+    const results = [];
+    await recordDeploymentSnapshot({ deploymentId, websiteId: website.id, status: 'Running', startedAt, steps: results });
+
+    for (const step of steps) {
+      const result = await runStep(step, website.deployment.vpsPath, deploymentId);
+      results.push(result);
+      await recordDeploymentSnapshot({ deploymentId, websiteId: website.id, status: 'Running', startedAt, steps: results });
+
+      if (result.status === 'Failed') {
+        const failedResult = {
+          ok: false,
+          dryRun: false,
+          deploymentId,
+          websiteId: website.id,
+          status: 'Failed',
+          startedAt,
+          completedAt: new Date().toISOString(),
+          steps: results,
+          message: `${step.name} failed. Deployment stopped safely.`,
+        };
+        await recordDeploymentSnapshot(failedResult);
+        return failedResult;
+      }
+    }
+
+    const verification = await verifyDeployment(website, deploymentId);
+    const success = verification.status !== 'Failed';
+    const finalResult = {
+      ok: success,
+      dryRun: false,
+      deploymentId,
+      websiteId: website.id,
+      status: success ? 'Success' : 'Failed',
+      startedAt,
+      completedAt: new Date().toISOString(),
+      steps: results,
+      verification,
+      message: success ? 'Deployment completed successfully.' : 'Deployment completed but verification failed.',
+    };
+
+    await recordDeploymentSnapshot(finalResult);
+    await recordDeploymentLog(deploymentId, { level: success ? 'success' : 'error', message: finalResult.message });
+    return finalResult;
+  } finally {
+    await releaseDeploymentLock(deploymentId);
+    await recordDeploymentLog(deploymentId, { level: 'info', message: 'Deployment lock released.' });
+  }
 }
