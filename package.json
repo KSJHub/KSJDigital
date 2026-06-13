@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "portal:api": "node server/portalApiServer.js"
+    "portal:api": "node server/portalApiServer.js",
+    "portal:deploy-worker": "PORTAL_DEPLOYMENTS_ENABLED=true node server/portalApiServer.js"
   },
   "dependencies": {
     "react": "^19.2.6",
