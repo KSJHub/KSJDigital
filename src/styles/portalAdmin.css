@@ -228,3 +228,21 @@
     grid-template-columns: 1fr;
   }
 }
+
+.portal-admin-form textarea {
+  min-height: 112px;
+  padding: 12px 14px;
+  border: 1px solid rgba(139, 178, 255, 0.18);
+  border-radius: 14px;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.22);
+  resize: vertical;
+}
+
+.portal-admin-form textarea:focus,
+.portal-admin-form input:focus,
+.portal-admin-form select:focus {
+  outline: none;
+  border-color: rgba(139, 178, 255, 0.42);
+  box-shadow: 0 0 0 1px rgba(47, 124, 255, 0.18), 0 14px 30px rgba(47, 124, 255, 0.1);
+}
