@@ -21,7 +21,7 @@ export default function Portals() {
     setIsLoggingIn(true);
     setLoginStatus('Checking portal account...');
 
-    const result = await authenticatePortalUser(email, password);
+    const result = await authenticatePortalUser(email, password, { rememberMe });
 
     setIsLoggingIn(false);
 
