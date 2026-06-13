@@ -240,7 +240,7 @@ export const initialPortalData = {
       storageLimitMb: 1024,
       analytics: { enabled: false, monthlyViews: 0, monthlyVisitors: 0, lastChecked: 'Not connected yet' },
       backup: { enabled: true, retentionHours: 48, status: 'No active backup', expiresAt: '', lastCreatedAt: '' },
-      deployment: { provider: 'VPS / Nginx', vpsPath: 'Not connected yet', buildCommand: 'npm run build', lastBuild: 'Not built through portal yet' },
+      deployment: { provider: 'VPS / Nginx', vpsPath: 'Not connected yet', buildCommand: 'npm run build', lastBuild: 'Not built through portal yet', lastDeployment: 'Not deployed through portal yet', lastDeploymentStatus: 'Not Connected', lastCommitSha: '' },
       lastPublish: 'Not published through portal yet',
       lastEditor: 'KSJ Digital Admin',
       description: 'Internal KSJ Digital website and portal management access for the owner/admin account.',
@@ -265,7 +265,7 @@ export const initialPortalData = {
       storageLimitMb: 2048,
       analytics: { enabled: false, monthlyViews: 0, monthlyVisitors: 0, lastChecked: 'Not connected yet' },
       backup: { enabled: true, retentionHours: 48, status: 'Active restore backup available', expiresAt: '48 hours after next publish', lastCreatedAt: 'Demo backup point' },
-      deployment: { provider: 'VPS / Nginx', vpsPath: '/home/twotonetaj/site', buildCommand: 'npm run build', lastBuild: 'Not built through portal yet' },
+      deployment: { provider: 'VPS / Nginx', vpsPath: '/home/twotonetaj/site', buildCommand: 'npm run build', lastBuild: 'Not built through portal yet', lastDeployment: 'Not deployed through portal yet', lastDeploymentStatus: 'Queued For Portal Integration', lastCommitSha: '' },
       lastPublish: 'Not published through portal yet',
       lastEditor: 'TwoToneTaj',
       description: 'Client creator website managed through KSJ Digital Portals with draft-first publishing approval.',
@@ -353,6 +353,10 @@ export const initialPortalData = {
 
   backups: [],
 
+  deploymentQueue: [],
+
+  deploymentHistory: [],
+
   activityLogs: [
     { id: 'activity-001', type: 'website.updated', label: 'Website settings updated', actor: 'KSJ Digital Admin', target: 'TwoToneTaj', timestamp: 'Just now' },
     { id: 'activity-002', type: 'support.updated', label: 'Support ticket updated', actor: 'KSJ Digital Admin', target: 'Homepage content update question', timestamp: 'Demo activity' },
@@ -369,6 +373,7 @@ export const initialPortalData = {
   settings: {
     backupRetentionHours: 48,
     defaultPublishMode: 'Approval Required',
+    deploymentStatuses: ['Queued', 'Running', 'Success', 'Failed', 'Cancelled'],
     clientBackupWarning: 'A restore backup is kept for 48 hours after publishing. After 48 hours, the backup is permanently deleted and cannot be recovered.',
   },
 };
