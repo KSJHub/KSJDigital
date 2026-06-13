@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import KsjDigitalLogo from '../assets/logos/KsjDigitalLogo.png';
+import PortalSidebar from '../components/PortalSidebar';
 import { clearSession, getSessionExpiryLabel, getStoredSession } from '../portals/auth/sessionManager';
 import { changePortalPassword } from '../portals/auth/authService';
 
@@ -45,18 +45,7 @@ export default function PortalsAccount() {
   return (
     <main className="portals-shell portals-dashboard-page">
       <section className="portal-dashboard-frame" aria-label="Portal account">
-        <aside className="portal-sidebar">
-          <img src={KsjDigitalLogo} alt="KSJ Digital" />
-          <span>Portals</span>
-          <nav>
-            <a href="/portals/dashboard">Dashboard</a>
-            <a href="/portals/websites/twotonetaj">My Website</a>
-            <a href="/portals/drafts">Drafts</a>
-            <a href="/portals/publish-requests">Publish Requests</a>
-            <a href="/portals/support">Support</a>
-            <a href="/portals/account" className="active">Account</a>
-          </nav>
-        </aside>
+        <PortalSidebar />
 
         <div className="portal-dashboard-main">
           <header className="portal-dashboard-header">
