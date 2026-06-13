@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { runDeployment } from './deploymentRunner.js';
 import { getContentFileState, publishContentFile } from './githubContentPublisher.js';
 
 const PORT = Number(process.env.PORT || process.env.PORTAL_API_PORT || 4174);
@@ -55,6 +56,20 @@ async function handlePublishContent(request, response) {
   }
 }
 
+async function handleRunDeployment(request, response) {
+  try {
+    const body = await readJsonBody(request);
+    const result = await runDeployment({ deployment: body.deployment, website: body.website });
+    sendJson(response, result.ok || result.dryRun ? 200 : 400, result);
+  } catch (error) {
+    sendJson(response, 400, {
+      ok: false,
+      message: error.message || 'Unable to run deployment.',
+      details: error.details,
+    });
+  }
+}
+
 async function handleContentState(request, response) {
   try {
     const url = new URL(request.url, `http://${request.headers.host}`);
@@ -85,6 +100,10 @@ const server = http.createServer(async (request, response) => {
 
   if (request.method === 'POST' && url.pathname === '/api/portal/content/publish') {
     return handlePublishContent(request, response);
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/portal/deployments/run') {
+    return handleRunDeployment(request, response);
   }
 
   return sendJson(response, 404, { ok: false, message: 'Route not found.' });
