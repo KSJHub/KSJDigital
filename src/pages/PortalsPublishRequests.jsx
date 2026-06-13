@@ -3,7 +3,6 @@ import KsjDigitalLogo from '../assets/logos/KsjDigitalLogo.png';
 import { clearSession, getStoredSession } from '../portals/auth/sessionManager';
 import {
   getPortalData,
-  getPortalDrafts,
   getPortalWebsiteById,
   savePortalData,
 } from '../portals/data/portalManager';
@@ -42,7 +41,7 @@ export default function PortalsPublishRequests() {
   const [reviewNote, setReviewNote] = useState('');
 
   const portalPublishRequests = portalData.publishRequests ?? [];
-  const portalDrafts = getPortalDrafts();
+  const portalDrafts = portalData.drafts ?? [];
   const filteredRequests = portalPublishRequests.filter((request) => normaliseStatus(request.status) === activeStatus);
 
   const selectedRequest = useMemo(
@@ -100,22 +99,49 @@ export default function PortalsPublishRequests() {
     if (!selectedRequest) return;
 
     const actor = session?.user?.name ?? 'KSJ Digital Admin';
+    const pageId = selectedRequest.pageId ?? selectedDraft?.pageId;
+    const currentPageContent = pageId ? portalData.content?.[selectedRequest.websiteId]?.[pageId] ?? { live: {}, draft: {}, backup: null } : null;
+    const nextLiveContent = currentPageContent?.draft ?? {};
     const backupId = `backup-${selectedRequest.websiteId}-${Date.now()}`;
     const nextBackup = {
       id: backupId,
       websiteId: selectedRequest.websiteId,
+      pageId,
       status: 'Active',
       createdAt: 'Just now',
       expiresAt: '48 hours from publish',
       createdBy: actor,
       reason: `Safety backup before publishing ${selectedRequest.title}`,
       restoreStatus: 'Available',
+      contentSnapshot: currentPageContent?.live ?? {},
     };
 
     const nextActivity = createActivity('publish.published', 'Publish request completed and backup created', actor, selectedRequest.title);
 
     commitPortalData({
       ...portalData,
+      content: pageId ? {
+        ...(portalData.content ?? {}),
+        [selectedRequest.websiteId]: {
+          ...(portalData.content?.[selectedRequest.websiteId] ?? {}),
+          [pageId]: {
+            ...currentPageContent,
+            live: nextLiveContent,
+            draft: {},
+            backup: {
+              contentSnapshot: currentPageContent?.live ?? {},
+              createdAt: 'Just now',
+              expiresAt: '48 hours from publish',
+            },
+          },
+        },
+      } : portalData.content,
+      drafts: (portalData.drafts ?? []).map((draft) => draft.id === selectedRequest.draftId ? {
+        ...draft,
+        status: 'Published',
+        currentVersion: draft.draftVersion,
+        draftVersion: 'Published to live. No active draft.',
+      } : draft),
       publishRequests: portalPublishRequests.map((request) => request.id === selectedRequest.id ? {
         ...request,
         status: 'Published',
@@ -140,7 +166,7 @@ export default function PortalsPublishRequests() {
           expiresAt: '48 hours from publish',
         },
       } : website),
-      backups: [nextBackup, ...(portalData.backups ?? [])],
+      backups: [nextBackup, ...(portalData.backups ?? []).filter((backup) => backup.websiteId !== selectedRequest.websiteId)],
       activityLogs: [nextActivity, ...(portalData.activityLogs ?? [])],
       notifications: [
         {
