@@ -4,6 +4,7 @@ import Portals from './pages/Portals';
 import PortalsAccount from './pages/PortalsAccount';
 import PortalsAdmin from './pages/PortalsAdmin';
 import PortalsAdminBackups from './pages/PortalsAdminBackups';
+import PortalsAdminDeployments from './pages/PortalsAdminDeployments';
 import PortalsAdminSettings from './pages/PortalsAdminSettings';
 import PortalsAdminUsers from './pages/PortalsAdminUsers';
 import PortalsAdminWebsites from './pages/PortalsAdminWebsites';
@@ -73,6 +74,12 @@ export default function App() {
       const allowed = requirePortalPermission(session, PORTAL_PERMISSIONS.MANAGE_WEBSITES);
       if (allowed !== true) return allowed;
       return <PortalStylePatch><PortalsAdminWebsites /></PortalStylePatch>;
+    }
+
+    if (path === '/portals/admin/deployments') {
+      const allowed = requirePortalPermission(session, PORTAL_PERMISSIONS.APPROVE_PUBLISH);
+      if (allowed !== true) return allowed;
+      return <PortalStylePatch><PortalsAdminDeployments /></PortalStylePatch>;
     }
 
     if (path === '/portals/admin/backups') {
