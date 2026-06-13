@@ -14,7 +14,7 @@ import PortalsSupport from './pages/PortalsSupport';
 import PortalsWebsiteEditor from './pages/PortalsWebsiteEditor';
 import Footer from './components/Footer';
 import { PORTAL_ROLES } from './portals/auth/permissions';
-import { getStoredSession } from './portals/auth/sessionManager';
+import { validatePortalSession } from './portals/auth/authService';
 
 function PortalStylePatch({ children }) {
   return (
@@ -31,6 +31,8 @@ function PortalStylePatch({ children }) {
         .portal-management-card > .portal-inline-actions { gap: 10px; margin: 18px 0; }
         .portal-management-card > .portal-inline-actions button, .portal-section-list .portal-inline-actions button, .portal-form-grid + .portal-grid-two + .portal-inline-actions button { min-height: 42px; padding: 0 14px; border: 1px solid rgba(139, 178, 255, 0.18); border-radius: 14px; color: var(--silver); background: rgba(255, 255, 255, 0.05); font-weight: 900; cursor: pointer; }
         .portal-management-card > .portal-inline-actions button:hover, .portal-section-list .portal-inline-actions button:hover { border-color: rgba(139, 178, 255, 0.36); background: rgba(47, 124, 255, 0.12); color: #fff; }
+        .portal-remember-option { display: flex !important; align-items: center; gap: 8px; color: var(--silver); font-size: 12px; font-weight: 800; }
+        .portal-remember-option input { width: auto !important; min-height: auto !important; accent-color: var(--blue-soft); }
         @media (max-width: 760px) { .portal-form-grid, .portal-management-card > ul { grid-template-columns: 1fr; } }
       `}</style>
       {children}
@@ -48,7 +50,7 @@ export default function App() {
   const isPortalsRoute = path === '/portals' || path.startsWith('/portals/');
 
   if (isPortalAdmin) {
-    const session = getStoredSession();
+    const session = validatePortalSession();
 
     if (!session || session.user?.role !== PORTAL_ROLES.OWNER) {
       window.location.href = '/portals';
@@ -65,7 +67,7 @@ export default function App() {
   }
 
   if (isPortalDashboard || isPortalDrafts || isPortalPublishRequests || isPortalWebsiteEditor || path === '/portals/support' || path === '/portals/account') {
-    const session = getStoredSession();
+    const session = validatePortalSession();
 
     if (!session) {
       window.location.href = '/portals';
