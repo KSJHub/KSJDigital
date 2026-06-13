@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import KsjDigitalLogo from '../assets/logos/KsjDigitalLogo.png';
+import PortalSidebar from '../components/PortalSidebar';
 import { clearSession, getStoredSession } from '../portals/auth/sessionManager';
 import { getPortalData, savePortalData } from '../portals/data/portalManager';
 
@@ -101,19 +101,7 @@ export default function PortalsAdminBackups() {
   return (
     <main className="portals-shell portals-dashboard-page">
       <section className="portal-dashboard-frame" aria-label="Backup restore center">
-        <aside className="portal-sidebar">
-          <img src={KsjDigitalLogo} alt="KSJ Digital" />
-          <span>Management</span>
-          <nav>
-            <a href="/portals/admin">Admin Home</a>
-            <a href="/portals/admin/users">Client Management</a>
-            <a href="/portals/admin/websites">Websites</a>
-            <a href="/portals/admin/backups" className="active">Backups</a>
-            <a href="/portals/admin/publish-requests">Publish Requests</a>
-            <a href="/portals/dashboard">Client View</a>
-            <a href="/portals/admin/settings">Settings</a>
-          </nav>
-        </aside>
+        <PortalSidebar title="Management" section="admin" />
 
         <div className="portal-dashboard-main">
           <header className="portal-dashboard-header">
