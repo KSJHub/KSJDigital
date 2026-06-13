@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import KsjDigitalLogo from '../assets/logos/KsjDigitalLogo.png';
+import PortalSidebar from '../components/PortalSidebar';
 import { clearSession, getStoredSession } from '../portals/auth/sessionManager';
+import { hasPermission, PORTAL_PERMISSIONS } from '../portals/auth/permissions';
 import {
   getPortalData,
   getPortalWebsiteById,
@@ -22,7 +23,11 @@ function getInitialDraftValues(websiteId, pageId, fields) {
 
 export default function PortalsWebsiteEditor() {
   const session = getStoredSession();
-  const actorName = session?.user?.name ?? 'Client';
+  const user = session?.user;
+  const actorName = user?.name ?? 'Client';
+  const canEditContent = hasPermission(user, PORTAL_PERMISSIONS.EDIT_CONTENT);
+  const canSaveDrafts = hasPermission(user, PORTAL_PERMISSIONS.SAVE_DRAFTS);
+  const canRequestPublish = hasPermission(user, PORTAL_PERMISSIONS.REQUEST_PUBLISH);
   const website = getPortalWebsiteById(DEFAULT_WEBSITE_ID);
   const [portalData, setPortalData] = useState(getPortalData());
   const pages = getWebsiteSchemaPages(DEFAULT_WEBSITE_ID);
@@ -30,7 +35,7 @@ export default function PortalsWebsiteEditor() {
   const activePage = useMemo(() => pages.find((page) => page.id === activePageId) ?? pages[0], [pages, activePageId]);
   const activePageContent = portalData.content?.[DEFAULT_WEBSITE_ID]?.[activePage?.id] ?? { live: {}, draft: {} };
   const [draftValues, setDraftValues] = useState(() => getInitialDraftValues(DEFAULT_WEBSITE_ID, activePageId, activePage?.fields ?? []));
-  const [editorStatus, setEditorStatus] = useState('Ready');
+  const [editorStatus, setEditorStatus] = useState(canEditContent ? 'Ready' : 'Read Only');
 
   function refreshPortalData(nextData = getPortalData()) {
     setPortalData(nextData);
@@ -45,22 +50,23 @@ export default function PortalsWebsiteEditor() {
     const nextPage = pages.find((page) => page.id === pageId);
     setActivePageId(pageId);
     setDraftValues(getInitialDraftValues(DEFAULT_WEBSITE_ID, pageId, nextPage?.fields ?? []));
-    setEditorStatus('Ready');
+    setEditorStatus(canEditContent ? 'Ready' : 'Read Only');
   }
 
   function updateDraftValue(fieldId, value) {
+    if (!canEditContent) return;
     setDraftValues((current) => ({ ...current, [fieldId]: value }));
   }
 
   function saveDraft() {
-    if (!activePage) return;
+    if (!activePage || !canSaveDrafts) return;
     const savedData = saveWebsiteDraftContent(DEFAULT_WEBSITE_ID, activePage.id, draftValues, actorName);
     refreshPortalData(savedData);
     setEditorStatus('Draft saved');
   }
 
   function submitForApproval() {
-    if (!activePage) return;
+    if (!activePage || !canRequestPublish) return;
     const savedData = saveWebsiteDraftContent(DEFAULT_WEBSITE_ID, activePage.id, draftValues, actorName);
     refreshPortalData(submitWebsiteDraftForApproval(DEFAULT_WEBSITE_ID, activePage.id, actorName));
     if (savedData) setEditorStatus('Submitted for approval');
@@ -71,18 +77,7 @@ export default function PortalsWebsiteEditor() {
   return (
     <main className="portals-shell portals-dashboard-page">
       <section className="portal-dashboard-frame" aria-label="Website content manager">
-        <aside className="portal-sidebar">
-          <img src={KsjDigitalLogo} alt="KSJ Digital" />
-          <span>Website</span>
-          <nav>
-            <a href="/portals/dashboard">Dashboard</a>
-            <a href="/portals/websites/twotonetaj" className="active">Content</a>
-            <a href="/portals/drafts">Drafts</a>
-            <a href="/portals/publish-requests">Publish Requests</a>
-            <a href="/portals/support">Support</a>
-            <a href="/portals/account">Account</a>
-          </nav>
-        </aside>
+        <PortalSidebar title="Website" />
 
         <div className="portal-dashboard-main">
           <header className="portal-dashboard-header">
@@ -100,7 +95,7 @@ export default function PortalsWebsiteEditor() {
               <span>{website?.domain}</span>
             </div>
             <div>
-              <span className="portal-status">Draft First</span>
+              <span className="portal-status">{canEditContent ? 'Draft First' : 'Read Only'}</span>
               <h3>Website Content Registry</h3>
               <p>Clients edit approved content fields only. Layouts, styles, components, branding, and code stay locked.</p>
               <dl>
@@ -115,8 +110,8 @@ export default function PortalsWebsiteEditor() {
             <div className="portal-editor-header">
               <div>
                 <p className="eyebrow">CMS Phase 2</p>
-                <h2>Draft Editor</h2>
-                <p>Edit content safely, save it as a draft, then submit it to KSJ Digital for approval.</p>
+                <h2>{canEditContent ? 'Draft Editor' : 'Content Viewer'}</h2>
+                <p>{canEditContent ? 'Edit content safely, save it as a draft, then submit it to KSJ Digital for approval.' : 'View approved website content. Your role does not allow content edits.'}</p>
               </div>
               <a href="/">View Live Site</a>
             </div>
@@ -137,18 +132,22 @@ export default function PortalsWebsiteEditor() {
                     <label key={field.id}>
                       {field.label}
                       {field.type === 'textarea' ? (
-                        <textarea value={draftValues[field.id] ?? ''} rows="4" onChange={(event) => updateDraftValue(field.id, event.target.value)} />
+                        <textarea value={draftValues[field.id] ?? ''} rows="4" readOnly={!canEditContent} onChange={(event) => updateDraftValue(field.id, event.target.value)} />
                       ) : (
-                        <input value={draftValues[field.id] ?? ''} onChange={(event) => updateDraftValue(field.id, event.target.value)} />
+                        <input value={draftValues[field.id] ?? ''} readOnly={!canEditContent} onChange={(event) => updateDraftValue(field.id, event.target.value)} />
                       )}
                     </label>
                   ))}
                 </div>
 
-                <div className="portal-action-row portal-action-row-primary">
-                  <button type="button" onClick={saveDraft}>Save Draft</button>
-                  <button type="button" className="portal-warning-button" onClick={submitForApproval}>Submit For Approval</button>
-                </div>
+                {(canSaveDrafts || canRequestPublish) ? (
+                  <div className="portal-action-row portal-action-row-primary">
+                    {canSaveDrafts && <button type="button" onClick={saveDraft}>Save Draft</button>}
+                    {canRequestPublish && <button type="button" className="portal-warning-button" onClick={submitForApproval}>Submit For Approval</button>}
+                  </div>
+                ) : (
+                  <p className="portal-inline-notice">Read-only access. You can view website content, but cannot save drafts or submit publish requests.</p>
+                )}
                 <p className="portal-inline-notice">Submitting does not publish the website. It creates a review item for KSJ Digital.</p>
               </section>
 
