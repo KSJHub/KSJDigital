@@ -26,3 +26,22 @@ export async function runPortalDeployment({ deployment, website }) {
     };
   }
 }
+
+export async function getPortalDeploymentStatus(deploymentId) {
+  try {
+    const query = deploymentId ? `?deploymentId=${encodeURIComponent(deploymentId)}` : '';
+    const response = await fetch(`${getPortalApiBaseUrl()}/api/portal/deployments/status${query}`);
+    const payload = await response.json();
+    return {
+      ok: response.ok && payload.ok !== false,
+      ...payload,
+      httpStatus: response.status,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      offline: true,
+      message: error.message || 'Portal deployment status API is unavailable.',
+    };
+  }
+}
