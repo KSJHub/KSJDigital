@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import PortalSidebar from '../components/PortalSidebar';
-import { getPortalDeploymentStatus, runPortalDeployment } from '../portals/api/deploymentApi';
+import { enqueuePortalDeployment, getPortalDeploymentStatus, runPortalDeployment } from '../portals/api/deploymentApi';
 import { clearSession, getStoredSession } from '../portals/auth/sessionManager';
 import { getPortalData, getPortalWebsiteById, savePortalData } from '../portals/data/portalManager';
 
@@ -139,7 +139,24 @@ export default function PortalsAdminDeployments() {
       return;
     }
 
-    updateDeploymentRecord(deployment, { status: 'Running', startedAt: new Date().toISOString(), workerMessage: 'Worker request started.' });
+    const queuedResult = await enqueuePortalDeployment({
+      deployment,
+      website,
+      status: 'Queued',
+      message: 'Deployment queued from dashboard before worker execution.',
+    });
+
+    if (!queuedResult.ok && !queuedResult.offline) {
+      setWorkerNotice(queuedResult.message || 'Unable to persist deployment to server queue.');
+      return;
+    }
+
+    updateDeploymentRecord(deployment, {
+      status: 'Running',
+      startedAt: new Date().toISOString(),
+      workerMessage: queuedResult.ok ? 'Server queue persisted. Worker request started.' : 'Server queue unavailable. Worker request started from browser.',
+    });
+
     const result = await runPortalDeployment({ deployment, website });
     const status = result.ok ? 'Success' : result.dryRun ? 'Queued' : 'Failed';
     const message = result.message || (result.ok ? 'Deployment completed.' : 'Deployment failed.');
@@ -178,8 +195,8 @@ export default function PortalsAdminDeployments() {
             <div className="portal-editor-header">
               <div>
                 <p className="eyebrow">Phase 4.6+</p>
-                <h2>Guarded VPS Worker + Server Logs</h2>
-                <p>The worker now keeps server-side state, protects duplicate runs with locks, records logs, and can verify the deployed URL after build.</p>
+                <h2>Guarded VPS Worker + Server Queue</h2>
+                <p>The worker now keeps server-side state, persists deployment queue jobs, protects duplicate runs with locks, records logs, and can verify the deployed URL after build.</p>
               </div>
             </div>
             <div className="portal-form-grid">
@@ -199,7 +216,7 @@ export default function PortalsAdminDeployments() {
 
           <div className="portal-grid-two">
             <section className="portal-editor-panel">
-              <div className="portal-editor-header"><div><p className="eyebrow">Deployment Queue</p><h2>Queued Jobs</h2><p>Jobs created by publish approval. Run will call the guarded API worker.</p></div></div>
+              <div className="portal-editor-header"><div><p className="eyebrow">Deployment Queue</p><h2>Queued Jobs</h2><p>Jobs created by publish approval. Run persists the job to the server queue before calling the guarded API worker.</p></div></div>
               <div className="portal-section-list">
                 {visibleQueue.length ? visibleQueue.map((deployment) => <DeploymentCard key={deployment.id} deployment={deployment} actionLabel="Cancel" onAction={['Queued', 'Running'].includes(deployment.status) ? cancelDeployment : null} secondaryActionLabel="Run Worker" onSecondaryAction={['Queued', 'Failed'].includes(deployment.status) ? runDeployment : null} tertiaryActionLabel="Sync Logs" onTertiaryAction={syncWorkerStatus} />) : <article><div><div className="portal-section-title-row"><strong>No deployment jobs</strong><span>Waiting</span></div><p>Approve and publish a request to create the first deployment queue item.</p></div></article>}
               </div>
@@ -238,7 +255,8 @@ export default function PortalsAdminDeployments() {
                     <div className="portal-section-title-row"><strong>{selectedWorkerStatus.deploymentId ?? selectedWorkerStatus.deployment?.deploymentId ?? 'Worker Status'}</strong><span>{selectedWorkerStatus.lock ? 'Locked' : 'Unlocked'}</span></div>
                     <p>{selectedWorkerStatus.deployment?.message ?? selectedWorkerStatus.message ?? 'Worker status loaded.'}</p>
                     <ul>
-                      <li>Status: {selectedWorkerStatus.deployment?.status ?? 'No snapshot yet'}</li>
+                      <li>Status: {selectedWorkerStatus.deployment?.status ?? selectedWorkerStatus.queuedJob?.status ?? 'No snapshot yet'}</li>
+                      <li>Server Queue: {selectedWorkerStatus.queuedJob?.status ?? 'No queued job snapshot'}</li>
                       <li>Logs: {selectedWorkerStatus.logs?.length ?? 0}</li>
                       <li>Lock: {selectedWorkerStatus.lock?.acquiredAt ?? 'No active lock'}</li>
                     </ul>
