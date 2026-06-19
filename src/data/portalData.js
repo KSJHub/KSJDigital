@@ -2,7 +2,7 @@ export const portalUser = {
   name: 'TwoToneTaj',
   initials: 'TT',
   role: 'Client',
-  email: 'media@ksjdigital.co.uk',
+  email: 'support@ksjdigital.co.uk',
 };
 
 export const portalProject = {
@@ -101,7 +101,7 @@ export const portalContentSnapshot = {
     quote: 'It’s all about the 💩 and giggles, folks.',
   },
   contact: {
-    email: 'media@ksjdigital.co.uk',
+    email: 'enquiries@ksjdigital.co.uk',
     supportEmail: 'support@ksjdigital.co.uk',
   },
   publish: {
