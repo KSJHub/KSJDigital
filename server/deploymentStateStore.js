@@ -7,10 +7,11 @@ const STATE_FILE = path.join(STATE_DIR, 'deployment-state.json');
 
 const defaultState = {
   meta: {
-    version: 1,
+    version: 2,
     updatedAt: null,
   },
   activeLocks: {},
+  deploymentQueue: [],
   deployments: [],
   logs: {},
 };
@@ -23,12 +24,35 @@ async function ensureStateDir() {
   await mkdir(STATE_DIR, { recursive: true });
 }
 
+function getDeploymentIdentity(deployment) {
+  return deployment?.deploymentId ?? deployment?.id ?? null;
+}
+
+function normaliseQueuedJob(job) {
+  const deployment = job?.deployment ?? job;
+  const deploymentId = getDeploymentIdentity(deployment) ?? getDeploymentIdentity(job);
+
+  return {
+    id: job?.id ?? deploymentId,
+    deploymentId,
+    websiteId: job?.websiteId ?? deployment?.websiteId ?? job?.website?.id ?? null,
+    status: job?.status ?? deployment?.status ?? 'Queued',
+    createdAt: job?.createdAt ?? deployment?.createdAt ?? new Date().toISOString(),
+    updatedAt: job?.updatedAt ?? new Date().toISOString(),
+    deployment,
+    website: job?.website ?? null,
+    source: job?.source ?? 'portal-api',
+    message: job?.message ?? '',
+  };
+}
+
 function normaliseState(state) {
   return {
     ...clone(defaultState),
     ...(state ?? {}),
     meta: { ...defaultState.meta, ...(state?.meta ?? {}) },
     activeLocks: { ...(state?.activeLocks ?? {}) },
+    deploymentQueue: Array.isArray(state?.deploymentQueue) ? state.deploymentQueue.map(normaliseQueuedJob) : [],
     deployments: Array.isArray(state?.deployments) ? state.deployments : [],
     logs: state?.logs ?? {},
   };
@@ -53,6 +77,61 @@ export async function writeDeploymentState(state) {
   nextState.meta.updatedAt = new Date().toISOString();
   await writeFile(STATE_FILE, `${JSON.stringify(nextState, null, 2)}\n`, 'utf8');
   return nextState;
+}
+
+export async function enqueueDeploymentJob({ deployment, website, source = 'portal-api', status = 'Queued', message = '' }) {
+  if (!deployment?.id && !deployment?.deploymentId) throw new Error('Deployment job requires an id or deploymentId.');
+  if (!website?.id && !deployment?.websiteId) throw new Error('Deployment job requires website metadata.');
+
+  const state = await readDeploymentState();
+  const deploymentId = getDeploymentIdentity(deployment);
+  const queuedJob = normaliseQueuedJob({
+    id: deploymentId,
+    deploymentId,
+    websiteId: deployment.websiteId ?? website?.id,
+    status,
+    deployment: { ...deployment, id: deployment.id ?? deploymentId, deploymentId },
+    website,
+    source,
+    message,
+    createdAt: deployment.createdAt ?? new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
+  const existingQueue = state.deploymentQueue ?? [];
+  state.deploymentQueue = existingQueue.some((job) => job.deploymentId === deploymentId || job.id === deploymentId)
+    ? existingQueue.map((job) => (job.deploymentId === deploymentId || job.id === deploymentId ? { ...job, ...queuedJob, createdAt: job.createdAt ?? queuedJob.createdAt } : job))
+    : [queuedJob, ...existingQueue].slice(0, 100);
+
+  await writeDeploymentState(state);
+  await recordDeploymentLog(deploymentId, { level: 'info', message: message || `Deployment job ${status.toLowerCase()} in server queue.`, source });
+  return queuedJob;
+}
+
+export async function updateQueuedDeploymentJob(deploymentId, fields = {}) {
+  if (!deploymentId) return null;
+  const state = await readDeploymentState();
+  let updatedJob = null;
+
+  state.deploymentQueue = (state.deploymentQueue ?? []).map((job) => {
+    if (job.deploymentId !== deploymentId && job.id !== deploymentId) return job;
+    updatedJob = { ...job, ...fields, updatedAt: new Date().toISOString() };
+    return updatedJob;
+  });
+
+  await writeDeploymentState(state);
+  return updatedJob;
+}
+
+export async function getQueuedDeploymentJobs(status = null) {
+  const state = await readDeploymentState();
+  const queue = state.deploymentQueue ?? [];
+  return status ? queue.filter((job) => job.status === status) : queue;
+}
+
+export async function getNextQueuedDeploymentJob() {
+  const queue = await getQueuedDeploymentJobs('Queued');
+  return queue[0] ?? null;
 }
 
 export async function recordDeploymentLog(deploymentId, entry) {
@@ -119,8 +198,10 @@ export async function getDeploymentStatus(deploymentId) {
   const state = await readDeploymentState();
   if (!deploymentId) return state;
   const deployment = (state.deployments ?? []).find((item) => (item.deploymentId ?? item.id) === deploymentId) ?? null;
+  const queuedJob = (state.deploymentQueue ?? []).find((item) => (item.deploymentId ?? item.id) === deploymentId) ?? null;
   return {
     deployment,
+    queuedJob,
     logs: state.logs?.[deploymentId] ?? [],
     lock: state.activeLocks?.[deploymentId] ?? null,
   };
