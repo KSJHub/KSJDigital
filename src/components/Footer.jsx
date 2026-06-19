@@ -9,7 +9,7 @@ export default function Footer() {
 
         <div className="footer-right">
           <p>© 2026 KSJ Digital. All Rights Reserved.</p>
-          <a href="mailto:ksj@ksjdigital.co.uk">ksj@ksjdigital.co.uk</a>
+          <a href="mailto:enquiries@ksjdigital.co.uk">enquiries@ksjdigital.co.uk</a>
         </div>
       </div>
     </footer>
