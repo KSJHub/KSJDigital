@@ -3,10 +3,11 @@ import { getContentFilePath } from '../content/contentFileRegistry';
 
 const STORAGE_KEY = 'ksj-digital-portals-data';
 const PORTAL_CONTACT_EMAILS = {
-  owner: '@ksjdigital.co.uk',
+  owner: 'enquiries@ksjdigital.co.uk',
   client: 'support@ksjdigital.co.uk',
   support: 'support@ksjdigital.co.uk',
   billing: 'billing@ksjdigital.co.uk',
+  gaming: 'gaming@ksjdigital.co.uk',
   enquiries: 'enquiries@ksjdigital.co.uk',
 };
 
@@ -42,7 +43,7 @@ function migratePortalContactEmails(data) {
       return { ...user, email: PORTAL_CONTACT_EMAILS.owner };
     }
 
-    if (user.id === 'twotonetaj-client' || user.email === 'media@ksjdigital.co.uk') {
+    if (user.id === 'twotonetaj-client') {
       return { ...user, email: PORTAL_CONTACT_EMAILS.client };
     }
 
