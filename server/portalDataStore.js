@@ -8,13 +8,14 @@ const DATA_FILE = process.env.PORTAL_DATA_FILE || path.join(DATA_DIR, 'portalDat
 
 const LEGACY_EMAIL_REPLACEMENTS = {
   'ksj@ksjdigital.co.uk': 'enquiries@ksjdigital.co.uk',
-  'media@ksjdigital.co.uk': 'support@ksjdigital.co.uk',
+  'media@ksjdigital.co.uk': 'enquiries@ksjdigital.co.uk',
 };
 
 const CONTACT_EMAILS = {
   enquiries: 'enquiries@ksjdigital.co.uk',
   support: 'support@ksjdigital.co.uk',
   billing: 'billing@ksjdigital.co.uk',
+  gaming: 'gaming@ksjdigital.co.uk',
 };
 
 function clone(value) {
