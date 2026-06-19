@@ -141,7 +141,7 @@ export const initialPortalData = {
       },
       contact: {
         live: {
-          email: 'ksj@ksjdigital.co.uk',
+          email: 'enquiries@ksjdigital.co.uk',
           supportEmail: 'support@ksjdigital.co.uk',
         },
         draft: {},
@@ -188,7 +188,7 @@ export const initialPortalData = {
       },
       contact: {
         live: {
-          publicEmail: 'media@ksjdigital.co.uk',
+          publicEmail: 'enquiries@ksjdigital.co.uk',
           discordUrl: '',
           linktreeUrl: '',
         },
@@ -202,7 +202,7 @@ export const initialPortalData = {
     {
       id: 'ksj-admin',
       name: 'KSJ Digital Admin',
-      email: 'ksj@ksjdigital.co.uk',
+      email: 'enquiries@ksjdigital.co.uk',
       role: 'owner',
       status: 'Active',
       websiteIds: ['ksjdigital', 'twotonetaj'],
@@ -211,7 +211,7 @@ export const initialPortalData = {
     {
       id: 'twotonetaj-client',
       name: 'TwoToneTaj',
-      email: 'media@ksjdigital.co.uk',
+      email: 'support@ksjdigital.co.uk',
       role: 'clientAdmin',
       status: 'Active',
       websiteIds: ['twotonetaj'],
@@ -375,5 +375,11 @@ export const initialPortalData = {
     defaultPublishMode: 'Approval Required',
     deploymentStatuses: ['Queued', 'Running', 'Success', 'Failed', 'Cancelled'],
     clientBackupWarning: 'A restore backup is kept for 48 hours after publishing. After 48 hours, the backup is permanently deleted and cannot be recovered.',
+    contactEmails: {
+      enquiries: 'enquiries@ksjdigital.co.uk',
+      support: 'support@ksjdigital.co.uk',
+      billing: 'billing@ksjdigital.co.uk',
+      gaming: 'gaming@ksjdigital.co.uk',
+    },
   },
 };
