@@ -24,7 +24,7 @@ export default function Home() {
             </p>
             <div className="hero-buttons">
               <a className="button primary-button" href="#projects">Explore Our Projects</a>
-              <a className="button secondary-button" href="mailto:ksj@ksjdigital.co.uk">Contact Us</a>
+              <a className="button secondary-button" href="mailto:enquiries@ksjdigital.co.uk">Contact Us</a>
             </div>
           </div>
 
@@ -120,8 +120,8 @@ export default function Home() {
             Whether you need a website, automation platform, community solution,
             or custom software project, KSJ Digital can help bring it to life.
           </p>
-          <a className="button primary-button" href="mailto:ksj@ksjdigital.co.uk">Get In Touch</a>
-          <small>ksj@ksjdigital.co.uk</small>
+          <a className="button primary-button" href="mailto:enquiries@ksjdigital.co.uk">Get In Touch</a>
+          <small>enquiries@ksjdigital.co.uk</small>
         </div>
       </section>
     </main>
