@@ -8,15 +8,16 @@ import {
   updateQueuedDeploymentJob,
 } from './deploymentStateStore.js';
 import { getContentFileState, publishContentFile } from './githubContentPublisher.js';
+import { getPortalDataFilePath, readPortalData, writePortalData } from './portalDataStore.js';
 
 const PORT = Number(process.env.PORT || process.env.PORTAL_API_PORT || 4174);
-const MAX_BODY_BYTES = 1024 * 1024;
+const MAX_BODY_BYTES = 5 * 1024 * 1024;
 
 function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': process.env.PORTAL_ALLOWED_ORIGIN || '*',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type,Authorization',
   });
   response.end(JSON.stringify(payload));
@@ -45,6 +46,44 @@ function readJsonBody(request) {
 
     request.on('error', reject);
   });
+}
+
+async function handlePortalDataRead(request, response) {
+  try {
+    const data = await readPortalData();
+    sendJson(response, 200, {
+      ok: true,
+      data,
+      dataFile: getPortalDataFilePath(),
+      message: 'Central portal data loaded.',
+    });
+  } catch (error) {
+    sendJson(response, 500, {
+      ok: false,
+      message: error.message || 'Unable to read central portal data.',
+      details: error.details,
+    });
+  }
+}
+
+async function handlePortalDataWrite(request, response) {
+  try {
+    const body = await readJsonBody(request);
+    const data = body.data ?? body;
+    const savedData = await writePortalData(data);
+    sendJson(response, 200, {
+      ok: true,
+      data: savedData,
+      dataFile: getPortalDataFilePath(),
+      message: 'Central portal data saved.',
+    });
+  } catch (error) {
+    sendJson(response, 400, {
+      ok: false,
+      message: error.message || 'Unable to save central portal data.',
+      details: error.details,
+    });
+  }
 }
 
 async function handlePublishContent(request, response) {
@@ -197,6 +236,14 @@ const server = http.createServer(async (request, response) => {
 
   if (request.method === 'GET' && url.pathname === '/api/portal/health') {
     return sendJson(response, 200, { ok: true, service: 'KSJ Digital Portal API' });
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/portal/data') {
+    return handlePortalDataRead(request, response);
+  }
+
+  if (request.method === 'PUT' && url.pathname === '/api/portal/data') {
+    return handlePortalDataWrite(request, response);
   }
 
   if (request.method === 'GET' && url.pathname === '/api/portal/content/state') {
