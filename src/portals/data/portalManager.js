@@ -2,6 +2,13 @@ import { initialPortalData } from './portalData';
 import { getContentFilePath } from '../content/contentFileRegistry';
 
 const STORAGE_KEY = 'ksj-digital-portals-data';
+const PORTAL_CONTACT_EMAILS = {
+  owner: 'enquiries@ksjdigital.co.uk',
+  client: 'support@ksjdigital.co.uk',
+  support: 'support@ksjdigital.co.uk',
+  billing: 'billing@ksjdigital.co.uk',
+  enquiries: 'enquiries@ksjdigital.co.uk',
+};
 
 function cloneData(data) {
   return JSON.parse(JSON.stringify(data));
@@ -27,9 +34,61 @@ function getSchemaId(data, websiteId) {
   return data.websiteRegistry?.[websiteId]?.schemaId ?? data.websites?.find((website) => website.id === websiteId)?.schemaId ?? 'custom';
 }
 
+function migratePortalContactEmails(data) {
+  const nextData = { ...data };
+
+  nextData.users = (nextData.users ?? []).map((user) => {
+    if (user.id === 'ksj-admin' || user.role === 'owner') {
+      return { ...user, email: PORTAL_CONTACT_EMAILS.owner };
+    }
+
+    if (user.id === 'twotonetaj-client' || user.email === 'media@ksjdigital.co.uk') {
+      return { ...user, email: PORTAL_CONTACT_EMAILS.client };
+    }
+
+    return user;
+  });
+
+  nextData.content = {
+    ...(nextData.content ?? {}),
+    ksjdigital: {
+      ...(nextData.content?.ksjdigital ?? {}),
+      contact: {
+        ...(nextData.content?.ksjdigital?.contact ?? {}),
+        live: {
+          ...(nextData.content?.ksjdigital?.contact?.live ?? {}),
+          email: PORTAL_CONTACT_EMAILS.enquiries,
+          supportEmail: PORTAL_CONTACT_EMAILS.support,
+        },
+      },
+    },
+    twotonetaj: {
+      ...(nextData.content?.twotonetaj ?? {}),
+      contact: {
+        ...(nextData.content?.twotonetaj?.contact ?? {}),
+        live: {
+          ...(nextData.content?.twotonetaj?.contact?.live ?? {}),
+          publicEmail: PORTAL_CONTACT_EMAILS.enquiries,
+        },
+      },
+    },
+  };
+
+  nextData.settings = {
+    ...(nextData.settings ?? {}),
+    contactEmails: {
+      enquiries: PORTAL_CONTACT_EMAILS.enquiries,
+      support: PORTAL_CONTACT_EMAILS.support,
+      billing: PORTAL_CONTACT_EMAILS.billing,
+    },
+  };
+
+  return nextData;
+}
+
 function mergePortalDefaults(storedData) {
   const initialData = cloneData(initialPortalData);
-  const mergedData = {
+  let mergedData = {
     ...initialData,
     ...storedData,
     meta: { ...initialData.meta, ...(storedData.meta ?? {}) },
@@ -55,6 +114,7 @@ function mergePortalDefaults(storedData) {
     };
   });
 
+  mergedData = migratePortalContactEmails(mergedData);
   mergedData.deploymentQueue = mergedData.deploymentQueue ?? [];
   mergedData.deploymentHistory = mergedData.deploymentHistory ?? [];
 
@@ -65,7 +125,7 @@ export function getPortalData() {
   if (!canUseLocalStorage()) return cloneData(initialPortalData);
   const storedData = window.localStorage.getItem(STORAGE_KEY);
   if (!storedData) {
-    const initialData = cloneData(initialPortalData);
+    const initialData = migratePortalContactEmails(cloneData(initialPortalData));
     savePortalData(initialData);
     return initialData;
   }
@@ -76,7 +136,7 @@ export function getPortalData() {
     return mergedData;
   } catch (error) {
     console.warn('Unable to parse KSJ Digital portal data. Restoring defaults.', error);
-    const initialData = cloneData(initialPortalData);
+    const initialData = migratePortalContactEmails(cloneData(initialPortalData));
     savePortalData(initialData);
     return initialData;
   }
@@ -88,7 +148,7 @@ export function savePortalData(data) {
   return nextData;
 }
 
-export function resetPortalData() { const initialData = cloneData(initialPortalData); return savePortalData(initialData); }
+export function resetPortalData() { const initialData = migratePortalContactEmails(cloneData(initialPortalData)); return savePortalData(initialData); }
 export function updatePortalData(updater) { const currentData = getPortalData(); const nextData = updater(cloneData(currentData)); return savePortalData(nextData); }
 export function getPortalUsers() { return getPortalData().users ?? []; }
 export function getPortalWebsites() { return getPortalData().websites ?? []; }
