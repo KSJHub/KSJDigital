@@ -1,20 +1,14 @@
 import { initialPortalData } from './portalData';
 import { getContentFilePath } from '../content/contentFileRegistry';
 
-const CACHE_STORAGE_KEY = 'ksj-digital-portals-data-cache';
-const LEGACY_STORAGE_KEY = 'ksj-digital-portals-data';
-const DEFAULT_PORTAL_API_BASE_URL = 'http://localhost:4174';
-const LEGACY_EMAIL_REPLACEMENTS = {
-  'ksj@ksjdigital.co.uk': 'enquiries@ksjdigital.co.uk',
-  'media@ksjdigital.co.uk': 'support@ksjdigital.co.uk',
-};
-const CONTACT_EMAILS = {
-  enquiries: 'enquiries@ksjdigital.co.uk',
+const STORAGE_KEY = 'ksj-digital-portals-data';
+const PORTAL_CONTACT_EMAILS = {
+  owner: '@ksjdigital.co.uk',
+  client: 'support@ksjdigital.co.uk',
   support: 'support@ksjdigital.co.uk',
   billing: 'billing@ksjdigital.co.uk',
+  enquiries: 'enquiries@ksjdigital.co.uk',
 };
-
-let memoryPortalData = null;
 
 function cloneData(data) {
   return JSON.parse(JSON.stringify(data));
@@ -22,65 +16,6 @@ function cloneData(data) {
 
 function canUseLocalStorage() {
   return typeof window !== 'undefined' && Boolean(window.localStorage);
-}
-
-function getPortalApiBaseUrl() {
-  return import.meta.env?.VITE_PORTAL_API_BASE_URL || DEFAULT_PORTAL_API_BASE_URL;
-}
-
-function getPortalDataUrl() {
-  return `${getPortalApiBaseUrl()}/api/portal/data`;
-}
-
-function replaceLegacyEmail(email) {
-  const cleanEmail = String(email ?? '').trim().toLowerCase();
-  return LEGACY_EMAIL_REPLACEMENTS[cleanEmail] ?? cleanEmail;
-}
-
-function migrateLegacyPortalData(data) {
-  const nextData = cloneData(data ?? initialPortalData);
-
-  nextData.meta = {
-    ...(nextData.meta ?? {}),
-    storageMode: 'server-json',
-    sourceOfTruth: 'server/data/portalData.json',
-  };
-
-  nextData.users = (nextData.users ?? []).map((user) => ({
-    ...user,
-    email: replaceLegacyEmail(user.email),
-  }));
-
-  if (nextData.content?.ksjdigital?.contact?.live) {
-    nextData.content.ksjdigital.contact.live = {
-      ...nextData.content.ksjdigital.contact.live,
-      email: replaceLegacyEmail(nextData.content.ksjdigital.contact.live.email) || CONTACT_EMAILS.enquiries,
-      supportEmail: replaceLegacyEmail(nextData.content.ksjdigital.contact.live.supportEmail) || CONTACT_EMAILS.support,
-    };
-  }
-
-  if (nextData.content?.twotonetaj?.contact?.live) {
-    nextData.content.twotonetaj.contact.live = {
-      ...nextData.content.twotonetaj.contact.live,
-      publicEmail: replaceLegacyEmail(nextData.content.twotonetaj.contact.live.publicEmail) || CONTACT_EMAILS.enquiries,
-    };
-  }
-
-  nextData.settings = {
-    ...(nextData.settings ?? {}),
-    contactEmails: {
-      ...(nextData.settings?.contactEmails ?? {}),
-      ...CONTACT_EMAILS,
-    },
-  };
-
-  nextData.deploymentQueue = nextData.deploymentQueue ?? [];
-  nextData.deploymentHistory = nextData.deploymentHistory ?? [];
-  nextData.backups = nextData.backups ?? [];
-  nextData.activityLogs = nextData.activityLogs ?? [];
-  nextData.notifications = nextData.notifications ?? [];
-
-  return nextData;
 }
 
 function formatContentSnapshot(content) {
@@ -99,75 +34,121 @@ function getSchemaId(data, websiteId) {
   return data.websiteRegistry?.[websiteId]?.schemaId ?? data.websites?.find((website) => website.id === websiteId)?.schemaId ?? 'custom';
 }
 
-function readCachedPortalData() {
-  if (memoryPortalData) return cloneData(memoryPortalData);
-  if (!canUseLocalStorage()) return migrateLegacyPortalData(initialPortalData);
+function migratePortalContactEmails(data) {
+  const nextData = { ...data };
 
-  const cachedData = window.localStorage.getItem(CACHE_STORAGE_KEY) || window.localStorage.getItem(LEGACY_STORAGE_KEY);
-  if (!cachedData) return migrateLegacyPortalData(initialPortalData);
+  nextData.users = (nextData.users ?? []).map((user) => {
+    if (user.id === 'ksj-admin' || user.role === 'owner') {
+      return { ...user, email: PORTAL_CONTACT_EMAILS.owner };
+    }
 
-  try {
-    return migrateLegacyPortalData(JSON.parse(cachedData));
-  } catch (error) {
-    console.warn('Unable to parse cached KSJ Digital portal data. Restoring defaults.', error);
-    return migrateLegacyPortalData(initialPortalData);
-  }
-}
+    if (user.id === 'twotonetaj-client' || user.email === 'media@ksjdigital.co.uk') {
+      return { ...user, email: PORTAL_CONTACT_EMAILS.client };
+    }
 
-function writeCachedPortalData(data) {
-  const nextData = migrateLegacyPortalData(data);
-  memoryPortalData = cloneData(nextData);
+    return user;
+  });
 
-  if (canUseLocalStorage()) {
-    window.localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(nextData));
-    window.localStorage.removeItem(LEGACY_STORAGE_KEY);
-  }
+  nextData.content = {
+    ...(nextData.content ?? {}),
+    ksjdigital: {
+      ...(nextData.content?.ksjdigital ?? {}),
+      contact: {
+        ...(nextData.content?.ksjdigital?.contact ?? {}),
+        live: {
+          ...(nextData.content?.ksjdigital?.contact?.live ?? {}),
+          email: PORTAL_CONTACT_EMAILS.enquiries,
+          supportEmail: PORTAL_CONTACT_EMAILS.support,
+        },
+      },
+    },
+    twotonetaj: {
+      ...(nextData.content?.twotonetaj ?? {}),
+      contact: {
+        ...(nextData.content?.twotonetaj?.contact ?? {}),
+        live: {
+          ...(nextData.content?.twotonetaj?.contact?.live ?? {}),
+          publicEmail: PORTAL_CONTACT_EMAILS.enquiries,
+        },
+      },
+    },
+  };
+
+  nextData.settings = {
+    ...(nextData.settings ?? {}),
+    contactEmails: {
+      enquiries: PORTAL_CONTACT_EMAILS.enquiries,
+      support: PORTAL_CONTACT_EMAILS.support,
+      billing: PORTAL_CONTACT_EMAILS.billing,
+    },
+  };
 
   return nextData;
 }
 
-function requestPortalData(method, data = null) {
-  if (typeof window === 'undefined' || typeof window.XMLHttpRequest === 'undefined') return null;
+function mergePortalDefaults(storedData) {
+  const initialData = cloneData(initialPortalData);
+  let mergedData = {
+    ...initialData,
+    ...storedData,
+    meta: { ...initialData.meta, ...(storedData.meta ?? {}) },
+    websiteRegistry: { ...initialData.websiteRegistry, ...(storedData.websiteRegistry ?? {}) },
+    contentSchemas: { ...initialData.contentSchemas, ...(storedData.contentSchemas ?? {}) },
+    content: { ...initialData.content, ...(storedData.content ?? {}) },
+    settings: { ...initialData.settings, ...(storedData.settings ?? {}) },
+  };
 
-  try {
-    const request = new window.XMLHttpRequest();
-    request.open(method, getPortalDataUrl(), false);
-    request.setRequestHeader('Content-Type', 'application/json');
-    request.send(data ? JSON.stringify({ data }) : null);
+  Object.entries(initialData.content ?? {}).forEach(([websiteId, pages]) => {
+    mergedData.content[websiteId] = { ...pages, ...(storedData.content?.[websiteId] ?? {}) };
+    Object.entries(pages).forEach(([pageId, contentState]) => {
+      mergedData.content[websiteId][pageId] = { ...contentState, ...(storedData.content?.[websiteId]?.[pageId] ?? {}) };
+    });
+  });
 
-    if (request.status < 200 || request.status >= 300) return null;
-    const payload = JSON.parse(request.responseText || '{}');
-    if (payload.ok === false) return null;
-    return payload.data ?? payload;
-  } catch (error) {
-    return null;
-  }
+  mergedData.websites = (mergedData.websites ?? []).map((website) => {
+    const defaultWebsite = initialData.websites?.find((item) => item.id === website.id) ?? {};
+    return {
+      ...website,
+      deployment: { ...(defaultWebsite.deployment ?? {}), ...(website.deployment ?? {}) },
+      backup: { ...(defaultWebsite.backup ?? {}), ...(website.backup ?? {}) },
+    };
+  });
+
+  mergedData = migratePortalContactEmails(mergedData);
+  mergedData.deploymentQueue = mergedData.deploymentQueue ?? [];
+  mergedData.deploymentHistory = mergedData.deploymentHistory ?? [];
+
+  return mergedData;
 }
 
 export function getPortalData() {
-  const serverData = requestPortalData('GET');
-  if (serverData) return writeCachedPortalData(serverData);
-
-  const fallbackData = readCachedPortalData();
-  return writeCachedPortalData(fallbackData);
+  if (!canUseLocalStorage()) return cloneData(initialPortalData);
+  const storedData = window.localStorage.getItem(STORAGE_KEY);
+  if (!storedData) {
+    const initialData = migratePortalContactEmails(cloneData(initialPortalData));
+    savePortalData(initialData);
+    return initialData;
+  }
+  try {
+    const parsedData = JSON.parse(storedData);
+    const mergedData = mergePortalDefaults(parsedData);
+    savePortalData(mergedData);
+    return mergedData;
+  } catch (error) {
+    console.warn('Unable to parse KSJ Digital portal data. Restoring defaults.', error);
+    const initialData = migratePortalContactEmails(cloneData(initialPortalData));
+    savePortalData(initialData);
+    return initialData;
+  }
 }
 
 export function savePortalData(data) {
-  const nextData = {
-    ...migrateLegacyPortalData(data),
-    meta: {
-      ...(data.meta ?? {}),
-      storageMode: 'server-json',
-      sourceOfTruth: 'server/data/portalData.json',
-      updatedAt: new Date().toISOString(),
-    },
-  };
-
-  const savedServerData = requestPortalData('PUT', nextData);
-  return writeCachedPortalData(savedServerData ?? nextData);
+  const nextData = { ...data, meta: { ...data.meta, updatedAt: new Date().toISOString() } };
+  if (canUseLocalStorage()) window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextData));
+  return nextData;
 }
 
-export function resetPortalData() { return savePortalData(migrateLegacyPortalData(initialPortalData)); }
+export function resetPortalData() { const initialData = migratePortalContactEmails(cloneData(initialPortalData)); return savePortalData(initialData); }
 export function updatePortalData(updater) { const currentData = getPortalData(); const nextData = updater(cloneData(currentData)); return savePortalData(nextData); }
 export function getPortalUsers() { return getPortalData().users ?? []; }
 export function getPortalWebsites() { return getPortalData().websites ?? []; }
