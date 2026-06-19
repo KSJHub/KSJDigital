@@ -1,6 +1,12 @@
 import http from 'node:http';
 import { runDeployment } from './deploymentRunner.js';
-import { getDeploymentStatus } from './deploymentStateStore.js';
+import {
+  enqueueDeploymentJob,
+  getDeploymentStatus,
+  getNextQueuedDeploymentJob,
+  getQueuedDeploymentJobs,
+  updateQueuedDeploymentJob,
+} from './deploymentStateStore.js';
 import { getContentFileState, publishContentFile } from './githubContentPublisher.js';
 
 const PORT = Number(process.env.PORT || process.env.PORTAL_API_PORT || 4174);
@@ -57,16 +63,98 @@ async function handlePublishContent(request, response) {
   }
 }
 
+async function handleQueueDeployment(request, response) {
+  try {
+    const body = await readJsonBody(request);
+    const job = await enqueueDeploymentJob({
+      deployment: body.deployment,
+      website: body.website,
+      source: body.source ?? 'portal-admin',
+      status: body.status ?? 'Queued',
+      message: body.message ?? 'Deployment persisted to server queue.',
+    });
+    sendJson(response, 200, { ok: true, job, message: 'Deployment job persisted to server queue.' });
+  } catch (error) {
+    sendJson(response, 400, {
+      ok: false,
+      code: error.code,
+      message: error.message || 'Unable to queue deployment.',
+      details: error.details,
+    });
+  }
+}
+
+async function handleDeploymentQueue(request, response) {
+  try {
+    const url = new URL(request.url, `http://${request.headers.host}`);
+    const status = url.searchParams.get('status');
+    const queue = await getQueuedDeploymentJobs(status);
+    sendJson(response, 200, { ok: true, queue });
+  } catch (error) {
+    sendJson(response, 400, {
+      ok: false,
+      message: error.message || 'Unable to read deployment queue.',
+      details: error.details,
+    });
+  }
+}
+
+async function runDeploymentAndPersist({ deployment, website, source = 'manual-run' }) {
+  const deploymentId = deployment?.id ?? deployment?.deploymentId;
+  const queuedJob = await enqueueDeploymentJob({
+    deployment,
+    website,
+    source,
+    status: 'Running',
+    message: 'Deployment worker started from portal API.',
+  });
+
+  try {
+    const result = await runDeployment({ deployment: queuedJob.deployment, website: queuedJob.website });
+    await updateQueuedDeploymentJob(deploymentId, {
+      status: result.ok ? 'Success' : result.dryRun ? 'Queued' : 'Failed',
+      message: result.message,
+      result,
+    });
+    return result;
+  } catch (error) {
+    await updateQueuedDeploymentJob(deploymentId, {
+      status: 'Failed',
+      message: error.message || 'Deployment failed before worker result was returned.',
+      error: { code: error.code, message: error.message, details: error.details },
+    });
+    throw error;
+  }
+}
+
 async function handleRunDeployment(request, response) {
   try {
     const body = await readJsonBody(request);
-    const result = await runDeployment({ deployment: body.deployment, website: body.website });
+    const result = await runDeploymentAndPersist({ deployment: body.deployment, website: body.website });
     sendJson(response, result.ok || result.dryRun ? 200 : 400, result);
   } catch (error) {
     sendJson(response, error.code === 'DEPLOYMENT_LOCKED' ? 409 : 400, {
       ok: false,
       code: error.code,
       message: error.message || 'Unable to run deployment.',
+      details: error.details,
+    });
+  }
+}
+
+async function handleProcessNextDeployment(request, response) {
+  try {
+    const nextJob = await getNextQueuedDeploymentJob();
+    if (!nextJob) return sendJson(response, 200, { ok: true, idle: true, message: 'No queued deployment jobs to process.' });
+    if (!nextJob.website) return sendJson(response, 400, { ok: false, message: `Queued deployment ${nextJob.deploymentId} is missing website metadata.` });
+
+    const result = await runDeploymentAndPersist({ deployment: nextJob.deployment, website: nextJob.website, source: 'process-next' });
+    sendJson(response, result.ok || result.dryRun ? 200 : 400, { ok: result.ok, job: nextJob, result });
+  } catch (error) {
+    sendJson(response, error.code === 'DEPLOYMENT_LOCKED' ? 409 : 400, {
+      ok: false,
+      code: error.code,
+      message: error.message || 'Unable to process queued deployment.',
       details: error.details,
     });
   }
@@ -119,8 +207,20 @@ const server = http.createServer(async (request, response) => {
     return handleDeploymentStatus(request, response);
   }
 
+  if (request.method === 'GET' && url.pathname === '/api/portal/deployments/queue') {
+    return handleDeploymentQueue(request, response);
+  }
+
   if (request.method === 'POST' && url.pathname === '/api/portal/content/publish') {
     return handlePublishContent(request, response);
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/portal/deployments/enqueue') {
+    return handleQueueDeployment(request, response);
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/portal/deployments/process-next') {
+    return handleProcessNextDeployment(request, response);
   }
 
   if (request.method === 'POST' && url.pathname === '/api/portal/deployments/run') {
