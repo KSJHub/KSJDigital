@@ -1,16 +1,91 @@
-# React + Vite
+# KSJ Digital Portals
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+KSJ Digital Portals is the management panel for KSJ Digital websites, client content edits, draft approvals, support tickets, deployment tracking, and rollback workflows.
 
-Currently, two official plugins are available:
+## Current Architecture
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```txt
+KSJDigital
+├── server/
+│   ├── data/
+│   │   └── portalData.json
+│   ├── devPortal.js
+│   ├── portalApiServer.js
+│   ├── portalDataStore.js
+│   ├── deploymentRunner.js
+│   ├── deploymentStateStore.js
+│   └── githubContentPublisher.js
+├── src/
+│   ├── pages/
+│   └── portals/
+│       ├── auth/
+│       ├── content/
+│       ├── data/
+│       └── api/
+└── public/
+```
 
-## React Compiler
+## Source Of Truth
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+The active portal database is:
 
-## Expanding the ESLint configuration
+```txt
+server/data/portalData.json
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+This JSON file stores users, websites, ownership, contact details, drafts, publish requests, support tickets, backups, deployment queue, deployment history, notifications, and settings.
+
+It is intentionally ignored by Git so local and VPS data does not get overwritten by commits.
+
+The seed file is:
+
+```txt
+src/portals/data/portalData.js
+```
+
+It is only a default template. If `server/data/portalData.json` does not exist, the API regenerates it from this seed on startup.
+
+## Local Development
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Start the Portal API and Vite frontend together:
+
+```bash
+npm start
+```
+
+Useful URLs:
+
+```txt
+Frontend: http://localhost:5173/
+Portal API: http://localhost:4174/api/portal/health
+Portal data: http://localhost:4174/api/portal/data
+```
+
+## Scripts
+
+```txt
+npm start                     Start Portal API + Vite frontend
+npm run portal:start          Same as npm start
+npm run portal:api            Start Portal API only
+npm run dev                   Start Vite frontend only
+npm run build                 Build production frontend
+npm run preview               Preview production build
+npm run lint                  Run ESLint
+npm run portal:deploy-worker  Start API with deployment worker flag
+```
+
+## Current Roadmap
+
+1. Finish repository cleanup and server folder organisation.
+2. Polish Website Management System.
+3. Finish Deployments Dashboard.
+4. Finish Deployment Queue and History views.
+5. Connect real VPS deployment worker.
+6. Complete Git-based publish approval workflow.
+7. Harden authentication and move from JSON storage to PostgreSQL or Prisma later.
