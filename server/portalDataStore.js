@@ -6,16 +6,12 @@ const DEFAULT_DATA_DIR = path.join(process.cwd(), 'server', 'data');
 const DATA_DIR = process.env.PORTAL_DATA_DIR || DEFAULT_DATA_DIR;
 const DATA_FILE = process.env.PORTAL_DATA_FILE || path.join(DATA_DIR, 'portalData.json');
 
-const PORTAL_EMAILS = {
-  ownerLogin: 'ksj@ksjdigital.co.uk',
-  clientLogin: 'twotonetaj@ksjdigital.co.uk',
+const DEFAULT_CONTACT_EMAILS = {
+  main: 'ksj@ksjdigital.co.uk',
   enquiries: 'enquiries@ksjdigital.co.uk',
   support: 'support@ksjdigital.co.uk',
   billing: 'billing@ksjdigital.co.uk',
-};
-
-const LEGACY_EMAIL_REPLACEMENTS = {
-  'media@ksjdigital.co.uk': PORTAL_EMAILS.enquiries,
+  twotonetaj: 'twotonetaj@ksjdigital.co.uk',
 };
 
 function clone(value) {
@@ -26,62 +22,52 @@ async function ensureDataDir() {
   await mkdir(path.dirname(DATA_FILE), { recursive: true });
 }
 
-function replaceLegacyEmail(email) {
-  const cleanEmail = String(email ?? '').trim().toLowerCase();
-  return LEGACY_EMAIL_REPLACEMENTS[cleanEmail] ?? cleanEmail;
+function ensureCoreArrays(data) {
+  return {
+    ...data,
+    users: data.users ?? [],
+    websites: data.websites ?? [],
+    drafts: data.drafts ?? [],
+    publishRequests: data.publishRequests ?? [],
+    supportTickets: data.supportTickets ?? [],
+    backups: data.backups ?? [],
+    deploymentQueue: data.deploymentQueue ?? [],
+    deploymentHistory: data.deploymentHistory ?? [],
+    activityLogs: data.activityLogs ?? [],
+    notifications: data.notifications ?? [],
+  };
 }
 
-function normalisePortalUsers(users = []) {
-  return users.map((user) => {
-    if (user.id === 'ksj-admin') return { ...user, email: PORTAL_EMAILS.ownerLogin };
-    if (user.id === 'twotonetaj-client') return { ...user, email: PORTAL_EMAILS.clientLogin };
-    return { ...user, email: replaceLegacyEmail(user.email) };
-  });
+function ensureSettings(data) {
+  return {
+    ...data,
+    settings: {
+      ...(data.settings ?? {}),
+      contactEmails: {
+        ...DEFAULT_CONTACT_EMAILS,
+        ...(data.settings?.contactEmails ?? {}),
+      },
+    },
+  };
+}
+
+function ensureMeta(data) {
+  return {
+    ...data,
+    meta: {
+      ...(data.meta ?? {}),
+      storageMode: 'server-json',
+      sourceOfTruth: 'server/data/portalData.json',
+    },
+  };
 }
 
 function migratePortalData(data) {
-  const nextData = clone(data ?? initialPortalData);
+  let nextData = clone(data ?? initialPortalData);
 
-  nextData.meta = {
-    ...(nextData.meta ?? {}),
-    storageMode: 'server-json',
-    sourceOfTruth: 'server/data/portalData.json',
-  };
-
-  nextData.users = normalisePortalUsers(nextData.users ?? []);
-
-  if (nextData.content?.ksjdigital?.contact?.live) {
-    nextData.content.ksjdigital.contact.live = {
-      ...nextData.content.ksjdigital.contact.live,
-      email: PORTAL_EMAILS.enquiries,
-      supportEmail: PORTAL_EMAILS.support,
-    };
-  }
-
-  if (nextData.content?.twotonetaj?.contact?.live) {
-    nextData.content.twotonetaj.contact.live = {
-      ...nextData.content.twotonetaj.contact.live,
-      publicEmail: PORTAL_EMAILS.enquiries,
-    };
-  }
-
-  nextData.settings = {
-    ...(nextData.settings ?? {}),
-    contactEmails: {
-      ...(nextData.settings?.contactEmails ?? {}),
-      main: PORTAL_EMAILS.ownerLogin,
-      enquiries: PORTAL_EMAILS.enquiries,
-      support: PORTAL_EMAILS.support,
-      billing: PORTAL_EMAILS.billing,
-      twotonetaj: PORTAL_EMAILS.clientLogin,
-    },
-  };
-
-  nextData.deploymentQueue = nextData.deploymentQueue ?? [];
-  nextData.deploymentHistory = nextData.deploymentHistory ?? [];
-  nextData.backups = nextData.backups ?? [];
-  nextData.activityLogs = nextData.activityLogs ?? [];
-  nextData.notifications = nextData.notifications ?? [];
+  nextData = ensureMeta(nextData);
+  nextData = ensureCoreArrays(nextData);
+  nextData = ensureSettings(nextData);
 
   return nextData;
 }
@@ -93,7 +79,9 @@ export async function readPortalData() {
     const rawData = await readFile(DATA_FILE, 'utf8');
     const parsedData = JSON.parse(rawData);
     const migratedData = migratePortalData(parsedData);
+
     await writePortalData(migratedData);
+
     return migratedData;
   } catch (error) {
     if (error.code !== 'ENOENT') {
@@ -101,20 +89,25 @@ export async function readPortalData() {
     }
 
     const seededData = migratePortalData(initialPortalData);
+
     await writePortalData(seededData);
+
     return seededData;
   }
 }
 
 export async function writePortalData(data) {
   await ensureDataDir();
+
   const nextData = migratePortalData(data);
+
   nextData.meta = {
     ...(nextData.meta ?? {}),
     updatedAt: new Date().toISOString(),
   };
 
   await writeFile(DATA_FILE, `${JSON.stringify(nextData, null, 2)}\n`, 'utf8');
+
   return nextData;
 }
 
