@@ -5,14 +5,7 @@ const CACHE_STORAGE_KEY = 'ksj-digital-portals-data-cache';
 const LEGACY_STORAGE_KEY = 'ksj-digital-portals-data';
 const DEFAULT_PORTAL_API_BASE_URL = 'http://localhost:4174';
 const LEGACY_EMAIL_REPLACEMENTS = {
-  'ksj@ksjdigital.co.uk': 'enquiries@ksjdigital.co.uk',
   'media@ksjdigital.co.uk': 'enquiries@ksjdigital.co.uk',
-};
-const CONTACT_EMAILS = {
-  enquiries: 'enquiries@ksjdigital.co.uk',
-  support: 'support@ksjdigital.co.uk',
-  billing: 'billing@ksjdigital.co.uk',
-  gaming: 'gaming@ksjdigital.co.uk',
 };
 
 let memoryPortalData = null;
@@ -55,31 +48,24 @@ function migratePortalData(data) {
   if (nextData.content?.ksjdigital?.contact?.live) {
     nextData.content.ksjdigital.contact.live = {
       ...nextData.content.ksjdigital.contact.live,
-      email: replaceLegacyEmail(nextData.content.ksjdigital.contact.live.email) || CONTACT_EMAILS.enquiries,
-      supportEmail: replaceLegacyEmail(nextData.content.ksjdigital.contact.live.supportEmail) || CONTACT_EMAILS.support,
+      email: replaceLegacyEmail(nextData.content.ksjdigital.contact.live.email),
+      supportEmail: replaceLegacyEmail(nextData.content.ksjdigital.contact.live.supportEmail),
     };
   }
 
   if (nextData.content?.twotonetaj?.contact?.live) {
     nextData.content.twotonetaj.contact.live = {
       ...nextData.content.twotonetaj.contact.live,
-      publicEmail: replaceLegacyEmail(nextData.content.twotonetaj.contact.live.publicEmail) || CONTACT_EMAILS.enquiries,
+      publicEmail: replaceLegacyEmail(nextData.content.twotonetaj.contact.live.publicEmail),
     };
   }
-
-  nextData.settings = {
-    ...(nextData.settings ?? {}),
-    contactEmails: {
-      ...(nextData.settings?.contactEmails ?? {}),
-      ...CONTACT_EMAILS,
-    },
-  };
 
   nextData.deploymentQueue = nextData.deploymentQueue ?? [];
   nextData.deploymentHistory = nextData.deploymentHistory ?? [];
   nextData.backups = nextData.backups ?? [];
   nextData.activityLogs = nextData.activityLogs ?? [];
   nextData.notifications = nextData.notifications ?? [];
+  nextData.settings = nextData.settings ?? {};
 
   return nextData;
 }
