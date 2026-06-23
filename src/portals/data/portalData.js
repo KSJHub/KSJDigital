@@ -202,7 +202,7 @@ export const initialPortalData = {
     {
       id: 'ksj-admin',
       name: 'KSJ Digital Admin',
-      email: 'enquiries@ksjdigital.co.uk',
+      email: 'ksj@ksjdigital.co.uk',
       role: 'owner',
       status: 'Active',
       websiteIds: ['ksjdigital', 'twotonetaj'],
@@ -211,7 +211,7 @@ export const initialPortalData = {
     {
       id: 'twotonetaj-client',
       name: 'TwoToneTaj',
-      email: 'support@ksjdigital.co.uk',
+      email: 'twotonetaj@ksjdigital.co.uk',
       role: 'clientAdmin',
       status: 'Active',
       websiteIds: ['twotonetaj'],
@@ -376,10 +376,11 @@ export const initialPortalData = {
     deploymentStatuses: ['Queued', 'Running', 'Success', 'Failed', 'Cancelled'],
     clientBackupWarning: 'A restore backup is kept for 48 hours after publishing. After 48 hours, the backup is permanently deleted and cannot be recovered.',
     contactEmails: {
+      main: 'ksj@ksjdigital.co.uk',
       enquiries: 'enquiries@ksjdigital.co.uk',
       support: 'support@ksjdigital.co.uk',
       billing: 'billing@ksjdigital.co.uk',
-      gaming: 'gaming@ksjdigital.co.uk',
+      twotonetaj: 'twotonetaj@ksjdigital.co.uk',
     },
   },
 };
