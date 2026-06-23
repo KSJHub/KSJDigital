@@ -1,15 +1,17 @@
 {
   "name": "ksjdigital",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "start": "npm run portal:start",
+    "portal:start": "node server/devPortal.js",
+    "portal:api": "node server/portalApiServer.js",
+    "portal:deploy-worker": "PORTAL_DEPLOYMENTS_ENABLED=true node server/portalApiServer.js",
     "dev": "vite",
     "build": "vite build",
-    "lint": "eslint .",
     "preview": "vite preview",
-    "portal:api": "node server/portalApiServer.js",
-    "portal:deploy-worker": "PORTAL_DEPLOYMENTS_ENABLED=true node server/portalApiServer.js"
+    "lint": "eslint ."
   },
   "dependencies": {
     "react": "^19.2.6",
