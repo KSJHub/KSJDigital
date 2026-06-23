@@ -277,6 +277,16 @@ const server = http.createServer(async (request, response) => {
   return sendJson(response, 404, { ok: false, message: 'Route not found.' });
 });
 
-server.listen(PORT, () => {
-  console.log(`KSJ Digital Portal API listening on port ${PORT}`);
+async function startPortalApiServer() {
+  const data = await readPortalData();
+
+  server.listen(PORT, () => {
+    console.log(`KSJ Digital Portal API listening on port ${PORT}`);
+    console.log(`KSJ Digital Portal data ready: ${getPortalDataFilePath()}`);
+    console.log(`KSJ Digital Portal accounts loaded: ${(data.users ?? []).length}`);
+  });
+}
+
+startPortalApiServer().catch((error) => {
+  console.error('KSJ Digital Portal API failed to start.', error);
 });
