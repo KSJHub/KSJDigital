@@ -6,16 +6,16 @@ const DEFAULT_DATA_DIR = path.join(process.cwd(), 'server', 'data');
 const DATA_DIR = process.env.PORTAL_DATA_DIR || DEFAULT_DATA_DIR;
 const DATA_FILE = process.env.PORTAL_DATA_FILE || path.join(DATA_DIR, 'portalData.json');
 
-const LEGACY_EMAIL_REPLACEMENTS = {
-  'ksj@ksjdigital.co.uk': 'enquiries@ksjdigital.co.uk',
-  'media@ksjdigital.co.uk': 'enquiries@ksjdigital.co.uk',
-};
-
-const CONTACT_EMAILS = {
+const PORTAL_EMAILS = {
+  ownerLogin: 'ksj@ksjdigital.co.uk',
+  clientLogin: 'twotonetaj@ksjdigital.co.uk',
   enquiries: 'enquiries@ksjdigital.co.uk',
   support: 'support@ksjdigital.co.uk',
   billing: 'billing@ksjdigital.co.uk',
-  gaming: 'gaming@ksjdigital.co.uk',
+};
+
+const LEGACY_EMAIL_REPLACEMENTS = {
+  'media@ksjdigital.co.uk': PORTAL_EMAILS.enquiries,
 };
 
 function clone(value) {
@@ -31,6 +31,14 @@ function replaceLegacyEmail(email) {
   return LEGACY_EMAIL_REPLACEMENTS[cleanEmail] ?? cleanEmail;
 }
 
+function normalisePortalUsers(users = []) {
+  return users.map((user) => {
+    if (user.id === 'ksj-admin') return { ...user, email: PORTAL_EMAILS.ownerLogin };
+    if (user.id === 'twotonetaj-client') return { ...user, email: PORTAL_EMAILS.clientLogin };
+    return { ...user, email: replaceLegacyEmail(user.email) };
+  });
+}
+
 function migratePortalData(data) {
   const nextData = clone(data ?? initialPortalData);
 
@@ -40,23 +48,20 @@ function migratePortalData(data) {
     sourceOfTruth: 'server/data/portalData.json',
   };
 
-  nextData.users = (nextData.users ?? []).map((user) => ({
-    ...user,
-    email: replaceLegacyEmail(user.email),
-  }));
+  nextData.users = normalisePortalUsers(nextData.users ?? []);
 
   if (nextData.content?.ksjdigital?.contact?.live) {
     nextData.content.ksjdigital.contact.live = {
       ...nextData.content.ksjdigital.contact.live,
-      email: replaceLegacyEmail(nextData.content.ksjdigital.contact.live.email) || CONTACT_EMAILS.enquiries,
-      supportEmail: replaceLegacyEmail(nextData.content.ksjdigital.contact.live.supportEmail) || CONTACT_EMAILS.support,
+      email: PORTAL_EMAILS.enquiries,
+      supportEmail: PORTAL_EMAILS.support,
     };
   }
 
   if (nextData.content?.twotonetaj?.contact?.live) {
     nextData.content.twotonetaj.contact.live = {
       ...nextData.content.twotonetaj.contact.live,
-      publicEmail: replaceLegacyEmail(nextData.content.twotonetaj.contact.live.publicEmail) || CONTACT_EMAILS.enquiries,
+      publicEmail: PORTAL_EMAILS.enquiries,
     };
   }
 
@@ -64,7 +69,11 @@ function migratePortalData(data) {
     ...(nextData.settings ?? {}),
     contactEmails: {
       ...(nextData.settings?.contactEmails ?? {}),
-      ...CONTACT_EMAILS,
+      main: PORTAL_EMAILS.ownerLogin,
+      enquiries: PORTAL_EMAILS.enquiries,
+      support: PORTAL_EMAILS.support,
+      billing: PORTAL_EMAILS.billing,
+      twotonetaj: PORTAL_EMAILS.clientLogin,
     },
   };
 
