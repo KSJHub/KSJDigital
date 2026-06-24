@@ -49,6 +49,49 @@ export const PORTAL_ROLE_LABELS = {
   [PORTAL_ROLES.VIEWER]: 'Viewer',
 };
 
+export const PORTAL_ROLE_DESCRIPTIONS = {
+  [PORTAL_ROLES.OWNER]: {
+    label: PORTAL_ROLE_LABELS[PORTAL_ROLES.OWNER],
+    title: 'Owner Access',
+    text: 'Full KSJ Digital access.',
+    permissions: ['All websites', 'All users', 'All requests', 'All settings'],
+  },
+  [PORTAL_ROLES.WEBSITE_MANAGER]: {
+    label: PORTAL_ROLE_LABELS[PORTAL_ROLES.WEBSITE_MANAGER],
+    title: 'Website Manager Access',
+    text: 'Internal KSJ staff access for assigned websites.',
+    permissions: ['Assigned websites', 'Content edits', 'Image changes', 'Draft support'],
+  },
+  [PORTAL_ROLES.SUPPORT_AGENT]: {
+    label: PORTAL_ROLE_LABELS[PORTAL_ROLES.SUPPORT_AGENT],
+    title: 'Support Agent Access',
+    text: 'Support-only staff access.',
+    permissions: ['Support inbox', 'Tickets', 'Client messages', 'Request replies'],
+  },
+  [PORTAL_ROLES.CLIENT_ADMIN]: {
+    label: PORTAL_ROLE_LABELS[PORTAL_ROLES.CLIENT_ADMIN],
+    title: 'Client Administrator Access',
+    text: 'Highest client role for assigned websites.',
+    permissions: ['Assigned websites', 'Text edits', 'Image edits', 'Drafts', 'Publish requests'],
+  },
+  [PORTAL_ROLES.CONTENT_EDITOR]: {
+    label: PORTAL_ROLE_LABELS[PORTAL_ROLES.CONTENT_EDITOR],
+    title: 'Content Editor Access',
+    text: 'Limited client editing role.',
+    permissions: ['Basic content edits', 'Image uploads', 'Product updates', 'Drafts'],
+  },
+  [PORTAL_ROLES.VIEWER]: {
+    label: PORTAL_ROLE_LABELS[PORTAL_ROLES.VIEWER],
+    title: 'Viewer Access',
+    text: 'Read-only portal role.',
+    permissions: ['Read only', 'Assigned websites', 'View drafts', 'View requests'],
+  },
+};
+
+export function formatPortalRole(role) {
+  return PORTAL_ROLE_DESCRIPTIONS[normalisePortalRole(role)]?.label ?? PORTAL_ROLE_LABELS[PORTAL_ROLES.CLIENT_ADMIN];
+}
+
 const rolePermissions = {
   [PORTAL_ROLES.OWNER]: Object.values(PORTAL_PERMISSIONS),
   [PORTAL_ROLES.WEBSITE_MANAGER]: [
