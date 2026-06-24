@@ -7,6 +7,7 @@
     "start": "npm run portal:start",
     "portal:start": "node server/devPortal.js",
     "portal:api": "node server/portalApiServer.js",
+    "portal:api:watch": "node --watch server/portalApiServer.js",
     "portal:deploy-worker": "PORTAL_DEPLOYMENTS_ENABLED=true node server/portalApiServer.js",
     "dev": "vite",
     "build": "vite build",
