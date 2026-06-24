@@ -3,21 +3,17 @@ import PortalSidebar from '../components/PortalSidebar';
 import { clearSession, getStoredSession } from '../portals/auth/sessionManager';
 import { hasPermission, PORTAL_PERMISSIONS } from '../portals/auth/permissions';
 import { getPortalData, savePortalData } from '../portals/data/portalManager';
-
-const ticketStatuses = ['Open', 'Waiting On Client', 'Waiting On Staff', 'Resolved', 'Closed'];
-const ticketPriorities = ['Low', 'Normal', 'High', 'Urgent'];
-
-function getWebsiteName(websiteId, websites) {
-  return websites.find((website) => website.id === websiteId)?.name ?? 'Unknown Website';
-}
-
-function getUserName(userId, users) {
-  return users.find((user) => user.id === userId)?.name ?? 'Unassigned';
-}
-
-function isOpenTicket(ticket) {
-  return ticket.status !== 'Closed' && ticket.status !== 'Resolved';
-}
+import {
+  SUPPORT_TICKET_PRIORITIES,
+  SUPPORT_TICKET_STATUSES,
+  createSupportInternalNote,
+  createSupportReply,
+  getSupportStaffUsers,
+  getSupportTicketStats,
+  getSupportUserName,
+  getSupportWebsiteName,
+  updateSupportTicketList,
+} from '../portals/support/supportTickets';
 
 export default function PortalsSupport() {
   const session = getStoredSession();
@@ -33,7 +29,7 @@ export default function PortalsSupport() {
   const tickets = portalData.supportTickets ?? [];
   const websites = portalData.websites ?? [];
   const users = portalData.users ?? [];
-  const staffUsers = users.filter((portalUser) => ['owner', 'websiteManager', 'supportAgent'].includes(portalUser.role));
+  const staffUsers = getSupportStaffUsers(users);
 
   const selectedTicket = useMemo(
     () => tickets.find((ticket) => ticket.id === selectedTicketId) ?? tickets[0],
@@ -41,14 +37,7 @@ export default function PortalsSupport() {
   );
 
   const filteredTickets = tickets.filter((ticket) => ticket.status === activeStatus);
-
-  const ticketStats = [
-    { label: 'Open', value: tickets.filter((ticket) => ticket.status === 'Open').length },
-    { label: 'Waiting Client', value: tickets.filter((ticket) => ticket.status === 'Waiting On Client').length },
-    { label: 'Waiting Staff', value: tickets.filter((ticket) => ticket.status === 'Waiting On Staff').length },
-    { label: 'Closed', value: tickets.filter((ticket) => ticket.status === 'Closed').length },
-    { label: 'Active', value: tickets.filter(isOpenTicket).length },
-  ];
+  const ticketStats = getSupportTicketStats(tickets);
 
   function commitPortalData(nextData) {
     const savedData = savePortalData(nextData);
@@ -65,9 +54,7 @@ export default function PortalsSupport() {
     if (!canManageSupport) return;
     commitPortalData({
       ...portalData,
-      supportTickets: tickets.map((ticket) => (
-        ticket.id === ticketId ? { ...ticket, ...updates, updatedAt: 'Just now' } : ticket
-      )),
+      supportTickets: updateSupportTicketList(tickets, ticketId, updates),
     });
   }
 
@@ -89,36 +76,28 @@ export default function PortalsSupport() {
   function handleReply() {
     if (!selectedTicket || !replyText.trim()) return;
     const isStaffReply = canManageSupport;
-    const nextMessage = {
-      id: `message-${Date.now()}`,
+    const nextMessage = createSupportReply({
+      body: replyText,
       author: user?.name ?? 'KSJ Digital User',
-      type: isStaffReply ? 'staff' : 'client',
-      body: replyText.trim(),
-      createdAt: 'Just now',
-    };
+      isStaffReply,
+    });
 
     commitPortalData({
       ...portalData,
-      supportTickets: tickets.map((ticket) => (
-        ticket.id === selectedTicket.id ? {
-          ...ticket,
-          messages: [...(ticket.messages ?? []), nextMessage],
-          status: isStaffReply ? 'Waiting On Client' : 'Waiting On Staff',
-          updatedAt: 'Just now',
-        } : ticket
-      )),
+      supportTickets: updateSupportTicketList(tickets, selectedTicket.id, {
+        messages: [...(selectedTicket.messages ?? []), nextMessage],
+        status: isStaffReply ? 'Waiting On Client' : 'Waiting On Staff',
+      }),
     });
     setReplyText('');
   }
 
   function handleInternalNote() {
     if (!selectedTicket || !noteText.trim() || !canManageSupport) return;
-    const nextNote = {
-      id: `note-${Date.now()}`,
+    const nextNote = createSupportInternalNote({
+      body: noteText,
       author: user?.name ?? 'KSJ Digital Staff',
-      body: noteText.trim(),
-      createdAt: 'Just now',
-    };
+    });
 
     updateTicket(selectedTicket.id, {
       internalNotes: [...(selectedTicket.internalNotes ?? []), nextNote],
@@ -151,7 +130,7 @@ export default function PortalsSupport() {
           </div>
 
           <div className="portal-inline-actions">
-            {ticketStatuses.map((status) => <button type="button" key={status} onClick={() => setActiveStatus(status)}>{status}</button>)}
+            {SUPPORT_TICKET_STATUSES.map((status) => <button type="button" key={status} onClick={() => setActiveStatus(status)}>{status}</button>)}
           </div>
 
           <div className="portal-grid-two">
@@ -172,9 +151,9 @@ export default function PortalsSupport() {
                       <p>{ticket.summary}</p>
                       <ul>
                         <li>{ticket.id}</li>
-                        <li>{getWebsiteName(ticket.websiteId, websites)}</li>
+                        <li>{getSupportWebsiteName(ticket.websiteId, websites)}</li>
                         <li>Priority: {ticket.priority}</li>
-                        <li>Assigned: {getUserName(ticket.assignedTo, users)}</li>
+                        <li>Assigned: {getSupportUserName(ticket.assignedTo, users)}</li>
                       </ul>
                     </div>
                     <button type="button" onClick={() => setSelectedTicketId(ticket.id)}>View</button>
@@ -192,10 +171,10 @@ export default function PortalsSupport() {
                 <>
                   <div className="portal-detail-group">
                     <strong>Ticket Info</strong>
-                    <small>Website: {getWebsiteName(selectedTicket.websiteId, websites)}</small>
+                    <small>Website: {getSupportWebsiteName(selectedTicket.websiteId, websites)}</small>
                     <small>Status: {selectedTicket.status}</small>
                     <small>Priority: {selectedTicket.priority}</small>
-                    <small>Assigned: {getUserName(selectedTicket.assignedTo, users)}</small>
+                    <small>Assigned: {getSupportUserName(selectedTicket.assignedTo, users)}</small>
                     <small>Updated: {selectedTicket.updatedAt}</small>
                   </div>
 
@@ -204,13 +183,13 @@ export default function PortalsSupport() {
                       <label>
                         Status
                         <select value={selectedTicket.status} onChange={(event) => handleStatusChange(event.target.value)}>
-                          {ticketStatuses.map((status) => <option key={status}>{status}</option>)}
+                          {SUPPORT_TICKET_STATUSES.map((status) => <option key={status}>{status}</option>)}
                         </select>
                       </label>
                       <label>
                         Priority
                         <select value={selectedTicket.priority} onChange={(event) => handlePriorityChange(event.target.value)}>
-                          {ticketPriorities.map((priority) => <option key={priority}>{priority}</option>)}
+                          {SUPPORT_TICKET_PRIORITIES.map((priority) => <option key={priority}>{priority}</option>)}
                         </select>
                       </label>
                       <label>
