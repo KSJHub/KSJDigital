@@ -7,21 +7,15 @@ KSJ Digital Portals is the management panel for KSJ Digital websites, client con
 ```txt
 KSJDigital
 ├── server/
+│   ├── api/
 │   ├── data/
-│   │   └── portalData.json
-│   ├── devPortal.js
-│   ├── portalApiServer.js
-│   ├── portalDataStore.js
-│   ├── deploymentRunner.js
-│   ├── deploymentStateStore.js
-│   └── githubContentPublisher.js
+│   ├── deployment/
+│   ├── github/
+│   ├── stores/
+│   └── devPortal.js
 ├── src/
 │   ├── pages/
 │   └── portals/
-│       ├── auth/
-│       ├── content/
-│       ├── data/
-│       └── api/
 └── public/
 ```
 
@@ -73,6 +67,7 @@ Portal data: http://localhost:4174/api/portal/data
 npm start                     Start Portal API + Vite frontend
 npm run portal:start          Same as npm start
 npm run portal:api            Start Portal API only
+npm run portal:api:watch      Start Portal API in watch mode
 npm run dev                   Start Vite frontend only
 npm run build                 Build production frontend
 npm run preview               Preview production build
