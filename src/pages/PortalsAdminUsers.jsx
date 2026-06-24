@@ -3,37 +3,13 @@ import { useMemo, useState } from 'react';
 import PortalSidebar from '../components/PortalSidebar';
 import { clearSession, getStoredSession } from '../portals/auth/sessionManager';
 import { hashPortalPassword } from '../portals/auth/authService';
+import { formatPortalRole, normalisePortalRole, PORTAL_ROLE_DESCRIPTIONS } from '../portals/auth/permissions';
 import { getPortalData, savePortalData } from '../portals/data/portalManager';
-
-const roleDescriptions = {
-  owner: { label: 'Owner', title: 'Owner Access', text: 'Full KSJ Digital access.', permissions: ['All websites', 'All users', 'All requests', 'All settings'] },
-  websiteManager: { label: 'Website Manager', title: 'Website Manager Access', text: 'Internal KSJ staff access for assigned websites.', permissions: ['Assigned websites', 'Content edits', 'Image changes', 'Draft support'] },
-  supportAgent: { label: 'Support Agent', title: 'Support Agent Access', text: 'Support-only staff access.', permissions: ['Support inbox', 'Tickets', 'Client messages', 'Request replies'] },
-  clientAdmin: { label: 'Client Administrator', title: 'Client Administrator Access', text: 'Highest client role for assigned websites.', permissions: ['Assigned websites', 'Text edits', 'Image edits', 'Drafts', 'Publish requests'] },
-  contentEditor: { label: 'Content Editor', title: 'Content Editor Access', text: 'Limited client editing role.', permissions: ['Basic content edits', 'Image uploads', 'Product updates', 'Drafts'] },
-  viewer: { label: 'Viewer', title: 'Viewer Access', text: 'Read-only portal role.', permissions: ['Read only', 'Assigned websites', 'View drafts', 'View requests'] },
-};
 
 const statusDescriptions = {
   Active: 'The user can access assigned portal areas.',
   Paused: 'The user access is paused until reactivated.',
 };
-
-function normaliseRole(role) {
-  if (role === 'staff') return 'websiteManager';
-  if (role === 'client') return 'clientAdmin';
-  if (role === 'Owner') return 'owner';
-  if (role === 'Client Administrator') return 'clientAdmin';
-  if (role === 'Website Manager') return 'websiteManager';
-  if (role === 'Support Agent') return 'supportAgent';
-  if (role === 'Content Editor') return 'contentEditor';
-  if (role === 'Viewer') return 'viewer';
-  return role ?? 'clientAdmin';
-}
-
-function formatRole(role) {
-  return roleDescriptions[normaliseRole(role)]?.label ?? 'Client Administrator';
-}
 
 function getWebsiteCountText(websiteIds) {
   const count = websiteIds?.length ?? 0;
@@ -52,7 +28,7 @@ function createEditorState(user, websites) {
     id: user?.id ?? '',
     name: user?.name ?? '',
     email: user?.email ?? '',
-    role: normaliseRole(user?.role),
+    role: normalisePortalRole(user?.role),
     status: user?.status === 'Disabled' ? 'Paused' : user?.status ?? 'Active',
     websiteIds: user?.websiteIds?.length ? user.websiteIds : [websites[0]?.id].filter(Boolean),
     password: '',
@@ -96,7 +72,7 @@ export default function PortalsAdminUsers() {
   const [notice, setNotice] = useState('');
 
   const selectedUser = useMemo(() => users.find((portalUser) => portalUser.id === selectedUserId) ?? users[0], [selectedUserId, users]);
-  const roleInfo = roleDescriptions[editor.role] ?? roleDescriptions.clientAdmin;
+  const roleInfo = PORTAL_ROLE_DESCRIPTIONS[editor.role] ?? PORTAL_ROLE_DESCRIPTIONS.clientAdmin;
   const statusInfo = statusDescriptions[editor.status] ?? statusDescriptions.Active;
 
   function commitPortalData(nextData) {
@@ -252,7 +228,7 @@ export default function PortalsAdminUsers() {
                 <label>Select User<select value={selectedUserId} onChange={(event) => handleSelectUser(event.target.value)} disabled={mode === 'create'}>{users.map((portalUser) => <option value={portalUser.id} key={portalUser.id}>{portalUser.name}</option>)}</select></label>
                 <label>Name<input value={editor.name} placeholder="Client name" onChange={(event) => updateEditor('name', event.target.value)} /></label>
                 <label>Email<input value={editor.email} placeholder="client@example.com" onChange={(event) => updateEditor('email', event.target.value)} /></label>
-                <label>Role<select value={editor.role} onChange={(event) => updateEditor('role', event.target.value)}>{Object.entries(roleDescriptions).map(([roleId, role]) => <option value={roleId} key={roleId}>{role.label}</option>)}</select></label>
+                <label>Role<select value={editor.role} onChange={(event) => updateEditor('role', event.target.value)}>{Object.entries(PORTAL_ROLE_DESCRIPTIONS).map(([roleId, role]) => <option value={roleId} key={roleId}>{role.label}</option>)}</select></label>
                 <label>{mode === 'create' ? 'Password' : 'New Password'}<input type="password" value={editor.password} placeholder={mode === 'create' ? 'Set initial password' : 'Leave blank to keep current password'} onChange={(event) => updateEditor('password', event.target.value)} /></label>
                 <label>Confirm Password<input type="password" value={editor.confirmPassword} placeholder="Confirm password" onChange={(event) => updateEditor('confirmPassword', event.target.value)} /></label>
                 <div className="portal-websites-dropdown portal-full-width-field">
@@ -275,7 +251,7 @@ export default function PortalsAdminUsers() {
               <p className="eyebrow">Selection Details</p><h3>{roleInfo.title}</h3><p>{roleInfo.text}</p>
               <div className="portal-detail-group"><strong>Permissions</strong>{roleInfo.permissions.map((permission) => <small key={permission}>✓ {permission}</small>)}</div>
               <div className="portal-detail-group"><strong>Status: {editor.status}</strong><small>{statusInfo}</small></div>
-              <div className="portal-detail-group"><strong>{mode === 'create' ? 'New User Preview' : 'Selected User'}</strong><small>Name: {editor.name || 'Not set'}</small><small>Email: {editor.email || 'Not set'}</small><small>Role: {formatRole(editor.role)}</small><small>{getWebsiteCountText(editor.websiteIds)}</small><small>Password: {selectedUser?.passwordHash ? 'Set' : 'Temporary/Not Set'}</small></div>
+              <div className="portal-detail-group"><strong>{mode === 'create' ? 'New User Preview' : 'Selected User'}</strong><small>Name: {editor.name || 'Not set'}</small><small>Email: {editor.email || 'Not set'}</small><small>Role: {formatPortalRole(editor.role)}</small><small>{getWebsiteCountText(editor.websiteIds)}</small><small>Password: {selectedUser?.passwordHash ? 'Set' : 'Temporary/Not Set'}</small></div>
             </section>
           </div>
 
@@ -283,7 +259,7 @@ export default function PortalsAdminUsers() {
             <div className="portal-editor-header"><div><p className="eyebrow">Client Access</p><h2>Manage Logins</h2><p>View, edit, or remove portal users from one management page.</p></div></div>
             <div className="portal-admin-table">
               <div className="portal-admin-table-head"><span>Name</span><span>Email</span><span>Role</span><span>Status</span><span>Access</span><span>Password</span></div>
-              {users.map((portalUser) => <div className="portal-admin-table-row" key={portalUser.id}><span>{portalUser.name}</span><span>{portalUser.email}</span><span>{formatRole(portalUser.role)}</span><span>{portalUser.status}</span><span>{getWebsiteSummary(portalUser.websiteIds ?? [], websites)}</span><button type="button" onClick={() => handleSelectUser(portalUser.id)}>{portalUser.passwordHash ? 'Edit' : 'Set Password'}</button></div>)}
+              {users.map((portalUser) => <div className="portal-admin-table-row" key={portalUser.id}><span>{portalUser.name}</span><span>{portalUser.email}</span><span>{formatPortalRole(portalUser.role)}</span><span>{portalUser.status}</span><span>{getWebsiteSummary(portalUser.websiteIds ?? [], websites)}</span><button type="button" onClick={() => handleSelectUser(portalUser.id)}>{portalUser.passwordHash ? 'Edit' : 'Set Password'}</button></div>)}
             </div>
           </section>
         </div>
