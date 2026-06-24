@@ -1,18 +1,13 @@
 import { spawn } from 'node:child_process';
 
-const isWindows = process.platform === 'win32';
-const npmCommand = isWindows ? 'npm.cmd' : 'npm';
-
 const processes = [
   {
     name: 'portal-api',
-    command: npmCommand,
-    args: ['run', 'portal:api'],
+    command: 'npm run portal:api',
   },
   {
     name: 'vite',
-    command: npmCommand,
-    args: ['run', 'dev'],
+    command: 'npm run dev',
   },
 ];
 
@@ -36,16 +31,22 @@ function stopAll(signal = 'SIGTERM') {
 }
 
 for (const processConfig of processes) {
-  const child = spawn(processConfig.command, processConfig.args, {
+  const child = spawn(processConfig.command, {
     stdio: ['inherit', 'pipe', 'pipe'],
-    shell: false,
-    env: process.env,
+    shell: true,
+    windowsHide: false,
   });
 
   children.push(child);
 
   child.stdout.on('data', (data) => log(processConfig.name, data));
   child.stderr.on('data', (data) => log(processConfig.name, data));
+
+  child.on('error', (error) => {
+    console.error(`[${processConfig.name}] failed to start: ${error.message}`);
+    stopAll();
+    process.exit(1);
+  });
 
   child.on('exit', (code, signal) => {
     if (shuttingDown) return;
