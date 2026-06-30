@@ -5,6 +5,7 @@ import {
   PORTAL_DEPLOYMENT_STATUSES,
   PORTAL_RUNNABLE_DEPLOYMENT_STATUSES,
   enqueuePortalDeployment,
+  getPortalDeploymentQueue,
   getPortalDeploymentStatus,
   runPortalDeployment,
 } from '../portals/api/deploymentApi';
@@ -72,6 +73,7 @@ export default function PortalsAdminDeployments() {
   const [activeWebsiteId, setActiveWebsiteId] = useState('all');
   const [workerNotice, setWorkerNotice] = useState('');
   const [selectedWorkerStatus, setSelectedWorkerStatus] = useState(null);
+  const [serverQueueSnapshot, setServerQueueSnapshot] = useState([]);
 
   const websites = portalData.websites ?? [];
   const deploymentQueue = portalData.deploymentQueue ?? [];
@@ -86,6 +88,7 @@ export default function PortalsAdminDeployments() {
 
   const visibleQueue = useMemo(() => activeWebsiteId === 'all' ? deploymentQueue : deploymentQueue.filter((item) => item.websiteId === activeWebsiteId), [activeWebsiteId, deploymentQueue]);
   const visibleHistory = useMemo(() => activeWebsiteId === 'all' ? deploymentHistory : deploymentHistory.filter((item) => item.websiteId === activeWebsiteId), [activeWebsiteId, deploymentHistory]);
+  const visibleServerQueue = useMemo(() => activeWebsiteId === 'all' ? serverQueueSnapshot : serverQueueSnapshot.filter((item) => item.websiteId === activeWebsiteId), [activeWebsiteId, serverQueueSnapshot]);
   const visibleDeployments = useMemo(() => [...visibleQueue, ...visibleHistory], [visibleQueue, visibleHistory]);
   const activeDeployments = visibleQueue.filter((deployment) => PORTAL_ACTIVE_DEPLOYMENT_STATUSES.includes(deployment.status));
   const failedDeployments = visibleDeployments.filter((deployment) => deployment.status === 'Failed');
@@ -148,6 +151,16 @@ export default function PortalsAdminDeployments() {
     updateDeploymentRecord(deployment, { status: 'Cancelled', completedAt: 'Just now', workerMessage: 'Cancelled before deployment engine execution.' }, historyRecord);
   }
 
+  async function refreshServerQueue() {
+    const result = await getPortalDeploymentQueue();
+    if (!result.ok) {
+      setWorkerNotice(result.message || 'Unable to refresh server queue.');
+      return;
+    }
+    setServerQueueSnapshot(result.queue ?? []);
+    setWorkerNotice(`Server queue refreshed. ${(result.queue ?? []).length} job(s) loaded.`);
+  }
+
   async function syncWorkerStatus(deployment = null) {
     const deploymentId = getDeploymentId(deployment) ?? getDeploymentId(nextQueuedDeployment) ?? getDeploymentId(latestDeployment) ?? null;
     const result = await getPortalDeploymentStatus(deploymentId);
@@ -201,6 +214,7 @@ export default function PortalsAdminDeployments() {
 
     setSelectedWorkerStatus(result.logs ? result : null);
     setWorkerNotice(message);
+    await refreshServerQueue();
     await syncWorkerStatus(deployment);
   }
 
@@ -222,7 +236,7 @@ export default function PortalsAdminDeployments() {
           <section className="portal-editor-panel">
             <div className="portal-editor-header">
               <div><p className="eyebrow">Deployment Control</p><h2>Queue, History, Engine Status</h2><p>Track queued jobs, running builds, completed deployments, failed releases, Git writes, and server-side logs from one place.</p></div>
-              <button className="portal-logout-button" type="button" onClick={() => syncWorkerStatus()}>Sync Engine</button>
+              <div className="portal-header-actions"><button className="portal-logout-button" type="button" onClick={() => syncWorkerStatus()}>Sync Engine</button><button className="portal-logout-button" type="button" onClick={refreshServerQueue}>Refresh Queue</button></div>
             </div>
             <div className="portal-form-grid"><label>Website Filter<select value={activeWebsiteId} onChange={(event) => setActiveWebsiteId(event.target.value)}><option value="all">All websites</option>{websites.map((website) => <option value={website.id} key={website.id}>{website.name}</option>)}</select></label></div>
           </section>
@@ -230,7 +244,7 @@ export default function PortalsAdminDeployments() {
           <div className="portal-admin-stats">
             <article className="portal-help-card"><p className="eyebrow">Engine</p><h3>{deploymentEngineStatus}</h3></article>
             <article className="portal-help-card"><p className="eyebrow">Next Queue</p><h3>{nextQueuedDeployment ? getWebsiteName(nextQueuedDeployment.websiteId) : 'Idle'}</h3></article>
-            <article className="portal-help-card"><p className="eyebrow">Running</p><h3>{activeDeployments.length}</h3></article>
+            <article className="portal-help-card"><p className="eyebrow">Server Queue</p><h3>{visibleServerQueue.length}</h3></article>
             <article className="portal-help-card"><p className="eyebrow">Failed</p><h3>{failedDeployments.length}</h3></article>
           </div>
 
@@ -243,13 +257,15 @@ export default function PortalsAdminDeployments() {
 
           <div className="portal-grid-two">
             <section className="portal-editor-panel"><div className="portal-editor-header"><div><p className="eyebrow">Deployment Queue</p><h2>Queued Jobs</h2><p>Jobs created by publish approval. Run persists the job to the server queue before calling the guarded API engine.</p></div></div><div className="portal-section-list">{visibleQueue.length ? visibleQueue.map((deployment) => renderDeploymentCard(deployment, { actionLabel: 'Cancel', onAction: PORTAL_ACTIVE_DEPLOYMENT_STATUSES.includes(deployment.status) ? cancelDeployment : null, secondaryActionLabel: 'Run Engine', onSecondaryAction: PORTAL_RUNNABLE_DEPLOYMENT_STATUSES.includes(deployment.status) ? runDeployment : null, tertiaryActionLabel: 'Sync Logs', onTertiaryAction: syncWorkerStatus })) : <article><div><div className="portal-section-title-row"><strong>No deployment jobs</strong><span>Waiting</span></div><p>Approve and publish a request to create the first deployment queue item.</p></div></article>}</div></section>
-            <section className="portal-editor-panel"><div className="portal-editor-header"><div><p className="eyebrow">Active Deployments</p><h2>Running / Queued</h2><p>Active jobs are separated so the engine can surface live progress here.</p></div></div><div className="portal-section-list">{activeDeployments.length ? activeDeployments.map((deployment) => renderDeploymentCard(deployment, { secondaryActionLabel: 'Run Engine', onSecondaryAction: deployment.status === 'Queued' ? runDeployment : null, tertiaryActionLabel: 'Sync Logs', onTertiaryAction: syncWorkerStatus })) : <article><div><div className="portal-section-title-row"><strong>No active deployments</strong><span>Idle</span></div><p>There are no queued or running deployment jobs right now.</p></div></article>}</div></section>
+            <section className="portal-editor-panel"><div className="portal-editor-header"><div><p className="eyebrow">Server Queue Snapshot</p><h2>Runtime Queue</h2><p>This comes from the API runtime store. Use Refresh Queue to sync it from the server.</p></div></div><div className="portal-section-list">{visibleServerQueue.length ? visibleServerQueue.map((job) => <article key={`${job.id}-${job.status}`}><div><div className="portal-section-title-row"><strong>{getWebsiteName(job.websiteId)}</strong><span>{job.status}</span></div><p>{job.message || job.deployment?.deploymentId || job.deploymentId || 'Server queue job'}</p><ul><li>Deployment: {job.deploymentId ?? job.id}</li><li>Source: {job.source ?? 'portal-api'}</li><li>Updated: {job.updatedAt ?? 'Not recorded'}</li></ul></div></article>) : <article><div><div className="portal-section-title-row"><strong>No server queue snapshot</strong><span>Not synced</span></div><p>Click Refresh Queue to load the server-side deployment queue.</p></div></article>}</div></section>
           </div>
 
           <div className="portal-grid-two">
-            <section className="portal-editor-panel"><div className="portal-editor-header"><div><p className="eyebrow">Deployment History</p><h2>Completed Jobs</h2><p>Successful, failed, cancelled, and dry-run records with commit and actor metadata.</p></div></div><div className="portal-section-list">{visibleHistory.length ? visibleHistory.map((deployment) => renderDeploymentCard(deployment, { tertiaryActionLabel: 'Sync Logs', onTertiaryAction: syncWorkerStatus })) : <article><div><div className="portal-section-title-row"><strong>No deployment history</strong><span>Waiting</span></div><p>History appears after the first tracked publish, cancellation, or engine run.</p></div></article>}</div></section>
+            <section className="portal-editor-panel"><div className="portal-editor-header"><div><p className="eyebrow">Active Deployments</p><h2>Running / Queued</h2><p>Active jobs are separated so the engine can surface live progress here.</p></div></div><div className="portal-section-list">{activeDeployments.length ? activeDeployments.map((deployment) => renderDeploymentCard(deployment, { secondaryActionLabel: 'Run Engine', onSecondaryAction: deployment.status === 'Queued' ? runDeployment : null, tertiaryActionLabel: 'Sync Logs', onTertiaryAction: syncWorkerStatus })) : <article><div><div className="portal-section-title-row"><strong>No active deployments</strong><span>Idle</span></div><p>There are no queued or running deployment jobs right now.</p></div></article>}</div></section>
             <section className="portal-editor-panel"><div className="portal-editor-header"><div><p className="eyebrow">Failed Deployments</p><h2>Needs Attention</h2><p>Failures are grouped here so retry controls are visible.</p></div></div><div className="portal-section-list">{failedDeployments.length ? failedDeployments.map((deployment) => renderDeploymentCard(deployment, { secondaryActionLabel: 'Retry Engine', onSecondaryAction: runDeployment, tertiaryActionLabel: 'Sync Logs', onTertiaryAction: syncWorkerStatus })) : <article><div><div className="portal-section-title-row"><strong>No failed deployments</strong><span>Clear</span></div><p>Nothing needs manual intervention right now.</p></div></article>}</div></section>
           </div>
+
+          <section className="portal-editor-panel"><div className="portal-editor-header"><div><p className="eyebrow">Deployment History</p><h2>Completed Jobs</h2><p>Successful, failed, cancelled, and dry-run records with commit and actor metadata.</p></div></div><div className="portal-section-list">{visibleHistory.length ? visibleHistory.map((deployment) => renderDeploymentCard(deployment, { tertiaryActionLabel: 'Sync Logs', onTertiaryAction: syncWorkerStatus })) : <article><div><div className="portal-section-title-row"><strong>No deployment history</strong><span>Waiting</span></div><p>History appears after the first tracked publish, cancellation, or engine run.</p></div></article>}</div></section>
 
           <section className="portal-editor-panel"><div className="portal-editor-header"><div><p className="eyebrow">Engine Logs</p><h2>Server Deployment State</h2><p>Logs come from the portal API server runtime store, not browser localStorage.</p></div></div>{selectedWorkerStatus ? <div className="portal-section-list"><article><div><div className="portal-section-title-row"><strong>{selectedWorkerStatus.deploymentId ?? selectedWorkerStatus.deployment?.deploymentId ?? 'Engine Status'}</strong><span>{selectedWorkerStatus.lock ? 'Busy' : 'Ready'}</span></div><p>{selectedWorkerStatus.deployment?.message ?? selectedWorkerStatus.message ?? 'Deployment engine status loaded.'}</p><ul><li>Status: {selectedWorkerStatus.deployment?.status ?? selectedWorkerStatus.queuedJob?.status ?? 'No snapshot yet'}</li><li>Server Queue: {selectedWorkerStatus.queuedJob?.status ?? 'No queued job snapshot'}</li><li>Logs: {selectedWorkerStatus.logs?.length ?? 0}</li><li>Engine State: {selectedWorkerStatus.lock?.acquiredAt ?? 'No active run'}</li></ul></div></article>{(selectedWorkerStatus.logs ?? []).slice(-10).reverse().map((log) => <article key={log.id}><div><div className="portal-section-title-row"><strong>{log.level ?? 'info'}</strong><span>{log.timestamp}</span></div><p>{log.message}</p>{log.step && <ul><li>Step: {log.step}</li></ul>}</div></article>)}</div> : <p className="portal-inline-notice">Use Sync Engine or Sync Logs on a deployment job to load server-side deployment state.</p>}</section>
 
