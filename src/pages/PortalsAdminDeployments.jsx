@@ -1,10 +1,15 @@
 import { useMemo, useState } from 'react';
 import PortalSidebar from '../components/PortalSidebar';
-import { enqueuePortalDeployment, getPortalDeploymentStatus, runPortalDeployment } from '../portals/api/deploymentApi';
+import {
+  PORTAL_ACTIVE_DEPLOYMENT_STATUSES,
+  PORTAL_DEPLOYMENT_STATUSES,
+  PORTAL_RUNNABLE_DEPLOYMENT_STATUSES,
+  enqueuePortalDeployment,
+  getPortalDeploymentStatus,
+  runPortalDeployment,
+} from '../portals/api/deploymentApi';
 import { clearSession, getStoredSession } from '../portals/auth/sessionManager';
-import { getPortalData, getPortalWebsiteById, savePortalData } from '../portals/data/portalManager';
-
-const deploymentStatuses = ['Queued', 'Running', 'Success', 'Failed', 'Cancelled'];
+import { getPortalData, savePortalData } from '../portals/data/portalManager';
 
 function formatDuration(duration) {
   if (!duration && duration !== 0) return 'Not recorded';
@@ -13,23 +18,32 @@ function formatDuration(duration) {
   return `${Math.round(duration / 1000)}s`;
 }
 
-function getWebsiteName(websiteId) {
-  return getPortalWebsiteById(websiteId)?.name ?? websiteId ?? 'Unknown website';
+function getDeploymentId(deployment) {
+  return deployment?.id ?? deployment?.deploymentId;
 }
 
-function DeploymentCard({ deployment, actionLabel, onAction, secondaryActionLabel, onSecondaryAction, tertiaryActionLabel, onTertiaryAction }) {
-  const website = getPortalWebsiteById(deployment.websiteId);
+function getDeploymentCommit(deployment) {
+  return deployment.githubCommitSha ?? deployment.commitSha ?? 'Waiting for GitHub commit';
+}
+
+function getDeploymentTitle(deployment) {
+  if (deployment.publishRequestId) return `Publish request: ${deployment.publishRequestId}`;
+  if (deployment.deploymentId) return `Deployment: ${deployment.deploymentId}`;
+  return 'Deployment job';
+}
+
+function DeploymentCard({ deployment, websiteName, actionLabel, onAction, secondaryActionLabel, onSecondaryAction, tertiaryActionLabel, onTertiaryAction }) {
   return (
     <article>
       <div>
         <div className="portal-section-title-row">
-          <strong>{website?.name ?? deployment.websiteId}</strong>
+          <strong>{websiteName ?? deployment.websiteId}</strong>
           <span>{deployment.status}</span>
         </div>
-        <p>{deployment.publishRequestId ? `Publish request: ${deployment.publishRequestId}` : deployment.deploymentId ? `Deployment: ${deployment.deploymentId}` : 'Deployment job'}</p>
+        <p>{getDeploymentTitle(deployment)}</p>
         <ul>
           <li>Actor: {deployment.actor ?? 'Portal System'}</li>
-          <li>Commit: {deployment.githubCommitSha ?? deployment.commitSha ?? 'Waiting for GitHub commit'}</li>
+          <li>Commit: {getDeploymentCommit(deployment)}</li>
           <li>Started: {deployment.startedAt ?? 'Not started yet'}</li>
           <li>Completed: {deployment.completedAt ?? 'Not completed yet'}</li>
           {deployment.duration && <li>Duration: {formatDuration(deployment.duration)}</li>}
@@ -60,10 +74,16 @@ export default function PortalsAdminDeployments() {
   const deploymentHistory = portalData.deploymentHistory ?? [];
   const completedWrites = portalData.completedContentWrites ?? [];
   const pendingWrites = portalData.pendingContentWrites ?? [];
+  const websiteById = useMemo(() => Object.fromEntries(websites.map((website) => [website.id, website])), [websites]);
+  const allVisibleDeployments = useMemo(() => [...deploymentQueue, ...deploymentHistory], [deploymentQueue, deploymentHistory]);
+
+  function getWebsiteName(websiteId) {
+    return websiteById[websiteId]?.name ?? websiteId ?? 'Unknown website';
+  }
 
   const visibleQueue = useMemo(() => activeWebsiteId === 'all' ? deploymentQueue : deploymentQueue.filter((item) => item.websiteId === activeWebsiteId), [activeWebsiteId, deploymentQueue]);
   const visibleHistory = useMemo(() => activeWebsiteId === 'all' ? deploymentHistory : deploymentHistory.filter((item) => item.websiteId === activeWebsiteId), [activeWebsiteId, deploymentHistory]);
-  const activeDeployments = visibleQueue.filter((deployment) => ['Queued', 'Running'].includes(deployment.status));
+  const activeDeployments = visibleQueue.filter((deployment) => PORTAL_ACTIVE_DEPLOYMENT_STATUSES.includes(deployment.status));
   const failedDeployments = [...visibleQueue, ...visibleHistory].filter((deployment) => deployment.status === 'Failed');
   const latestCommits = [...completedWrites, ...pendingWrites].filter((write) => activeWebsiteId === 'all' || write.websiteId === activeWebsiteId).slice(0, 8);
 
@@ -80,9 +100,9 @@ export default function PortalsAdminDeployments() {
 
   function createHistoryRecord(deployment, status, message, result = {}) {
     return {
-      id: `history-${deployment.id}-${Date.now()}`,
+      id: `history-${getDeploymentId(deployment)}-${Date.now()}`,
       websiteId: deployment.websiteId,
-      deploymentId: deployment.id,
+      deploymentId: getDeploymentId(deployment),
       commitSha: deployment.githubCommitSha ?? result.commitSha ?? '',
       actor: user?.name ?? 'KSJ Digital Admin',
       status,
@@ -95,9 +115,10 @@ export default function PortalsAdminDeployments() {
   }
 
   function updateDeploymentRecord(deployment, nextFields, historyRecord) {
+    const deploymentId = getDeploymentId(deployment);
     const nextData = {
       ...portalData,
-      deploymentQueue: deploymentQueue.map((item) => item.id === deployment.id ? { ...item, ...nextFields } : item),
+      deploymentQueue: deploymentQueue.map((item) => getDeploymentId(item) === deploymentId ? { ...item, ...nextFields } : item),
       deploymentHistory: historyRecord ? [historyRecord, ...deploymentHistory] : deploymentHistory,
       websites: websites.map((website) => website.id === deployment.websiteId ? {
         ...website,
@@ -114,13 +135,13 @@ export default function PortalsAdminDeployments() {
   }
 
   function cancelDeployment(deployment) {
-    if (!deployment?.id) return;
+    if (!getDeploymentId(deployment)) return;
     const historyRecord = createHistoryRecord(deployment, 'Cancelled', 'Cancelled before worker execution.');
     updateDeploymentRecord(deployment, { status: 'Cancelled', completedAt: 'Just now', workerMessage: 'Cancelled before worker execution.' }, historyRecord);
   }
 
   async function syncWorkerStatus(deployment) {
-    const deploymentId = deployment?.id ?? deployment?.deploymentId;
+    const deploymentId = getDeploymentId(deployment);
     if (!deploymentId) return;
     const result = await getPortalDeploymentStatus(deploymentId);
     if (!result.ok) {
@@ -132,8 +153,8 @@ export default function PortalsAdminDeployments() {
   }
 
   async function runDeployment(deployment) {
-    if (!deployment?.id) return;
-    const website = websites.find((item) => item.id === deployment.websiteId);
+    if (!getDeploymentId(deployment)) return;
+    const website = websiteById[deployment.websiteId];
     if (!website) {
       setWorkerNotice(`Unable to find website metadata for ${deployment.websiteId}.`);
       return;
@@ -176,6 +197,17 @@ export default function PortalsAdminDeployments() {
     await syncWorkerStatus(deployment);
   }
 
+  function renderDeploymentCard(deployment, actions = {}) {
+    return (
+      <DeploymentCard
+        key={`${getDeploymentId(deployment)}-${deployment.status}`}
+        deployment={deployment}
+        websiteName={getWebsiteName(deployment.websiteId)}
+        {...actions}
+      />
+    );
+  }
+
   return (
     <main className="portals-shell portals-dashboard-page">
       <section className="portal-dashboard-frame" aria-label="Portal deployments">
@@ -196,7 +228,7 @@ export default function PortalsAdminDeployments() {
               <div>
                 <p className="eyebrow">Phase 4.6+</p>
                 <h2>Guarded VPS Worker + Server Queue</h2>
-                <p>The worker now keeps server-side state, persists deployment queue jobs, protects duplicate runs with locks, records logs, and can verify the deployed URL after build.</p>
+                <p>The worker keeps server-side state, persists deployment queue jobs, protects duplicate runs with locks, records logs, and can verify the deployed URL after build.</p>
               </div>
             </div>
             <div className="portal-form-grid">
@@ -211,21 +243,21 @@ export default function PortalsAdminDeployments() {
           </section>
 
           <div className="portal-admin-stats">
-            {deploymentStatuses.map((status) => <article className="portal-help-card" key={status}><p className="eyebrow">{status}</p><h3>{[...visibleQueue, ...visibleHistory].filter((item) => item.status === status).length}</h3></article>)}
+            {PORTAL_DEPLOYMENT_STATUSES.map((status) => <article className="portal-help-card" key={status}><p className="eyebrow">{status}</p><h3>{allVisibleDeployments.filter((item) => item.status === status && (activeWebsiteId === 'all' || item.websiteId === activeWebsiteId)).length}</h3></article>)}
           </div>
 
           <div className="portal-grid-two">
             <section className="portal-editor-panel">
               <div className="portal-editor-header"><div><p className="eyebrow">Deployment Queue</p><h2>Queued Jobs</h2><p>Jobs created by publish approval. Run persists the job to the server queue before calling the guarded API worker.</p></div></div>
               <div className="portal-section-list">
-                {visibleQueue.length ? visibleQueue.map((deployment) => <DeploymentCard key={deployment.id} deployment={deployment} actionLabel="Cancel" onAction={['Queued', 'Running'].includes(deployment.status) ? cancelDeployment : null} secondaryActionLabel="Run Worker" onSecondaryAction={['Queued', 'Failed'].includes(deployment.status) ? runDeployment : null} tertiaryActionLabel="Sync Logs" onTertiaryAction={syncWorkerStatus} />) : <article><div><div className="portal-section-title-row"><strong>No deployment jobs</strong><span>Waiting</span></div><p>Approve and publish a request to create the first deployment queue item.</p></div></article>}
+                {visibleQueue.length ? visibleQueue.map((deployment) => renderDeploymentCard(deployment, { actionLabel: 'Cancel', onAction: PORTAL_ACTIVE_DEPLOYMENT_STATUSES.includes(deployment.status) ? cancelDeployment : null, secondaryActionLabel: 'Run Worker', onSecondaryAction: PORTAL_RUNNABLE_DEPLOYMENT_STATUSES.includes(deployment.status) ? runDeployment : null, tertiaryActionLabel: 'Sync Logs', onTertiaryAction: syncWorkerStatus })) : <article><div><div className="portal-section-title-row"><strong>No deployment jobs</strong><span>Waiting</span></div><p>Approve and publish a request to create the first deployment queue item.</p></div></article>}
               </div>
             </section>
 
             <section className="portal-editor-panel">
               <div className="portal-editor-header"><div><p className="eyebrow">Active Deployments</p><h2>Running / Queued</h2><p>Active jobs are separated so the worker can surface live progress here.</p></div></div>
               <div className="portal-section-list">
-                {activeDeployments.length ? activeDeployments.map((deployment) => <DeploymentCard key={deployment.id} deployment={deployment} secondaryActionLabel="Run Worker" onSecondaryAction={deployment.status === 'Queued' ? runDeployment : null} tertiaryActionLabel="Sync Logs" onTertiaryAction={syncWorkerStatus} />) : <article><div><div className="portal-section-title-row"><strong>No active deployments</strong><span>Idle</span></div><p>There are no queued or running deployment jobs right now.</p></div></article>}
+                {activeDeployments.length ? activeDeployments.map((deployment) => renderDeploymentCard(deployment, { secondaryActionLabel: 'Run Worker', onSecondaryAction: deployment.status === 'Queued' ? runDeployment : null, tertiaryActionLabel: 'Sync Logs', onTertiaryAction: syncWorkerStatus })) : <article><div><div className="portal-section-title-row"><strong>No active deployments</strong><span>Idle</span></div><p>There are no queued or running deployment jobs right now.</p></div></article>}
               </div>
             </section>
           </div>
@@ -234,14 +266,14 @@ export default function PortalsAdminDeployments() {
             <section className="portal-editor-panel">
               <div className="portal-editor-header"><div><p className="eyebrow">Deployment History</p><h2>Completed Jobs</h2><p>Successful, failed, cancelled, and dry-run worker records with commit and actor metadata.</p></div></div>
               <div className="portal-section-list">
-                {visibleHistory.length ? visibleHistory.map((deployment) => <DeploymentCard key={deployment.id} deployment={deployment} tertiaryActionLabel="Sync Logs" onTertiaryAction={syncWorkerStatus} />) : <article><div><div className="portal-section-title-row"><strong>No deployment history</strong><span>Waiting</span></div><p>History appears after the first tracked publish, cancellation, or worker run.</p></div></article>}
+                {visibleHistory.length ? visibleHistory.map((deployment) => renderDeploymentCard(deployment, { tertiaryActionLabel: 'Sync Logs', onTertiaryAction: syncWorkerStatus })) : <article><div><div className="portal-section-title-row"><strong>No deployment history</strong><span>Waiting</span></div><p>History appears after the first tracked publish, cancellation, or worker run.</p></div></article>}
               </div>
             </section>
 
             <section className="portal-editor-panel">
               <div className="portal-editor-header"><div><p className="eyebrow">Failed Deployments</p><h2>Needs Attention</h2><p>Failures are grouped here so retry controls are visible.</p></div></div>
               <div className="portal-section-list">
-                {failedDeployments.length ? failedDeployments.map((deployment) => <DeploymentCard key={`${deployment.id}-${deployment.deploymentId ?? ''}`} deployment={deployment} secondaryActionLabel="Retry Worker" onSecondaryAction={runDeployment} tertiaryActionLabel="Sync Logs" onTertiaryAction={syncWorkerStatus} />) : <article><div><div className="portal-section-title-row"><strong>No failed deployments</strong><span>Clear</span></div><p>Nothing needs manual intervention right now.</p></div></article>}
+                {failedDeployments.length ? failedDeployments.map((deployment) => renderDeploymentCard(deployment, { secondaryActionLabel: 'Retry Worker', onSecondaryAction: runDeployment, tertiaryActionLabel: 'Sync Logs', onTertiaryAction: syncWorkerStatus })) : <article><div><div className="portal-section-title-row"><strong>No failed deployments</strong><span>Clear</span></div><p>Nothing needs manual intervention right now.</p></div></article>}
               </div>
             </section>
           </div>
