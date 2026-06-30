@@ -1,3 +1,7 @@
+export const PORTAL_DEPLOYMENT_STATUSES = ['Queued', 'Running', 'Success', 'Failed', 'Cancelled'];
+export const PORTAL_ACTIVE_DEPLOYMENT_STATUSES = ['Queued', 'Running'];
+export const PORTAL_RUNNABLE_DEPLOYMENT_STATUSES = ['Queued', 'Failed'];
+
 const DEFAULT_PORTAL_API_BASE_URL = 'http://localhost:4174';
 
 function getPortalApiBaseUrl() {
