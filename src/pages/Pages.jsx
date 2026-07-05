@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { Layout, Logo } from '../layouts/Shell.jsx'
 import { ActivityPanel, Preview, PublishPanel, QuickActions, Stat, StatusPanel, TicketPanel, WebsiteCard } from '../components/UI.jsx'
-import { clientStats, ownerStats } from '../services/mockData.js'
-import { editableFields, getClients, getClientWebsite, getContent, getMediaItems, getOwnerWebsites, getTickets, getUpdateRequests, getWebsitePages, requestUpdate, saveContent } from '../services/platform.js'
+import { clientStats, editableFields, getClients, getClientWebsite, getContent, getMediaItems, getOwnerWebsites, getTickets, getUpdateRequests, getWebsitePages, ownerStats, requestUpdate, saveContent } from '../services/platform.js'
 
 export function LoginPage() {
   return <div className="login authLogin"><div className="authBackdrop"></div><section className="card loginCard authCard"><Logo /><span>Secure Portal</span><h1>KSJ DIGITAL</h1><p>Sign in to manage your website.</p><div className="loginFields"><label>Email<input type="email" placeholder="you@example.com" /></label><label>Password<input type="password" placeholder="Enter your password" /></label></div><div className="loginOptions"><label><input type="checkbox" />Remember me</label><a>Forgot password?</a></div><a href="/client">Sign In</a><footer>Need access? Contact your KSJ Digital administrator.</footer></section></div>
@@ -57,5 +56,5 @@ export function WebsitesPage() {
 
 export function ClientsPage() {
   const clients = getClients()
-  return <Layout title="Clients"><section className="moduleHero card"><div><span>Owner</span><h2>Clients</h2><p>Add clients and assign them to websites.</p></div><button>Add Client</button></section><section className="card accessPanel"><div className="panelHead"><h2>Client List</h2><button>Save</button></div>{clients.map(row => <article className="accessRow" key={row[0]}><div><b>{row[0]}</b><small>{row[1]} · {row[3]}</small></div><span>{row[2]}</span><small>Assigned website</small><button>Manage</button></article>)}</section></Layout>
+  return <Layout title="Clients"><section className="moduleHero card"><div><span>Owner</span><h2>Clients</h2><p>Add clients and assign them to websites.</p></div><button>Add Client</button></section><section className="card accessPanel"><div className="panelHead"><h2>Client List</h2><button>Save</button></div>{clients.map(client => <article className="accessRow" key={client.id}><div><b>{client.websiteName}</b><small>{client.name} · {client.access}</small></div><span>{client.status}</span><small>{client.websiteName}</small><button>Manage</button></article>)}</section></Layout>
 }
