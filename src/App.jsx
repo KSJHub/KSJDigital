@@ -9,14 +9,10 @@ import { OwnerAccess } from './modules/owner/OwnerAccess.jsx'
 import { PublishRequests } from './modules/publishing/PublishRequests.jsx'
 import { AnalyticsWorkspace } from './modules/analytics/AnalyticsWorkspace.jsx'
 import { WebsitesWorkspace } from './modules/websites/WebsitesWorkspace.jsx'
-import { Logo } from './layouts/Shell.jsx'
+import { LoginWorkspace } from './modules/auth/LoginWorkspace.jsx'
 
 function route() {
   return location.pathname.replace(/\/$/, '') || '/'
-}
-
-function Login() {
-  return <div className="login"><div className="card loginCard"><Logo /><h1>KSJ Digital Ecosystem</h1><p>The central hub for managing websites, content, media, analytics and support.</p><a href="/owner">Open Owner Platform</a><a href="/client">Open Client Portal</a></div></div>
 }
 
 function Workspace({ client = false, type }) {
@@ -35,9 +31,10 @@ function Workspace({ client = false, type }) {
 
 export default function App() {
   const path = route()
+  if (path === '/login' || path === '/') return <LoginWorkspace />
   if (path === '/owner') return <Dashboard />
   if (path === '/client') return <Dashboard client />
   if (path.startsWith('/owner/')) return <Workspace type={path.split('/')[2]} />
   if (path.startsWith('/client/')) return <Workspace client type={path.split('/')[2]} />
-  return <Login />
+  return <LoginWorkspace />
 }
