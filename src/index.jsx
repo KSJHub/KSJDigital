@@ -7,5 +7,5 @@ import './styles/editor.css'
 import './styles/media.css'
 import './styles/analytics.css'
 import './styles/support.css'
-
+import './styles/settings.css'
 createRoot(document.getElementById('root')).render(<App />)
