@@ -4,5 +4,6 @@ import App from './App.jsx'
 import './styles.css'
 import './styles/publishing.css'
 import './styles/editor.css'
+import './styles/media.css'
 
 createRoot(document.getElementById('root')).render(<App />)
