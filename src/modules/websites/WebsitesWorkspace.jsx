@@ -1,0 +1,15 @@
+import { Layout } from '../../layouts/Shell.jsx'
+import { websites } from '../../services/mockData.js'
+import { WebsiteCard } from '../../components/WebsiteCard.jsx'
+
+const filters = ['All', 'Live', 'In Development', 'Coming Soon', 'Needs Review']
+const platformStats = [
+  ['Live Sites', '1', 'currently online'],
+  ['In Build', '2', 'active projects'],
+  ['Pending Publish', '3', 'awaiting approval'],
+  ['Avg SEO', '84%', 'across websites'],
+]
+
+export function WebsitesWorkspace() {
+  return <Layout title="Websites"><section className="websitesHero card"><div><span>Owner Website Management</span><h2>All Client Websites</h2><p>Manage every KSJ Digital website, assign access, review status and prepare publishing actions from one place.</p></div><button>Create Website</button></section><div className="websiteStats">{platformStats.map(card => <article className="card websiteStat" key={card[0]}><span>{card[0]}</span><strong>{card[1]}</strong><small>{card[2]}</small></article>)}</div><section className="websiteWorkspace"><aside className="card websiteFilters"><h2>Filters</h2>{filters.map((filter, index) => <button className={index === 0 ? 'active' : ''} key={filter}>{filter}</button>)}<div className="filterBlock"><b>Quick Views</b><span>Assigned clients</span><span>Publishing queue</span><span>Low SEO score</span><span>Needs media review</span></div></aside><div><div className="websiteToolbar"><div className="search">Search websites...</div><button>Grid View</button><button>Sort</button><button>Export</button></div><section className="card websiteListPanel"><div className="panelHead"><h2>Website Portfolio</h2><button>Add Website</button></div>{websites.map((site, index) => <WebsiteCard key={site.name} site={site} active={index === 0} />)}</section></div></section><section className="websiteDetailGrid"><div className="card websiteDetail"><div className="panelHead"><h2>Selected Website</h2><button>Open Workspace</button></div><h3>TwoToneTaj</h3><p>Client portal access, content editor, media library, analytics and publishing flow are prepared for this website.</p><div className="detailMetrics"><span>Domain<b>twotonetaj.com</b></span><span>Client<b>Taj</b></span><span>Status<b>Live</b></span><span>Plan<b>Premium</b></span></div></div><div className="card websiteDetail"><div className="panelHead"><h2>Owner Actions</h2><button>Manage Access</button></div><div className="ownerActionGrid"><button>Assign Client</button><button>Review Drafts</button><button>Publish Changes</button><button>Open Analytics</button><button>Manage Media</button><button>Website Settings</button></div></div></section></Layout>
+}
