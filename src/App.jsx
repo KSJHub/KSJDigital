@@ -4,6 +4,7 @@ import { MediaWorkspace } from './modules/media/MediaWorkspace.jsx'
 import { SupportWorkspace } from './modules/support/SupportWorkspace.jsx'
 import { SettingsWorkspace } from './modules/settings/SettingsWorkspace.jsx'
 import { ModulePage } from './modules/core/ModulePage.jsx'
+import { ClientWebsiteWorkspace } from './modules/client/ClientWebsiteWorkspace.jsx'
 import { Logo } from './layouts/Shell.jsx'
 
 function route() {
@@ -15,6 +16,7 @@ function Login() {
 }
 
 function Workspace({ client = false, type }) {
+  if (client && type === 'website') return <ClientWebsiteWorkspace />
   if (type === 'editor') return <EditorWorkspace client={client} />
   if (type === 'media') return <MediaWorkspace client={client} />
   if (type === 'support') return <SupportWorkspace client={client} />
