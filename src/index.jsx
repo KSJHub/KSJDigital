@@ -8,5 +8,6 @@ import './styles/media.css'
 import './styles/analytics.css'
 import './styles/support.css'
 import './styles/settings.css'
+import './styles/websites.css'
 import './styles/consistency.css'
 createRoot(document.getElementById('root')).render(<App />)
