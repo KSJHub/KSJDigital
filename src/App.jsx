@@ -8,6 +8,7 @@ import { ClientWebsiteWorkspace } from './modules/client/ClientWebsiteWorkspace.
 import { OwnerAccess } from './modules/owner/OwnerAccess.jsx'
 import { PublishRequests } from './modules/publishing/PublishRequests.jsx'
 import { AnalyticsWorkspace } from './modules/analytics/AnalyticsWorkspace.jsx'
+import { WebsitesWorkspace } from './modules/websites/WebsitesWorkspace.jsx'
 import { Logo } from './layouts/Shell.jsx'
 
 function route() {
@@ -19,6 +20,7 @@ function Login() {
 }
 
 function Workspace({ client = false, type }) {
+  if (!client && type === 'websites') return <WebsitesWorkspace />
   if (!client && type === 'clients') return <OwnerAccess />
   if (!client && type === 'publish-requests') return <PublishRequests />
   if (client && type === 'publish') return <PublishRequests client />
