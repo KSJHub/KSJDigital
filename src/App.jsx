@@ -10,6 +10,7 @@ import { PublishRequests } from './modules/publishing/PublishRequests.jsx'
 import { AnalyticsWorkspace } from './modules/analytics/AnalyticsWorkspace.jsx'
 import { WebsitesWorkspace } from './modules/websites/WebsitesWorkspace.jsx'
 import { DeploymentWorkspace } from './modules/deployments/DeploymentWorkspace.jsx'
+import { IntegrationsWorkspace } from './modules/integrations/IntegrationsWorkspace.jsx'
 import { LoginWorkspace } from './modules/auth/LoginWorkspace.jsx'
 import { AccessDenied } from './components/PermissionBanner.jsx'
 import { canAccessOwner, getAccountFromPath } from './services/auth.js'
@@ -23,6 +24,7 @@ function Workspace({ client = false, type }) {
   if (!client && type === 'clients') return <OwnerAccess />
   if (!client && type === 'publish-requests') return <PublishRequests />
   if (!client && type === 'deployments') return <DeploymentWorkspace />
+  if (!client && type === 'integrations') return <IntegrationsWorkspace />
   if (client && type === 'publish') return <PublishRequests client />
   if (client && type === 'website') return <ClientWebsiteWorkspace />
   if (type === 'analytics') return <AnalyticsWorkspace client={client} />
