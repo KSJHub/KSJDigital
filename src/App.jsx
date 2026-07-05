@@ -8,7 +8,7 @@ import { OwnerAccess } from './modules/owner/OwnerAccess.jsx'
 import { PublishRequests } from './modules/publishing/PublishRequests.jsx'
 import { WebsitesWorkspace } from './modules/websites/WebsitesWorkspace.jsx'
 import { LoginWorkspace } from './modules/auth/LoginWorkspace.jsx'
-import { AccessDenied } from './components/PermissionBanner.jsx'
+import { AccessDenied } from './components/UI.jsx'
 import { canAccessOwner, getAccountFromPath } from './services/auth.js'
 
 function route() {
