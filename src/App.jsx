@@ -6,6 +6,7 @@ import { SettingsWorkspace } from './modules/settings/SettingsWorkspace.jsx'
 import { ModulePage } from './modules/core/ModulePage.jsx'
 import { ClientWebsiteWorkspace } from './modules/client/ClientWebsiteWorkspace.jsx'
 import { OwnerAccess } from './modules/owner/OwnerAccess.jsx'
+import { PublishRequests } from './modules/publishing/PublishRequests.jsx'
 import { Logo } from './layouts/Shell.jsx'
 
 function route() {
@@ -18,6 +19,8 @@ function Login() {
 
 function Workspace({ client = false, type }) {
   if (!client && type === 'clients') return <OwnerAccess />
+  if (!client && type === 'publish-requests') return <PublishRequests />
+  if (client && type === 'publish') return <PublishRequests client />
   if (client && type === 'website') return <ClientWebsiteWorkspace />
   if (type === 'editor') return <EditorWorkspace client={client} />
   if (type === 'media') return <MediaWorkspace client={client} />
