@@ -15,5 +15,6 @@ import './styles/content-model.css'
 import './styles/publish-review.css'
 import './styles/deployments.css'
 import './styles/integrations.css'
+import './styles/website-manager.css'
 import './styles/consistency.css'
 createRoot(document.getElementById('root')).render(<App />)
