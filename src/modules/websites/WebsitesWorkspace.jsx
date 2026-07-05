@@ -1,6 +1,6 @@
 import { Layout } from '../../layouts/Shell.jsx'
 import { websites } from '../../services/mockData.js'
-import { WebsiteCard } from '../../components/WebsiteCard.jsx'
+import { WebsiteCard } from '../../components/UI.jsx'
 
 const filters = ['All', 'Live', 'Draft']
 const platformStats = [['Websites','3','managed'],['Owners','3','assigned'],['Publishing','3','waiting'],['Support','2','open']]
