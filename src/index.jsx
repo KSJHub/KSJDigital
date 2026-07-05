@@ -5,5 +5,6 @@ import './styles.css'
 import './styles/publishing.css'
 import './styles/editor.css'
 import './styles/media.css'
+import './styles/analytics.css'
 
 createRoot(document.getElementById('root')).render(<App />)
