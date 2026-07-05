@@ -1,7 +1,0 @@
-export const websites=[{name:'TwoToneTaj',domain:'twotonetaj.com',status:'Live',pages:12,media:842,visits:'3.2K',logo:'TAJ',plan:'Premium',seo:94,performance:98},{name:'KSJ Diamond Gaming',domain:'ksjdiamondgaming.com',status:'Coming Soon',pages:8,media:215,visits:'0',logo:'KD',plan:'Launch',seo:82,performance:91},{name:'Goliath',domain:'goliath.gg',status:'In Development',pages:6,media:191,visits:'156',logo:'G',plan:'Build',seo:77,performance:88}]
-export const ownerStats=[['Websites','3','Managed client websites'],['Clients','3','Active client accounts'],['Publish Requests','3','Waiting for review'],['Support','2','Open tickets']]
-export const clientStats=[['Website','Live','Current status'],['Pages','12','Editable pages'],['Media','842','Website assets'],['Publish','Protected','KSJ approval required']]
-export const tickets=[['TwoToneTaj','Homepage banner change','High'],['KSJ Diamond Gaming','Launch page wording','Medium'],['Goliath','Discord widget issue','Low']]
-export const pages=['Homepage','About','Community','Merch','Contact','Privacy','Terms']
-export const mediaItems=['hero-banner.png','taj-avatar.webp','community-card.jpg','merch-preview.png','logo-transparent.webp','stream-overlay.png','discord-banner.jpg','thumbnail-pack.zip']
-export const clients=[['TwoToneTaj','Premium','Live','1 website'],['KSJ Diamond Gaming','Launch','Preparing','1 website'],['Goliath','Build','In progress','1 website']]
