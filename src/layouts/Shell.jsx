@@ -1,5 +1,5 @@
 import { getAccountFromPath } from '../services/auth.js'
-import { PermissionBanner } from '../components/PermissionBanner.jsx'
+import { PermissionBanner } from '../components/UI.jsx'
 
 function route(){return location.pathname.replace(/\/$/,'')||'/'}
 function go(path){location.href=path}
