@@ -19,18 +19,18 @@ const clientStats = [
 ]
 
 function Logo() {
-  return <div className="logo"><div className="logoMark">K</div><div><b>KSJ DIGITAL</b><small>PLATFORM</small></div></div>
+  return <div className="logo"><div className="logoMark">K</div><div><b>KSJ DIGITAL</b></div></div>
 }
 
 function Sidebar({ client = false }) {
   const items = client
     ? ['Dashboard','My Websites','Pages','Content','Media Library','Branding & Theme','Menus & Navigation','Blog / News','Merch / Store','Forms & Inquiries','Social Links','Analytics','SEO','Visitors','Users & Access','Account Settings','Billing & Plan','Support Tickets']
-    : ['Dashboard','Websites','Pages','Content','Media Library','Branding','Social Links','Merch','Analytics','Team Members','Clients','Publish','Integrations','Settings','Support']
-  return <aside className="sidebar"><Logo/><nav>{items.map((item, index) => <a className={index === 0 ? 'active' : ''} key={item}>{item}</a>)}</nav><div className="profile"><div>{client ? 'T' : 'M'}</div><span><b>{client ? 'Taj' : 'Morgan'}</b><small>Super Admin</small></span></div></aside>
+    : ['Dashboard','Websites','Pages','Content','Media Library','Branding & Theme','Menus & Navigation','Blog / News','Merch / Store','Forms & Inquiries','Social Links','Analytics','SEO','Visitors','Users & Access','Account Settings','Billing & Plan','Support Tickets']
+  return <aside className="sidebar"><Logo/><nav>{items.map((item, index) => <a className={index === 0 ? 'active' : ''} key={item}>{item}</a>)}</nav><div className="supportBox"><b>Need Help?</b><p>Our support team is here to help you.</p><button>Contact Support</button></div></aside>
 }
 
 function Header({ client = false }) {
-  return <header className="header"><div><span>Welcome back,</span><h1>{client ? 'Taj (TwoToneTaj)' : 'Morgan'} 👋</h1><p>{client ? 'Manage your websites, content and settings all in one place.' : 'Here is what is happening with your platform today.'}</p></div><div className="tools"><div className="search">Search...</div><button>🔔 3</button><button>KSJ Digital</button></div></header>
+  return <header className="header"><div><span>Welcome back,</span><h1>{client ? 'Taj (TwoToneTaj)' : 'Morgan'} 👋</h1><p>{client ? 'Manage your websites, content and settings all in one place.' : 'Here is what is happening with your platform today.'}</p></div><div className="tools"><div className="search">Search...</div><button>🔔 3</button><button>KSJ DIGITAL <span className="miniAvatar">{client ? 'T' : 'M'}</span></button></div></header>
 }
 
 function Stat({ item }) {
@@ -42,16 +42,16 @@ function WebsiteCard({ site, active = false }) {
 }
 
 function Preview() {
-  return <section className="card preview"><div className="panelHead"><h2>Website Preview</h2><button>Desktop</button></div><div className="sitePreview"><div className="mockNav"><b>TAJ</b><span>HOME</span><span>ABOUT</span><span>COMMUNITY</span><span>MERCH</span><span>CONTACT</span></div><div className="mockHero"><p>WELCOME TO</p><h2>TWOTONE<span>TAJ</span></h2><h4>GAMER • CREATOR • COMMUNITY</h4><button>JOIN THE SQUAD</button></div><div className="mockCards"><div><b>LIVE STREAMS</b><p>Join the action live.</p></div><div><b>COMMUNITY</b><p>Be part of the squad.</p></div><div><b>EXCLUSIVE MERCH</b><p>Rep the brand.</p></div></div></div><footer><span></span> Live <button>Visit Live Site ↗</button></footer></section>
+  return <section className="card preview"><div className="panelHead"><h2>Website Preview</h2><button>Desktop</button></div><div className="sitePreview"><div className="mockNav"><b>TAJ</b><span>HOME</span><span>ABOUT</span><span>COMMUNITY</span><span>MERCH</span><span>CONTACT</span></div><div className="mockHero"><p>WELCOME TO</p><h2>TWOTONE<span>TAJ</span></h2><h4>It&apos;s all about the 💩 and giggles, folks.</h4><button>JOIN THE SQUAD</button></div></div><footer><span></span> Live <button>Visit Live Site ↗</button></footer></section>
 }
 
-function ActivityPanel(){ return <section className="card activity"><div className="panelHead"><h2>Recent Activity</h2><a>View All</a></div>{['Homepage updated','New media uploaded','About page published','New merch item added'].map((x,i)=><p key={x}><i></i><b>{x}</b><small>{i + 1} hours ago</small></p>)}</section> }
-function QuickActions(){ return <section className="card quick"><h2>Quick Actions</h2><div>{['Edit Pages','Upload Media','View Analytics','Manage Team','Add New Page','Edit Branding'].map(x=><button key={x}>{x}</button>)}</div></section> }
+function ActivityPanel(){ return <section className="card activity"><div className="panelHead"><h2>Recent Activity</h2><a>View All</a></div>{['Homepage updated','New banner uploaded','About page published','New merch item added'].map((x,i)=><p key={x}><i></i><b>{x}</b><small>{i + 1} hours ago</small></p>)}</section> }
+function QuickActions(){ return <section className="card quick"><h2>Quick Actions</h2><div>{['Edit Pages','Add New Page','Upload Media','Blog / News','Manage Menu','Edit Branding','View Analytics','SEO Checker','Form Submissions'].map(x=><button key={x}>{x}</button>)}</div></section> }
 function StatusPanel(){ return <section className="card status"><h2>System Status</h2><h3>✓ All Systems Operational</h3>{['Website Hosting','Database','CDN','Backup'].map(x=><p key={x}><span>✓</span>{x}<small>Operational</small></p>)}</section> }
 
-function Owner(){ return <div className="shell"><Sidebar/><main><Header/><div className="stats">{ownerStats.map(item=><Stat key={item[0]} item={item}/>)}</div><div className="grid"><section className="card websites"><div className="panelHead"><h2>Your Websites</h2><button>Create New Website</button></div>{websites.map((site,i)=><WebsiteCard key={site.name} site={site} active={i===0}/>) }<div className="createBox">+ Create New Website</div></section><Preview/></div><div className="bottom"><ActivityPanel/><QuickActions/><StatusPanel/></div></main></div> }
+function Owner(){ return <div className="shell"><Sidebar/><main><Header/><div className="stats">{ownerStats.map(item=><Stat key={item[0]} item={item}/>)}</div><div className="singleGrid"><section className="card websites"><div className="panelHead"><h2>Your Websites</h2><button>Create New Website</button></div>{websites.map((site,i)=><WebsiteCard key={site.name} site={site} active={i===0}/>) }<div className="createBox">+ Create New Website</div></section><Preview/></div><div className="bottom"><ActivityPanel/><QuickActions/><StatusPanel/></div></main></div> }
 
-function Client(){ return <div className="shell client"><Sidebar client/><main><Header client/><div className="stats">{clientStats.map(item=><Stat key={item[0]} item={item}/>)}</div><div className="grid"><section className="card websites"><div className="panelHead"><h2>My Websites</h2><button>Create New Website</button></div><WebsiteCard site={websites[0]} active/><div className="clientMetrics"><b>12<small>Pages</small></b><b>24<small>Blog Posts</small></b><b>842<small>Media Files</small></b><b>3.2K<small>Visitors</small></b><b>98%<small>Uptime</small></b></div></section><Preview/></div><div className="bottom"><ActivityPanel/><QuickActions/><StatusPanel/></div></main></div> }
+function Client(){ return <div className="shell client"><Sidebar client/><main><Header client/><div className="stats">{clientStats.map(item=><Stat key={item[0]} item={item}/>)}</div><div className="singleGrid"><section className="card websites"><div className="panelHead"><h2>My Websites</h2><button>Create New Website</button></div><WebsiteCard site={websites[0]} active/><div className="clientMetrics"><b>12<small>Pages</small></b><b>24<small>Blog Posts</small></b><b>842<small>Media Files</small></b><b>3.2K<small>Visitors</small></b><b>98%<small>Uptime</small></b></div></section><Preview/></div><div className="bottom"><ActivityPanel/><QuickActions/><StatusPanel/></div></main></div> }
 
 function Login(){ return <div className="login"><div className="card loginCard"><Logo/><h1>KSJ Digital Ecosystem</h1><p>The central hub for managing websites, content, media, analytics and support.</p><a href="/owner">Open Owner Platform</a><a href="/client">Open Client Portal</a></div></div> }
 
