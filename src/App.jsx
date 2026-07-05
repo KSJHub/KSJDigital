@@ -1,41 +1,32 @@
-import { Dashboard } from './modules/dashboard/Dashboard.jsx'
-import { EditorWorkspace } from './modules/editor/EditorWorkspace.jsx'
-import { MediaWorkspace } from './modules/media/MediaWorkspace.jsx'
-import { SupportWorkspace } from './modules/support/SupportWorkspace.jsx'
-import { SettingsWorkspace } from './modules/settings/SettingsWorkspace.jsx'
-import { ClientWebsiteWorkspace } from './modules/client/ClientWebsiteWorkspace.jsx'
-import { OwnerAccess } from './modules/owner/OwnerAccess.jsx'
-import { PublishRequests } from './modules/publishing/PublishRequests.jsx'
-import { WebsitesWorkspace } from './modules/websites/WebsitesWorkspace.jsx'
-import { LoginWorkspace } from './modules/auth/LoginWorkspace.jsx'
 import { AccessDenied } from './components/UI.jsx'
 import { canAccessOwner, getAccountFromPath } from './services/auth.js'
+import { ClientsPage, DashboardPage, EditorPage, LoginPage, MediaPage, PublishPage, SettingsPage, SupportPage, WebsitePage, WebsitesPage } from './pages/Pages.jsx'
 
 function route() {
   return location.pathname.replace(/\/$/, '') || '/'
 }
 
 function Workspace({ client = false, type }) {
-  if (!client && type === 'websites') return <WebsitesWorkspace />
-  if (!client && type === 'clients') return <OwnerAccess />
-  if (!client && type === 'publish-requests') return <PublishRequests />
-  if (client && type === 'publish') return <PublishRequests client />
-  if (client && type === 'website') return <ClientWebsiteWorkspace />
-  if (type === 'editor') return <EditorWorkspace client={client} />
-  if (type === 'media') return <MediaWorkspace client={client} />
-  if (type === 'support') return <SupportWorkspace client={client} />
-  if (type === 'settings') return <SettingsWorkspace client={client} />
-  return client ? <ClientWebsiteWorkspace /> : <WebsitesWorkspace />
+  if (!client && type === 'websites') return <WebsitesPage />
+  if (!client && type === 'clients') return <ClientsPage />
+  if (!client && type === 'publish-requests') return <PublishPage />
+  if (client && type === 'publish') return <PublishPage client />
+  if (client && type === 'website') return <WebsitePage />
+  if (type === 'editor') return <EditorPage client={client} />
+  if (type === 'media') return <MediaPage client={client} />
+  if (type === 'support') return <SupportPage client={client} />
+  if (type === 'settings') return <SettingsPage client={client} />
+  return client ? <WebsitePage /> : <WebsitesPage />
 }
 
 export default function App() {
   const path = route()
   const account = getAccountFromPath()
-  if (path === '/login' || path === '/') return <LoginWorkspace />
+  if (path === '/login' || path === '/') return <LoginPage />
   if (path.startsWith('/owner') && !canAccessOwner(account)) return <AccessDenied account={account} />
-  if (path === '/owner') return <Dashboard />
-  if (path === '/client') return <Dashboard client />
+  if (path === '/owner') return <DashboardPage />
+  if (path === '/client') return <DashboardPage client />
   if (path.startsWith('/owner/')) return <Workspace type={path.split('/')[2]} />
   if (path.startsWith('/client/')) return <Workspace client type={path.split('/')[2]} />
-  return <LoginWorkspace />
+  return <LoginPage />
 }
