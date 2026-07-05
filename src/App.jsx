@@ -10,6 +10,8 @@ import { PublishRequests } from './modules/publishing/PublishRequests.jsx'
 import { AnalyticsWorkspace } from './modules/analytics/AnalyticsWorkspace.jsx'
 import { WebsitesWorkspace } from './modules/websites/WebsitesWorkspace.jsx'
 import { LoginWorkspace } from './modules/auth/LoginWorkspace.jsx'
+import { AccessDenied } from './components/PermissionBanner.jsx'
+import { canAccessOwner, getAccountFromPath } from './services/auth.js'
 
 function route() {
   return location.pathname.replace(/\/$/, '') || '/'
@@ -31,7 +33,9 @@ function Workspace({ client = false, type }) {
 
 export default function App() {
   const path = route()
+  const account = getAccountFromPath()
   if (path === '/login' || path === '/') return <LoginWorkspace />
+  if (path.startsWith('/owner') && !canAccessOwner(account)) return <AccessDenied account={account} />
   if (path === '/owner') return <Dashboard />
   if (path === '/client') return <Dashboard client />
   if (path.startsWith('/owner/')) return <Workspace type={path.split('/')[2]} />
