@@ -2,7 +2,11 @@ const AUDIT_KEY = 'ksjDigitalAuditLog'
 const BACKUP_KEY = 'ksjDigitalBackups'
 
 function read(key, fallback) {
-  try { return JSON.parse(localStorage.getItem(key) || 'null') || fallback } catch { return fallback }
+  try {
+    return JSON.parse(localStorage.getItem(key) || 'null') || fallback
+  } catch {
+    return fallback
+  }
 }
 
 function write(key, value) {
@@ -16,7 +20,12 @@ function key(prefix, websiteId = 'twotonetaj') {
 
 export function addAuditEvent(websiteId, event) {
   const events = read(key(AUDIT_KEY, websiteId), [])
-  const item = { id: `audit-${Date.now()}`, createdAt: new Date().toLocaleString(), ...event }
+  const item = {
+    id: `audit-${Date.now()}`,
+    createdAt: new Date().toLocaleString(),
+    ...event,
+  }
+
   return write(key(AUDIT_KEY, websiteId), [item, ...events].slice(0, 100))
 }
 
@@ -33,7 +42,13 @@ export function createBackup(websiteId, payload) {
     size: JSON.stringify(payload || {}).length,
     payload,
   }
-  addAuditEvent(websiteId, { type: 'Backup', message: 'Manual backup created', actor: 'KSJ Digital' })
+
+  addAuditEvent(websiteId, {
+    type: 'Backup',
+    message: 'Manual backup created',
+    actor: 'KSJ Digital',
+  })
+
   return write(key(BACKUP_KEY, websiteId), [item, ...backups].slice(0, 20))
 }
 
@@ -43,7 +58,13 @@ export function getBackups(websiteId) {
 
 export function restoreBackup(websiteId, backupId) {
   const backup = getBackups(websiteId).find(item => item.id === backupId)
-  addAuditEvent(websiteId, { type: 'Restore', message: `Backup restored: ${backup?.createdAt || backupId}`, actor: 'KSJ Digital' })
+
+  addAuditEvent(websiteId, {
+    type: 'Restore',
+    message: `Backup restored: ${backup?.createdAt || backupId}`,
+    actor: 'KSJ Digital',
+  })
+
   return backup
 }
 
