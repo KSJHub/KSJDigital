@@ -1,1 +1,154 @@
-.accountGrid,.websiteAdminGrid{display:grid;grid-template-columns:.75fr 1.35fr .9fr;gap:24px;margin-bottom:24px}.accountList,.accountEditor,.accountWebsites{padding:24px}.accountList{display:grid;gap:12px;align-content:start}.accountList button{border:1px solid #24314a;background:#0b111d;color:#fff;border-radius:14px;padding:14px;text-align:left;display:grid;gap:6px}.accountList button.active{border-color:#157bff;background:linear-gradient(135deg,rgba(21,123,255,.22),rgba(148,52,232,.12))}.accountList small,.accountWebsites small,.simpleAccessRow small{display:block;color:#96a3b8;margin-top:4px}.accountList span{color:#42f39a;font-size:12px}.accountForm{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}.accountForm label,.wideField{display:grid;gap:8px;color:#b9c3d6}.accountForm input,.accountForm select,.wideField textarea{border:1px solid #26354d;border-radius:12px;background:#070c14;color:#fff;padding:13px}.wideField{margin-top:16px}.wideField textarea{min-height:95px;resize:vertical}.permissionGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:20px 0}.permissionGrid label,.accountWebsites label{border:1px solid #263650;border-radius:14px;background:#09111d;padding:14px;color:#dce7ff;display:flex;align-items:center;gap:10px}.accountActions{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}.accountActions button,.accountEditor .panelHead button,.accountWebsites .panelHead button{border:1px solid #24314a;background:#0b111d;color:#fff;border-radius:12px;padding:12px 15px}.accountActions button:first-child,.accountEditor .panelHead button,.accountWebsites .panelHead button{background:linear-gradient(90deg,#157bff,#9434e8);font-weight:800}.accountActions button:last-child{border-color:#6b2430;background:#2b0d14;color:#ff9cac}.accountWebsites{display:grid;gap:12px;align-content:start}.bottomGrid{grid-template-columns:1fr 1.5fr}.simpleAccessRow{border-bottom:1px solid #1c2638;padding:13px 0}@media(max-width:1200px){.accountGrid,.websiteAdminGrid,.bottomGrid{grid-template-columns:1fr}.accountForm,.permissionGrid{grid-template-columns:1fr}}
+.accountGrid,
+.websiteAdminGrid {
+  display: grid;
+  grid-template-columns: .75fr 1.35fr .9fr;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.accountList,
+.accountEditor,
+.accountWebsites {
+  padding: 24px;
+}
+
+.accountList {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.accountList button {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid #24314a;
+  border-radius: 14px;
+  background: #0b111d;
+  color: #fff;
+  text-align: left;
+}
+
+.accountList button.active {
+  border-color: #157bff;
+  background: linear-gradient(135deg, rgba(21, 123, 255, .22), rgba(148, 52, 232, .12));
+}
+
+.accountList small,
+.accountWebsites small,
+.simpleAccessRow small {
+  display: block;
+  margin-top: 4px;
+  color: #96a3b8;
+}
+
+.accountList span {
+  color: #42f39a;
+  font-size: 12px;
+}
+
+.accountForm {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.accountForm label,
+.wideField {
+  display: grid;
+  gap: 8px;
+  color: #b9c3d6;
+}
+
+.accountForm input,
+.accountForm select,
+.wideField textarea {
+  padding: 13px;
+  border: 1px solid #26354d;
+  border-radius: 12px;
+  background: #070c14;
+  color: #fff;
+}
+
+.wideField {
+  margin-top: 16px;
+}
+
+.wideField textarea {
+  min-height: 95px;
+  resize: vertical;
+}
+
+.permissionGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.permissionGrid label,
+.accountWebsites label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #263650;
+  border-radius: 14px;
+  background: #09111d;
+  color: #dce7ff;
+}
+
+.accountActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.accountActions button,
+.accountEditor .panelHead button,
+.accountWebsites .panelHead button {
+  padding: 12px 15px;
+  border: 1px solid #24314a;
+  border-radius: 12px;
+  background: #0b111d;
+  color: #fff;
+}
+
+.accountActions button:first-child,
+.accountEditor .panelHead button,
+.accountWebsites .panelHead button {
+  background: linear-gradient(90deg, #157bff, #9434e8);
+  font-weight: 800;
+}
+
+.accountActions button:last-child {
+  border-color: #6b2430;
+  background: #2b0d14;
+  color: #ff9cac;
+}
+
+.accountWebsites {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.bottomGrid {
+  grid-template-columns: 1fr 1.5fr;
+}
+
+.simpleAccessRow {
+  padding: 13px 0;
+  border-bottom: 1px solid #1c2638;
+}
+
+@media (max-width: 1200px) {
+  .accountGrid,
+  .websiteAdminGrid,
+  .bottomGrid,
+  .accountForm,
+  .permissionGrid {
+    grid-template-columns: 1fr;
+  }
+}
