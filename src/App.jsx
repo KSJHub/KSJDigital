@@ -5,7 +5,8 @@ import { OwnerSupportPage } from './pages/OwnerSupportPage.jsx'
 import { OwnerWebsitesPage } from './pages/OwnerWebsitesPage.jsx'
 import { ClientWebsitePage } from './pages/ClientWebsitePage.jsx'
 import { BrandCentrePage } from './pages/BrandCentrePage.jsx'
-import { ClientsPage, DashboardPage, EditorPage, MediaPage, PublishPage, SettingsPage, SupportPage } from './pages/Pages.jsx'
+import { PublishPipelinePage } from './pages/PublishPipelinePage.jsx'
+import { ClientsPage, DashboardPage, EditorPage, MediaPage, SettingsPage, SupportPage } from './pages/Pages.jsx'
 
 function route() {
   return location.pathname.replace(/\/$/, '') || '/'
@@ -15,10 +16,10 @@ function Workspace({ client = false, type }) {
   if (!client && type === 'websites') return <OwnerWebsitesPage />
   if (!client && type === 'clients') return <ClientsPage />
   if (!client && type === 'branding') return <BrandCentrePage />
-  if (!client && type === 'publish-requests') return <PublishPage />
+  if (!client && type === 'publish-requests') return <PublishPipelinePage />
   if (!client && type === 'support') return <OwnerSupportPage />
   if (client && type === 'branding') return <BrandCentrePage client />
-  if (client && type === 'publish') return <PublishPage client />
+  if (client && type === 'publish') return <PublishPipelinePage client />
   if (client && type === 'website') return <ClientWebsitePage />
   if (type === 'editor') return <EditorPage client={client} />
   if (type === 'media') return <MediaPage client={client} />
