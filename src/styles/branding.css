@@ -1,1 +1,97 @@
-.brandLogo img{width:210px;max-width:100%;height:auto;border-radius:14px;box-shadow:0 0 35px rgba(21,123,255,.16)}.brandLogo .logoMark,.brandLogo b{display:none}.brandActions{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px}.brandActions a,.brandActions button{border:1px solid #24314a;background:linear-gradient(90deg,#157bff,#9434e8);color:#fff;border-radius:12px;padding:13px 18px;text-decoration:none;font-weight:800}.brandActions button{cursor:pointer}.brandCard{align-content:start}.clientLogoMark{width:92px;height:92px;border-radius:22px;display:grid;place-items:center;background:radial-gradient(circle,#9434e8,#07101b);font-weight:900;font-size:34px;box-shadow:0 0 38px rgba(148,52,232,.42);margin-bottom:8px}.supportOwnerGrid{display:grid;grid-template-columns:1.4fr .7fr;gap:24px}.ownerInbox article{display:grid;grid-template-columns:1fr 90px 100px 90px;gap:16px;align-items:center;border-bottom:1px solid #1c2638;padding:16px 0}.ownerInbox article button{border:1px solid #24314a;background:#0b111d;color:#fff;border-radius:12px;padding:10px 14px}.ownerInbox span,.ownerInbox em{border:1px solid #9b740f;color:#ffd36b;background:#2b1b05;border-radius:999px;padding:6px 10px;font-size:12px;text-align:center;font-style:normal}@media(max-width:1200px){.supportOwnerGrid,.ownerInbox article{grid-template-columns:1fr}.brandLogo img{width:190px}}
+.brandLogo img {
+  width: 210px;
+  max-width: 100%;
+  height: auto;
+  border-radius: 14px;
+  box-shadow: 0 0 35px rgba(21, 123, 255, .16);
+}
+
+.brandLogo .logoMark,
+.brandLogo b {
+  display: none;
+}
+
+.brandActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.brandActions a,
+.brandActions button {
+  padding: 13px 18px;
+  border: 1px solid #24314a;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #157bff, #9434e8);
+  color: #fff;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.brandActions button {
+  cursor: pointer;
+}
+
+.brandCard {
+  align-content: start;
+}
+
+.clientLogoMark {
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  margin-bottom: 8px;
+  border-radius: 22px;
+  background: radial-gradient(circle, #9434e8, #07101b);
+  box-shadow: 0 0 38px rgba(148, 52, 232, .42);
+  font-size: 34px;
+  font-weight: 900;
+}
+
+.supportOwnerGrid {
+  display: grid;
+  grid-template-columns: 1.4fr .7fr;
+  gap: 24px;
+}
+
+.ownerInbox article {
+  display: grid;
+  grid-template-columns: 1fr 90px 100px 90px;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid #1c2638;
+}
+
+.ownerInbox article button {
+  padding: 10px 14px;
+  border: 1px solid #24314a;
+  border-radius: 12px;
+  background: #0b111d;
+  color: #fff;
+}
+
+.ownerInbox span,
+.ownerInbox em {
+  padding: 6px 10px;
+  border: 1px solid #9b740f;
+  border-radius: 999px;
+  background: #2b1b05;
+  color: #ffd36b;
+  font-size: 12px;
+  font-style: normal;
+  text-align: center;
+}
+
+@media (max-width: 1200px) {
+  .supportOwnerGrid,
+  .ownerInbox article {
+    grid-template-columns: 1fr;
+  }
+
+  .brandLogo img {
+    width: 190px;
+  }
+}
