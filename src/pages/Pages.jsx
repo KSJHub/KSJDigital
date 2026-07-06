@@ -1,15 +1,12 @@
 import { useState } from 'react'
-import { Layout, Logo } from '../layouts/Shell.jsx'
 import { ActivityPanel, Preview, PublishPanel, QuickActions, Stat, StatusPanel, TicketPanel, WebsiteCard } from '../components/UI.jsx'
-import { clientStats, createClient, deleteClient, editableFields, getAccountLog, getClients, getClientWebsite, getContent, getMediaItems, getOwnerWebsites, getTickets, getUpdateRequests, getWebsitePages, ownerStats, prepareClientEmail, requestUpdate, resetClientPassword, saveContent, updateClient } from '../services/platform.js'
-
-export function LoginPage() {
-  return <div className="login authLogin"><div className="authBackdrop"></div><section className="card loginCard authCard"><Logo /><span>Secure Portal</span><h1>KSJ DIGITAL</h1><p>Sign in to manage your website.</p><div className="loginFields"><label>Email<input type="email" placeholder="you@example.com" /></label><label>Password<input type="password" placeholder="Enter your password" /></label></div><div className="loginOptions"><label><input type="checkbox" />Remember me</label><a>Forgot password?</a></div><a href="/client">Sign In</a><footer>Need access? Contact your KSJ Digital administrator.</footer></section></div>
-}
+import { getDashboardStats } from '../services/dashboardStats.js'
+import { createClient, deleteClient, editableFields, getAccountLog, getClients, getClientWebsite, getContent, getMediaItems, getOwnerWebsites, getTickets, getUpdateRequests, getWebsitePages, prepareClientEmail, requestUpdate, resetClientPassword, saveContent, updateClient } from '../services/platform.js'
+import { Layout } from '../layouts/Shell.jsx'
 
 export function DashboardPage({ client = false }) {
   const visibleWebsites = client ? [getClientWebsite()] : getOwnerWebsites()
-  const stats = client ? clientStats : ownerStats
+  const stats = getDashboardStats(client)
   return <Layout client={client} title={client ? 'My Website' : 'Dashboard'}><div className="stats">{stats.map(item => <Stat key={item[0]} item={item} />)}</div><div className="singleGrid"><section className="card websites"><div className="panelHead"><h2>{client ? 'Your Website' : 'Client Websites'}</h2><button onClick={() => location.href = client ? '/client/website' : '/owner/websites'}>{client ? 'Manage Website' : 'Manage Websites'}</button></div>{visibleWebsites.map((site, index) => <WebsiteCard key={site.name} site={site} active={index === 0} />)}</section><Preview /></div><div className="bottom four"><ActivityPanel /><PublishPanel /><TicketPanel /><StatusPanel /></div><QuickActions client={client} /></Layout>
 }
 
