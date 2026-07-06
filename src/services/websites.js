@@ -1,4 +1,5 @@
 const WEBSITE_KEY = 'ksjDigitalWebsites'
+const DELETED_WEBSITE_KEY = 'ksjDigitalDeletedWebsites'
 const CLIENT_KEY = 'ksjDigitalClients'
 const ACCOUNT_LOG_KEY = 'ksjDigitalAccountLog'
 
@@ -64,6 +65,11 @@ function write(key, value) {
   return value
 }
 
+function writeRaw(key, value) {
+  localStorage.setItem(key, JSON.stringify(value))
+  return value
+}
+
 function idFrom(value) {
   return value
     .toLowerCase()
@@ -74,26 +80,33 @@ function idFrom(value) {
 
 function logAction(message) {
   const log = read(ACCOUNT_LOG_KEY, [])
-  localStorage.setItem(
-    ACCOUNT_LOG_KEY,
-    JSON.stringify([{ message, time: new Date().toLocaleString() }, ...log].slice(0, 12)),
-  )
+  writeRaw(ACCOUNT_LOG_KEY, [{ message, time: new Date().toLocaleString() }, ...log].slice(0, 12))
+}
+
+function getDeletedWebsiteIds() {
+  return read(DELETED_WEBSITE_KEY, [])
 }
 
 export function getWebsites() {
   const stored = read(WEBSITE_KEY, null)
+  const deletedIds = getDeletedWebsiteIds()
 
   if (!stored) {
-    return write(WEBSITE_KEY, starterWebsites)
+    return write(
+      WEBSITE_KEY,
+      starterWebsites.filter(site => !deletedIds.includes(site.id)),
+    )
   }
 
-  const merged = stored.map(site => {
-    const starter = starterWebsites.find(item => item.id === site.id)
-    return starter ? { ...starter, ...site } : site
-  })
+  const merged = stored
+    .filter(site => !deletedIds.includes(site.id))
+    .map(site => {
+      const starter = starterWebsites.find(item => item.id === site.id)
+      return starter ? { ...starter, ...site } : site
+    })
 
   starterWebsites.forEach(site => {
-    if (!merged.some(item => item.id === site.id)) {
+    if (!deletedIds.includes(site.id) && !merged.some(item => item.id === site.id)) {
       merged.push(site)
     }
   })
@@ -118,16 +131,22 @@ export function addWebsite(values) {
     notes: values.notes || '',
   }
 
+  writeRaw(
+    DELETED_WEBSITE_KEY,
+    getDeletedWebsiteIds().filter(id => id !== website.id),
+  )
   logAction(`Website added: ${website.name}`)
   return write(WEBSITE_KEY, [...getWebsites(), website])
 }
 
 export function saveWebsite(id, values) {
-  const updated = getWebsites().map(site =>
+  const websites = getWebsites()
+  const updated = websites.map(site =>
     site.id === id
       ? {
           ...site,
           ...values,
+          domain: values.domain?.trim() || site.domain,
           logo: (values.name || site.name).slice(0, 2).toUpperCase(),
         }
       : site,
@@ -139,6 +158,9 @@ export function saveWebsite(id, values) {
 
 export function removeWebsite(id) {
   const site = getWebsites().find(item => item.id === id)
+  const deletedIds = [...new Set([...getDeletedWebsiteIds(), id])]
+  writeRaw(DELETED_WEBSITE_KEY, deletedIds)
+
   const websites = write(
     WEBSITE_KEY,
     getWebsites().filter(item => item.id !== id),
@@ -150,7 +172,7 @@ export function removeWebsite(id) {
   }))
 
   if (clients.length) {
-    localStorage.setItem(CLIENT_KEY, JSON.stringify(clients))
+    writeRaw(CLIENT_KEY, clients)
   }
 
   logAction(`Website removed: ${site?.name || id}`)
