@@ -23,7 +23,9 @@ export default function App() {
   const path = route()
   const account = getAccountFromPath()
   if (path === '/login' || path === '/') return <LoginPage />
+  if (!account) return <LoginPage />
   if (path.startsWith('/owner') && !canAccessOwner(account)) return <AccessDenied account={account} />
+  if (path.startsWith('/client') && account.role === 'owner') return <Workspace client type="website" />
   if (path === '/owner') return <DashboardPage />
   if (path === '/client') return <DashboardPage client />
   if (path.startsWith('/owner/')) return <Workspace type={path.split('/')[2]} />
