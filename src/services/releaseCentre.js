@@ -1,7 +1,11 @@
 const RELEASE_KEY = 'ksjDigitalReleaseCentre'
 
 function read(key, fallback) {
-  try { return JSON.parse(localStorage.getItem(key) || 'null') || fallback } catch { return fallback }
+  try {
+    return JSON.parse(localStorage.getItem(key) || 'null') || fallback
+  } catch {
+    return fallback
+  }
 }
 
 function write(key, value) {
@@ -31,12 +35,22 @@ export function getReleaseState() {
 
 export function runReleaseCheck() {
   const state = getReleaseState()
-  return write(RELEASE_KEY, { ...state, status: 'Ready', lastCheck: new Date().toLocaleString() })
+
+  return write(RELEASE_KEY, {
+    ...state,
+    status: 'Ready',
+    lastCheck: new Date().toLocaleString(),
+  })
 }
 
 export function getCompletionSummary() {
   const state = getReleaseState()
   const ready = state.checks.filter(item => item[1] === 'Ready').length
   const total = state.checks.length
-  return { ready, total, percent: Math.round((ready / total) * 100) }
+
+  return {
+    ready,
+    total,
+    percent: Math.round((ready / total) * 100),
+  }
 }
