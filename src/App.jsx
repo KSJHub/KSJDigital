@@ -8,7 +8,8 @@ import { BrandCentrePage } from './pages/BrandCentrePage.jsx'
 import { PublishPipelinePage } from './pages/PublishPipelinePage.jsx'
 import { PageBuilderPage } from './pages/PageBuilderPage.jsx'
 import { SiteEnginePage } from './pages/SiteEnginePage.jsx'
-import { ClientsPage, DashboardPage, MediaPage, SettingsPage, SupportPage } from './pages/Pages.jsx'
+import { MediaLibraryPage } from './pages/MediaLibraryPage.jsx'
+import { ClientsPage, DashboardPage, SettingsPage, SupportPage } from './pages/Pages.jsx'
 
 function route() {
   return location.pathname.replace(/\/$/, '') || '/'
@@ -22,12 +23,13 @@ function Workspace({ client = false, type }) {
   if (!client && type === 'publish-requests') return <PublishPipelinePage />
   if (!client && type === 'support') return <OwnerSupportPage />
   if (!client && type === 'editor') return <PageBuilderPage />
+  if (!client && type === 'media') return <MediaLibraryPage />
   if (client && type === 'branding') return <BrandCentrePage client />
   if (client && type === 'engine') return <SiteEnginePage client />
   if (client && type === 'publish') return <PublishPipelinePage client />
   if (client && type === 'website') return <ClientWebsitePage />
   if (client && type === 'editor') return <PageBuilderPage client />
-  if (type === 'media') return <MediaPage client={client} />
+  if (client && type === 'media') return <MediaLibraryPage client />
   if (type === 'support') return <SupportPage client={client} />
   if (type === 'settings') return <SettingsPage client={client} />
   return client ? <ClientWebsitePage /> : <OwnerWebsitesPage />
