@@ -23,6 +23,7 @@ import './styles/site-engine.css'
 import './styles/media-library.css'
 import './styles/form-builder.css'
 import './styles/operations.css'
+import './styles/release-centre.css'
 import './styles/consistency.css'
 
 createRoot(document.getElementById('root')).render(<App />)
