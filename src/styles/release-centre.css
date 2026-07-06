@@ -1,1 +1,70 @@
-.releaseGrid{display:grid;grid-template-columns:.75fr 1.45fr .9fr;gap:24px}.releaseScore,.releasePanel{padding:24px}.releaseScore strong{display:block;font-size:72px;margin:18px 0 8px;background:linear-gradient(90deg,#157bff,#9434e8);-webkit-background-clip:text;color:transparent}.releaseScore span,.releaseScore small,.releasePanel p,.releaseRow small{color:#96a3b8}.releaseRow{border:1px solid #263650;background:#09111d;border-radius:14px;padding:14px;margin-bottom:12px;display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center}.releaseRow span{border:1px solid #2b8f61;color:#42f39a;background:#092117;border-radius:999px;padding:6px 10px;font-size:12px}.launchNeeds{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}.launchNeeds span{border:1px solid #263650;background:#09111d;color:#dce7ff;border-radius:14px;padding:14px}@media(max-width:1250px){.releaseGrid,.releaseRow,.launchNeeds{grid-template-columns:1fr}}
+.releaseGrid {
+  display: grid;
+  grid-template-columns: .75fr 1.45fr .9fr;
+  gap: 24px;
+}
+
+.releaseScore,
+.releasePanel {
+  padding: 24px;
+}
+
+.releaseScore strong {
+  display: block;
+  margin: 18px 0 8px;
+  background: linear-gradient(90deg, #157bff, #9434e8);
+  -webkit-background-clip: text;
+  color: transparent;
+  font-size: 72px;
+}
+
+.releaseScore span,
+.releaseScore small,
+.releasePanel p,
+.releaseRow small {
+  color: #96a3b8;
+}
+
+.releaseRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 12px;
+  padding: 14px;
+  border: 1px solid #263650;
+  border-radius: 14px;
+  background: #09111d;
+}
+
+.releaseRow span {
+  padding: 6px 10px;
+  border: 1px solid #2b8f61;
+  border-radius: 999px;
+  background: #092117;
+  color: #42f39a;
+  font-size: 12px;
+}
+
+.launchNeeds {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.launchNeeds span {
+  padding: 14px;
+  border: 1px solid #263650;
+  border-radius: 14px;
+  background: #09111d;
+  color: #dce7ff;
+}
+
+@media (max-width: 1250px) {
+  .releaseGrid,
+  .releaseRow,
+  .launchNeeds {
+    grid-template-columns: 1fr;
+  }
+}
