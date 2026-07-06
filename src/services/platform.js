@@ -3,6 +3,7 @@ const REQUEST_KEY = 'ksjDigitalRequests'
 const WEBSITE_KEY = 'ksjDigitalWebsites'
 const CLIENT_KEY = 'ksjDigitalClients'
 const ACCOUNT_LOG_KEY = 'ksjDigitalAccountLog'
+const SESSION_KEY = 'ksjDigitalSession'
 
 export const defaultWebsites = [
   { id: 'twotonetaj', name: 'TwoToneTaj', domain: 'twotonetaj.com', status: 'Live', pageCount: 7, mediaCount: 8, owner: 'Taj', logo: 'TAJ', plan: 'Premium', seo: 94, performance: 98 },
@@ -63,14 +64,27 @@ function logAction(message) {
   write(ACCOUNT_LOG_KEY, [{ message, time: new Date().toLocaleString() }, ...log].slice(0, 12))
 }
 
+function currentSession() {
+  return read(SESSION_KEY, null)
+}
+
 function websiteNameList(ids = []) {
   const websites = getOwnerWebsites()
   if (ids.includes('all')) return 'All websites'
   return ids.map(id => websites.find(site => site.id === id)?.name).filter(Boolean).join(', ') || 'No website assigned'
 }
 
+function normaliseClient(client) {
+  const match = defaultClients.find(item => item.id === client.id || item.name === client.name)
+  const merged = { ...match, ...client }
+  return { ...merged, websiteName: websiteNameList(merged.websiteIds || []) }
+}
+
 export function getClientWebsite() {
-  return getOwnerWebsites()[0]
+  const session = currentSession()
+  const websites = getOwnerWebsites()
+  const siteId = session?.websiteId || session?.websiteIds?.[0] || 'twotonetaj'
+  return websites.find(site => site.id === siteId) || websites[0]
 }
 
 export function getOwnerWebsites() {
@@ -84,7 +98,12 @@ export function createWebsite(values) {
 }
 
 export function getClients() {
-  return read(CLIENT_KEY, defaultClients).map(client => ({ ...client, websiteName: websiteNameList(client.websiteIds || []) }))
+  const stored = read(CLIENT_KEY, defaultClients)
+  const merged = [...stored]
+  defaultClients.forEach(defaultClient => {
+    if (!merged.some(client => client.id === defaultClient.id)) merged.push(defaultClient)
+  })
+  return merged.map(normaliseClient)
 }
 
 export function createClient(values) {
@@ -156,7 +175,7 @@ export function saveContent(values) {
 }
 
 export function requestUpdate(values) {
-  const request = ['Homepage update', 'TwoToneTaj', 'Waiting Review']
+  const request = ['Homepage update', getClientWebsite().name, 'Waiting Review']
   write(REQUEST_KEY, { request, values, createdAt: new Date().toLocaleString() })
   return request
 }
