@@ -1,1 +1,96 @@
-.productionGrid{display:grid;grid-template-columns:1.1fr 1fr;gap:24px}.productionPanel{padding:24px}.productionPanel.wide{grid-column:1/-1}.checkRow,.backupRow,.auditRow{border:1px solid #263650;background:#09111d;border-radius:14px;padding:14px;margin-bottom:12px}.checkRow,.backupRow{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center}.checkRow small,.backupRow small,.auditRow small,.productionPanel p{color:#96a3b8}.checkRow span{color:#ffd36b}.backupRow button,.productionPanel .panelHead button,.deployRequirements span{border:1px solid #24314a;background:#0b111d;color:#fff;border-radius:10px;padding:10px 12px}.productionPanel .panelHead button{background:linear-gradient(90deg,#157bff,#9434e8);font-weight:800}.auditRow{display:grid;grid-template-columns:160px 1fr 260px;gap:14px;align-items:center}.auditRow b{color:#8fc5ff}.deployRequirements{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:18px 0}.deployRequirements span{display:block}@media(max-width:1250px){.productionGrid,.auditRow,.checkRow,.backupRow{grid-template-columns:1fr}.productionPanel.wide{grid-column:auto}.deployRequirements{grid-template-columns:1fr}}
+.productionGrid {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 24px;
+}
+
+.productionPanel {
+  padding: 24px;
+}
+
+.productionPanel.wide {
+  grid-column: 1 / -1;
+}
+
+.checkRow,
+.backupRow,
+.auditRow {
+  margin-bottom: 12px;
+  padding: 14px;
+  border: 1px solid #263650;
+  border-radius: 14px;
+  background: #09111d;
+}
+
+.checkRow,
+.backupRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.checkRow small,
+.backupRow small,
+.auditRow small,
+.productionPanel p {
+  color: #96a3b8;
+}
+
+.checkRow span {
+  color: #ffd36b;
+}
+
+.backupRow button,
+.productionPanel .panelHead button,
+.deployRequirements span {
+  padding: 10px 12px;
+  border: 1px solid #24314a;
+  border-radius: 10px;
+  background: #0b111d;
+  color: #fff;
+}
+
+.productionPanel .panelHead button {
+  background: linear-gradient(90deg, #157bff, #9434e8);
+  font-weight: 800;
+}
+
+.auditRow {
+  display: grid;
+  grid-template-columns: 160px 1fr 260px;
+  align-items: center;
+  gap: 14px;
+}
+
+.auditRow b {
+  color: #8fc5ff;
+}
+
+.deployRequirements {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.deployRequirements span {
+  display: block;
+}
+
+@media (max-width: 1250px) {
+  .productionGrid,
+  .auditRow,
+  .checkRow,
+  .backupRow {
+    grid-template-columns: 1fr;
+  }
+
+  .productionPanel.wide {
+    grid-column: auto;
+  }
+
+  .deployRequirements {
+    grid-template-columns: 1fr;
+  }
+}
