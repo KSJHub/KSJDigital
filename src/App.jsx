@@ -11,6 +11,7 @@ import { SiteEnginePage } from './pages/SiteEnginePage.jsx'
 import { MediaLibraryPage } from './pages/MediaLibraryPage.jsx'
 import { FormBuilderPage } from './pages/FormBuilderPage.jsx'
 import { OperationsPage } from './pages/OperationsPage.jsx'
+import { ReleaseCentrePage } from './pages/ReleaseCentrePage.jsx'
 import { ClientsPage, DashboardPage, SettingsPage, SupportPage } from './pages/Pages.jsx'
 
 function route() {
@@ -24,6 +25,7 @@ function Workspace({ client = false, type }) {
   if (!client && type === 'engine') return <SiteEnginePage />
   if (!client && type === 'forms') return <FormBuilderPage />
   if (!client && type === 'operations') return <OperationsPage />
+  if (!client && type === 'launch') return <ReleaseCentrePage />
   if (!client && type === 'publish-requests') return <PublishPipelinePage />
   if (!client && type === 'support') return <OwnerSupportPage />
   if (!client && type === 'editor') return <PageBuilderPage />
