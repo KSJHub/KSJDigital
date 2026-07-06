@@ -1,14 +1,35 @@
+import { getClients, getOwnerWebsites } from './platform.js'
+
 const SESSION_KEY = 'ksjDigitalSession'
 
-export const accounts = [
-  { id: 'owner', email: 'ksj@ksjdigital.co.uk', password: 'ksj123', name: 'Morgan', role: 'owner', label: 'KSJ Digital', home: '/owner', websiteAccess: 'All websites', canPublish: true, canManageClients: true, canEdit: true },
-  { id: 'twotonetaj', email: 'taj@twotonetaj.com', password: 'taj123', name: 'Taj', role: 'client', label: 'TwoToneTaj', home: '/client', websiteId: 'twotonetaj', websiteAccess: 'TwoToneTaj website', canPublish: false, canManageClients: false, canEdit: true },
-]
+function buildSession(account) {
+  const websites = getOwnerWebsites()
+  const role = account.role?.toLowerCase() === 'owner' ? 'owner' : 'client'
+  const websiteIds = role === 'owner' ? websites.map(site => site.id) : account.websiteIds || []
+  const websiteAccess = role === 'owner' ? 'All websites' : websiteIds.map(id => websites.find(site => site.id === id)?.name).filter(Boolean).join(', ') || 'No website assigned'
+  return {
+    id: account.id,
+    email: account.email,
+    name: account.name,
+    role,
+    label: role === 'owner' ? 'KSJ Digital' : account.websiteName || account.name,
+    home: role === 'owner' ? '/owner' : '/client',
+    websiteId: websiteIds[0],
+    websiteIds,
+    websiteAccess,
+    canPublish: role === 'owner',
+    canManageClients: role === 'owner',
+    canEdit: !!account.canEdit,
+    canManageMedia: !!account.canManageMedia,
+    canRequestUpdates: !!account.canRequestUpdates,
+    canViewSupport: !!account.canViewSupport,
+  }
+}
 
 export function signIn(email, password) {
-  const account = accounts.find(user => user.email.toLowerCase() === email.toLowerCase() && user.password === password)
+  const account = getClients().find(user => user.email?.toLowerCase() === email.toLowerCase() && user.password === password && user.status !== 'Suspended')
   if (!account) return { error: 'Email or password is incorrect.' }
-  const { password: _password, ...session } = account
+  const session = buildSession(account)
   localStorage.setItem(SESSION_KEY, JSON.stringify(session))
   return { account: session }
 }
@@ -19,18 +40,17 @@ export function signOut() {
 }
 
 export function switchAccount(id) {
-  const account = accounts.find(user => user.id === id)
+  const account = getClients().find(user => user.id === id)
   if (!account) return null
-  const { password: _password, ...session } = account
+  const session = buildSession(account)
   localStorage.setItem(SESSION_KEY, JSON.stringify(session))
   location.href = session.home
   return session
 }
 
 export function getAccount(type = 'client') {
-  const account = accounts.find(user => user.id === type || user.role === type) || accounts[1]
-  const { password: _password, ...session } = account
-  return session
+  const account = getClients().find(user => user.id === type || user.role?.toLowerCase() === type) || getClients()[0]
+  return buildSession(account)
 }
 
 export function getCurrentAccount() {
@@ -57,7 +77,7 @@ export function canAccessOwner(account) {
 export function canEditWebsite(account, websiteName = 'TwoToneTaj') {
   if (!account) return false
   if (account.role === 'owner') return true
-  return account.role === 'client' && websiteName === 'TwoToneTaj'
+  return account.websiteAccess.includes(websiteName)
 }
 
 export function getPermissionSummary(account) {
