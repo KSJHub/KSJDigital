@@ -4,7 +4,7 @@ import { LoginPage } from './pages/LoginPage.jsx'
 import { OwnerSupportPage } from './pages/OwnerSupportPage.jsx'
 import { OwnerWebsitesPage } from './pages/OwnerWebsitesPage.jsx'
 import { ClientWebsitePage } from './pages/ClientWebsitePage.jsx'
-import { BrandManagerPage } from './pages/BrandManagerPage.jsx'
+import { BrandCentrePage } from './pages/BrandCentrePage.jsx'
 import { ClientsPage, DashboardPage, EditorPage, MediaPage, PublishPage, SettingsPage, SupportPage } from './pages/Pages.jsx'
 
 function route() {
@@ -14,10 +14,10 @@ function route() {
 function Workspace({ client = false, type }) {
   if (!client && type === 'websites') return <OwnerWebsitesPage />
   if (!client && type === 'clients') return <ClientsPage />
-  if (!client && type === 'branding') return <BrandManagerPage />
+  if (!client && type === 'branding') return <BrandCentrePage />
   if (!client && type === 'publish-requests') return <PublishPage />
   if (!client && type === 'support') return <OwnerSupportPage />
-  if (client && type === 'branding') return <BrandManagerPage client />
+  if (client && type === 'branding') return <BrandCentrePage client />
   if (client && type === 'publish') return <PublishPage client />
   if (client && type === 'website') return <ClientWebsitePage />
   if (type === 'editor') return <EditorPage client={client} />
@@ -33,7 +33,6 @@ export default function App() {
   if (path === '/login' || path === '/') return <LoginPage />
   if (!account) return <LoginPage />
   if (path.startsWith('/owner') && !canAccessOwner(account)) return <AccessDenied account={account} />
-  if (path.startsWith('/client') && account.role === 'owner') return <Workspace client type="website" />
   if (path === '/owner') return <DashboardPage />
   if (path === '/client') return <DashboardPage client />
   if (path.startsWith('/owner/')) return <Workspace type={path.split('/')[2]} />
