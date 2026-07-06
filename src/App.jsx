@@ -10,6 +10,7 @@ import { PageBuilderPage } from './pages/PageBuilderPage.jsx'
 import { SiteEnginePage } from './pages/SiteEnginePage.jsx'
 import { MediaLibraryPage } from './pages/MediaLibraryPage.jsx'
 import { FormBuilderPage } from './pages/FormBuilderPage.jsx'
+import { OperationsPage } from './pages/OperationsPage.jsx'
 import { ClientsPage, DashboardPage, SettingsPage, SupportPage } from './pages/Pages.jsx'
 
 function route() {
@@ -22,6 +23,7 @@ function Workspace({ client = false, type }) {
   if (!client && type === 'branding') return <BrandCentrePage />
   if (!client && type === 'engine') return <SiteEnginePage />
   if (!client && type === 'forms') return <FormBuilderPage />
+  if (!client && type === 'operations') return <OperationsPage />
   if (!client && type === 'publish-requests') return <PublishPipelinePage />
   if (!client && type === 'support') return <OwnerSupportPage />
   if (!client && type === 'editor') return <PageBuilderPage />
@@ -29,6 +31,7 @@ function Workspace({ client = false, type }) {
   if (client && type === 'branding') return <BrandCentrePage client />
   if (client && type === 'engine') return <SiteEnginePage client />
   if (client && type === 'forms') return <FormBuilderPage client />
+  if (client && type === 'operations') return <OperationsPage client />
   if (client && type === 'publish') return <PublishPipelinePage client />
   if (client && type === 'website') return <ClientWebsitePage />
   if (client && type === 'editor') return <PageBuilderPage client />
