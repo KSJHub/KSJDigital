@@ -1,14 +1,15 @@
 import { AccessDenied } from './components/UI.jsx'
 import { canAccessOwner, getAccountFromPath } from './services/auth.js'
 import { LoginPage } from './pages/LoginPage.jsx'
-import { ClientsPage, DashboardPage, EditorPage, MediaPage, PublishPage, SettingsPage, SupportPage, WebsitePage, WebsitesPage } from './pages/Pages.jsx'
+import { OwnerWebsitesPage } from './pages/OwnerWebsitesPage.jsx'
+import { ClientsPage, DashboardPage, EditorPage, MediaPage, PublishPage, SettingsPage, SupportPage, WebsitePage } from './pages/Pages.jsx'
 
 function route() {
   return location.pathname.replace(/\/$/, '') || '/'
 }
 
 function Workspace({ client = false, type }) {
-  if (!client && type === 'websites') return <WebsitesPage />
+  if (!client && type === 'websites') return <OwnerWebsitesPage />
   if (!client && type === 'clients') return <ClientsPage />
   if (!client && type === 'publish-requests') return <PublishPage />
   if (client && type === 'publish') return <PublishPage client />
@@ -17,7 +18,7 @@ function Workspace({ client = false, type }) {
   if (type === 'media') return <MediaPage client={client} />
   if (type === 'support') return <SupportPage client={client} />
   if (type === 'settings') return <SettingsPage client={client} />
-  return client ? <WebsitePage /> : <WebsitesPage />
+  return client ? <WebsitePage /> : <OwnerWebsitesPage />
 }
 
 export default function App() {
