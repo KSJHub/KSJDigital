@@ -1,1 +1,101 @@
-.publishReviewGrid{display:grid;grid-template-columns:1.15fr .85fr;gap:24px;margin-bottom:24px}.reviewDetail h3{font-size:28px;margin:0 0 8px}.reviewDetail p{color:#aeb8cc}.changedFields{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0}.changedFields span{border:1px solid #263650;background:#09111d;border-radius:999px;padding:8px 12px;color:#dce7ff}.reviewActions{display:flex;gap:12px;flex-wrap:wrap}.reviewActions button{border:1px solid #24314a;background:#0b111d;color:#fff;border-radius:12px;padding:13px 18px}.reviewActions button:last-child{background:linear-gradient(90deg,#157bff,#9434e8);font-weight:800}.checkItem{display:grid;grid-template-columns:44px 1fr 70px;gap:14px;align-items:center;border-bottom:1px solid #1c2638;padding:14px 0}.checkItem>b{color:#8fc5ff}.checkItem small{display:block;color:#96a3b8;margin-top:5px}.checkItem span,.historyPanel article span{border:1px solid #2b8f61;color:#42f39a;background:#092117;border-radius:999px;padding:6px 10px;font-size:12px;text-align:center;font-weight:800}.historyPanel article{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #1c2638;padding:14px 0}.historyPanel small{display:block;color:#96a3b8;margin-top:5px}@media(max-width:1100px){.publishReviewGrid{grid-template-columns:1fr}.checkItem{grid-template-columns:1fr}}
+.publishReviewGrid {
+  display: grid;
+  grid-template-columns: 1.15fr .85fr;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.reviewDetail h3 {
+  margin: 0 0 8px;
+  font-size: 28px;
+}
+
+.reviewDetail p {
+  color: #aeb8cc;
+}
+
+.changedFields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.changedFields span {
+  padding: 8px 12px;
+  border: 1px solid #263650;
+  border-radius: 999px;
+  background: #09111d;
+  color: #dce7ff;
+}
+
+.reviewActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.reviewActions button {
+  padding: 13px 18px;
+  border: 1px solid #24314a;
+  border-radius: 12px;
+  background: #0b111d;
+  color: #fff;
+}
+
+.reviewActions button:last-child {
+  background: linear-gradient(90deg, #157bff, #9434e8);
+  font-weight: 800;
+}
+
+.checkItem {
+  display: grid;
+  grid-template-columns: 44px 1fr 70px;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 0;
+  border-bottom: 1px solid #1c2638;
+}
+
+.checkItem > b {
+  color: #8fc5ff;
+}
+
+.checkItem small {
+  display: block;
+  margin-top: 5px;
+  color: #96a3b8;
+}
+
+.checkItem span,
+.historyPanel article span {
+  padding: 6px 10px;
+  border: 1px solid #2b8f61;
+  border-radius: 999px;
+  background: #092117;
+  color: #42f39a;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.historyPanel article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0;
+  border-bottom: 1px solid #1c2638;
+}
+
+.historyPanel small {
+  display: block;
+  margin-top: 5px;
+  color: #96a3b8;
+}
+
+@media (max-width: 1100px) {
+  .publishReviewGrid,
+  .checkItem {
+    grid-template-columns: 1fr;
+  }
+}
