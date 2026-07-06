@@ -66,15 +66,23 @@ export async function saveAsset({ ownerId = 'default', websiteId = 'system', slo
     history: existing ? [...(existing.history || []), { name: existing.name, size: existing.size, type: existing.type, updatedAt: existing.updatedAt, version: existing.version }] : [],
   }
   await asPromise((await tx('readwrite')).put(asset))
+  window.dispatchEvent(new CustomEvent('ksj-brand-updated', { detail: asset }))
   return asset
 }
 
 export async function removeAsset(ownerId = 'default', websiteId = 'system', slotId) {
-  return asPromise((await tx('readwrite')).delete(`${ownerId}:${websiteId}:${slotId}`))
+  const result = await asPromise((await tx('readwrite')).delete(`${ownerId}:${websiteId}:${slotId}`))
+  window.dispatchEvent(new CustomEvent('ksj-brand-updated'))
+  return result
 }
 
 export async function getAsset(ownerId = 'default', websiteId = 'system', slotId) {
   return asPromise((await tx()).get(`${ownerId}:${websiteId}:${slotId}`))
+}
+
+export async function getLatestSystemLogoAsset() {
+  const all = await getAllAssets()
+  return all.filter(asset => asset.websiteId === 'system' && asset.slotId === 'primaryLogo' && asset.type?.startsWith('image/')).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))[0]
 }
 
 export function createAssetUrl(asset) {
