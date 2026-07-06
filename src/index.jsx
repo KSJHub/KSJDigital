@@ -13,5 +13,6 @@ import './styles/permissions.css'
 import './styles/content-model.css'
 import './styles/publish-review.css'
 import './styles/website-manager.css'
+import './styles/accounts.css'
 import './styles/consistency.css'
 createRoot(document.getElementById('root')).render(<App />)
