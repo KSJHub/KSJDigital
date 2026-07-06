@@ -1,12 +1,20 @@
 import { getPermissionSummary } from '../services/auth.js'
 import { getTickets } from '../services/platform.js'
 
+function liveUrl(domain = '') {
+  return domain.startsWith('http') ? domain : `https://${domain}`
+}
+
 export function Stat({ item }) {
   return <div className="card stat"><div><span>{item[0]}</span><strong>{item[1]}</strong><small>{item[2]}</small></div><i /></div>
 }
 
-export function WebsiteCard({ site, active = false }) {
-  return <article className={active ? 'website activeSite' : 'website'}><div className="thumb">{site.logo}</div><div><h3>{site.name} <em>{site.status}</em></h3><p>{site.domain} · {site.plan}</p><div className="siteStats"><b>{site.pageCount}<small>Pages</small></b><b>{site.mediaCount}<small>Media</small></b><b>{site.owner}<small>Owner</small></b><b>{site.seo}%<small>SEO</small></b><b>{site.performance}%<small>Speed</small></b></div></div><button>Manage</button></article>
+export function WebsiteCard({ site, active = false, client = false }) {
+  const base = client ? '/client' : '/owner'
+  const actions = client
+    ? [['Open', () => window.open(liveUrl(site.domain), '_blank')], ['Pages', () => location.href = '/client/editor'], ['Media', () => location.href = '/client/media'], ['Branding', () => location.href = '/client/branding'], ['Updates', () => location.href = '/client/publish']]
+    : [['Open', () => window.open(liveUrl(site.domain), '_blank')], ['Manage', () => location.href = '/owner/websites'], ['Clients', () => location.href = '/owner/clients'], ['Branding', () => location.href = '/owner/branding'], ['Updates', () => location.href = '/owner/publish-requests']]
+  return <article className={active ? 'website activeSite websiteControl' : 'website websiteControl'}><div className="thumb">{site.logo}</div><div><h3>{site.name} <em>{site.status}</em></h3><p>{site.domain} · {site.plan}</p><div className="siteStats"><b>{site.pageCount}<small>Pages</small></b><b>{site.mediaCount}<small>Media</small></b><b>{site.owner}<small>Owner</small></b><b>{site.seo}%<small>SEO</small></b><b>{site.performance}%<small>Speed</small></b></div><div className="websiteActions">{actions.map(([label, action]) => <button key={label} onClick={action}>{label}</button>)}</div></div></article>
 }
 
 export function PermissionBanner({ account, client = false }) {
