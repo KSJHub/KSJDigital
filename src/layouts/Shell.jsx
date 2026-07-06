@@ -4,9 +4,136 @@ import { getSystemBrand } from '../services/brandAssets.js'
 import { createAssetUrl, getLatestSystemLogoAsset } from '../services/assetStorage.js'
 import { PermissionBanner } from '../components/UI.jsx'
 
-function route(){return location.pathname.replace(/\/$/,'')||'/'}
-function go(path){location.href=path}
-export function Logo(){const brand=getSystemBrand();const [src,setSrc]=useState(brand.logo||'/ksj-digital-logo.svg');useEffect(()=>{let activeUrl='';async function load(){const asset=await getLatestSystemLogoAsset();if(asset){activeUrl=createAssetUrl(asset);setSrc(activeUrl)}else{setSrc(brand.logo||'/ksj-digital-logo.svg')}}load();const refresh=()=>load();window.addEventListener('ksj-brand-updated',refresh);return()=>{window.removeEventListener('ksj-brand-updated',refresh);if(activeUrl)URL.revokeObjectURL(activeUrl)}},[]);return <div className="logo brandLogo"><img src={src} alt="KSJ Digital" /></div>}
-export function Sidebar({client=false}){const items=client?[['/client','Dashboard'],['/client/website','My Website'],['/client/editor','Pages'],['/client/engine','CMS Engine'],['/client/forms','Forms'],['/client/media','Media'],['/client/branding','Branding'],['/client/publish','Updates'],['/client/operations','Operations'],['/client/support','Support'],['/client/settings','Settings']]:[['/owner','Dashboard'],['/owner/websites','Websites'],['/owner/clients','Clients'],['/owner/engine','CMS Engine'],['/owner/forms','Forms'],['/owner/branding','Branding'],['/owner/publish-requests','Updates'],['/owner/operations','Operations'],['/owner/support','Support'],['/owner/settings','Settings']];const current=route();return <aside className="sidebar"><Logo/><nav>{items.map(([path,label])=><button className={current===path?'active':''} key={path} onClick={()=>go(path)}><span>{label}</span></button>)}</nav><div className="supportBox"><b>{client?'Client Website':'Owner Control'}</b><p>{client?'Your assigned website portal.':'Manage clients, websites, access and approvals.'}</p><button onClick={()=>go(client?'/client/website':'/owner/websites')}>{client?'Open My Website':'Manage Websites'}</button></div></aside>}
-export function Header({client=false,title,account}){const activeAccount=account||getAccountFromPath();return <header className="header"><div><span>{client?'Client Portal':'Owner Portal'}</span><h1>{title||activeAccount.name} 👋</h1><p>{client?'Manage your assigned website content, media, updates and support.':'Manage clients, websites, access, support and approvals.'}</p></div><div className="tools"><button onClick={()=>go(client?'/client/settings':'/owner/settings')}>{activeAccount.label}<span className="miniAvatar">{activeAccount.name[0]}</span></button><button onClick={signOut}>Logout</button></div></header>}
-export function Layout({client=false,title,children}){const account=getAccountFromPath();return <div className="shell"><Sidebar client={client}/><main><Header client={client} title={title} account={account}/><PermissionBanner client={client} account={account}/>{children}</main></div>}
+function route() {
+  return location.pathname.replace(/\/$/, '') || '/'
+}
+
+function go(path) {
+  location.href = path
+}
+
+export function Logo() {
+  const brand = getSystemBrand()
+  const [src, setSrc] = useState(brand.logo || '/ksj-digital-logo.svg')
+
+  useEffect(() => {
+    let activeUrl = ''
+
+    async function load() {
+      const asset = await getLatestSystemLogoAsset()
+      if (asset) {
+        activeUrl = createAssetUrl(asset)
+        setSrc(activeUrl)
+      } else {
+        setSrc(brand.logo || '/ksj-digital-logo.svg')
+      }
+    }
+
+    load()
+
+    const refresh = () => load()
+    window.addEventListener('ksj-brand-updated', refresh)
+
+    return () => {
+      window.removeEventListener('ksj-brand-updated', refresh)
+      if (activeUrl) URL.revokeObjectURL(activeUrl)
+    }
+  }, [])
+
+  return (
+    <div className="logo brandLogo">
+      <img src={src} alt="KSJ Digital" />
+    </div>
+  )
+}
+
+export function Sidebar({ client = false }) {
+  const items = client
+    ? [
+        ['/client', 'Dashboard'],
+        ['/client/website', 'My Website'],
+        ['/client/editor', 'Pages'],
+        ['/client/engine', 'CMS Engine'],
+        ['/client/forms', 'Forms'],
+        ['/client/media', 'Media'],
+        ['/client/branding', 'Branding'],
+        ['/client/publish', 'Updates'],
+        ['/client/operations', 'Operations'],
+        ['/client/support', 'Support'],
+        ['/client/settings', 'Settings'],
+      ]
+    : [
+        ['/owner', 'Dashboard'],
+        ['/owner/websites', 'Websites'],
+        ['/owner/clients', 'Clients'],
+        ['/owner/engine', 'CMS Engine'],
+        ['/owner/forms', 'Forms'],
+        ['/owner/branding', 'Branding'],
+        ['/owner/publish-requests', 'Updates'],
+        ['/owner/operations', 'Operations'],
+        ['/owner/support', 'Support'],
+        ['/owner/settings', 'Settings'],
+      ]
+
+  const current = route()
+
+  return (
+    <aside className="sidebar">
+      <Logo />
+      <nav>
+        {items.map(([path, label]) => (
+          <button className={current === path ? 'active' : ''} key={path} onClick={() => go(path)}>
+            <span>{label}</span>
+          </button>
+        ))}
+      </nav>
+      <div className="supportBox">
+        <b>{client ? 'Client Website' : 'Owner Control'}</b>
+        <p>{client ? 'Your assigned website portal.' : 'Manage clients, websites, access and approvals.'}</p>
+        <button onClick={() => go(client ? '/client/website' : '/owner/websites')}>
+          {client ? 'Open My Website' : 'Manage Websites'}
+        </button>
+      </div>
+    </aside>
+  )
+}
+
+export function Header({ client = false, title, account }) {
+  const activeAccount = account || getAccountFromPath()
+
+  return (
+    <header className="header">
+      <div>
+        <span>{client ? 'Client Portal' : 'Owner Portal'}</span>
+        <h1>{title || activeAccount.name} 👋</h1>
+        <p>
+          {client
+            ? 'Manage your assigned website content, media, updates and support.'
+            : 'Manage clients, websites, access, support and approvals.'}
+        </p>
+      </div>
+      <div className="tools">
+        <button onClick={() => go(client ? '/client/settings' : '/owner/settings')}>
+          {activeAccount.label}
+          <span className="miniAvatar">{activeAccount.name[0]}</span>
+        </button>
+        <button onClick={signOut}>Logout</button>
+      </div>
+    </header>
+  )
+}
+
+export function Layout({ client = false, title, children }) {
+  const account = getAccountFromPath()
+
+  return (
+    <div className="shell">
+      <Sidebar client={client} />
+      <main>
+        <Header client={client} title={title} account={account} />
+        <PermissionBanner client={client} account={account} />
+        {children}
+      </main>
+    </div>
+  )
+}
