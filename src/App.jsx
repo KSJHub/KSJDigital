@@ -1,6 +1,7 @@
 import { AccessDenied } from './components/UI.jsx'
 import { canAccessOwner, getAccountFromPath } from './services/auth.js'
-import { ClientsPage, DashboardPage, EditorPage, LoginPage, MediaPage, PublishPage, SettingsPage, SupportPage, WebsitePage, WebsitesPage } from './pages/Pages.jsx'
+import { LoginPage } from './pages/LoginPage.jsx'
+import { ClientsPage, DashboardPage, EditorPage, MediaPage, PublishPage, SettingsPage, SupportPage, WebsitePage, WebsitesPage } from './pages/Pages.jsx'
 
 function route() {
   return location.pathname.replace(/\/$/, '') || '/'
