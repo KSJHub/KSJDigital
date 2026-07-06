@@ -2,6 +2,7 @@ const CONTENT_KEY = 'ksjDigitalContent'
 const REQUEST_KEY = 'ksjDigitalRequests'
 const WEBSITE_KEY = 'ksjDigitalWebsites'
 const CLIENT_KEY = 'ksjDigitalClients'
+const ACCOUNT_LOG_KEY = 'ksjDigitalAccountLog'
 
 export const defaultWebsites = [
   { id: 'twotonetaj', name: 'TwoToneTaj', domain: 'twotonetaj.com', status: 'Live', pageCount: 7, mediaCount: 8, owner: 'Taj', logo: 'TAJ', plan: 'Premium', seo: 94, performance: 98 },
@@ -10,9 +11,9 @@ export const defaultWebsites = [
 ]
 
 export const defaultClients = [
-  { id: 'taj', name: 'Taj', websiteId: 'twotonetaj', websiteName: 'TwoToneTaj', status: 'Active', access: 'Website editor' },
-  { id: 'morgan', name: 'Morgan', websiteId: 'ksjdiamondgaming', websiteName: 'KSJ Diamond Gaming', status: 'Preparing', access: 'Owner managed' },
-  { id: 'goliath-admin', name: 'Goliath Admin', websiteId: 'goliath', websiteName: 'Goliath', status: 'Draft', access: 'Website editor' },
+  { id: 'taj', name: 'Taj', email: 'taj@twotonetaj.com', password: 'taj123', role: 'Client', websiteIds: ['twotonetaj'], websiteName: 'TwoToneTaj', status: 'Active', access: 'Website editor', canEdit: true, canRequestUpdates: true, canManageMedia: true, canViewSupport: true },
+  { id: 'morgan', name: 'Morgan', email: 'ksj@ksjdigital.co.uk', password: 'ksj123', role: 'Owner', websiteIds: ['twotonetaj', 'ksjdiamondgaming', 'goliath'], websiteName: 'All websites', status: 'Active', access: 'Full owner access', canEdit: true, canRequestUpdates: true, canManageMedia: true, canViewSupport: true },
+  { id: 'goliath-admin', name: 'Goliath Admin', email: 'admin@goliath.gg', password: 'goliath123', role: 'Client', websiteIds: ['goliath'], websiteName: 'Goliath', status: 'Draft', access: 'Website editor', canEdit: true, canRequestUpdates: true, canManageMedia: true, canViewSupport: true },
 ]
 
 export const editableFields = [
@@ -53,6 +54,21 @@ function write(key, value) {
   return value
 }
 
+function idFrom(value) {
+  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+}
+
+function logAction(message) {
+  const log = read(ACCOUNT_LOG_KEY, [])
+  write(ACCOUNT_LOG_KEY, [{ message, time: new Date().toLocaleString() }, ...log].slice(0, 12))
+}
+
+function websiteNameList(ids = []) {
+  const websites = getOwnerWebsites()
+  if (ids.includes('all')) return 'All websites'
+  return ids.map(id => websites.find(site => site.id === id)?.name).filter(Boolean).join(', ') || 'No website assigned'
+}
+
 export function getClientWebsite() {
   return getOwnerWebsites()[0]
 }
@@ -62,17 +78,59 @@ export function getOwnerWebsites() {
 }
 
 export function createWebsite(values) {
-  const website = { id: values.name.toLowerCase().replaceAll(' ', '-'), logo: values.name.slice(0, 2).toUpperCase(), pageCount: 1, mediaCount: 0, seo: 0, performance: 0, ...values }
+  const website = { id: idFrom(values.name), logo: values.name.slice(0, 2).toUpperCase(), pageCount: 1, mediaCount: 0, seo: 0, performance: 0, ...values }
+  logAction(`Website created: ${website.name}`)
   return write(WEBSITE_KEY, [...getOwnerWebsites(), website])
 }
 
 export function getClients() {
-  return read(CLIENT_KEY, defaultClients)
+  return read(CLIENT_KEY, defaultClients).map(client => ({ ...client, websiteName: websiteNameList(client.websiteIds || []) }))
 }
 
 export function createClient(values) {
-  const client = { id: values.name.toLowerCase().replaceAll(' ', '-'), status: 'Draft', access: 'Website editor', ...values }
+  const client = { id: idFrom(values.name || values.email), status: 'Draft', role: 'Client', access: 'Website editor', canEdit: true, canRequestUpdates: true, canManageMedia: true, canViewSupport: true, websiteIds: [], ...values }
+  logAction(`Client added: ${client.name}`)
   return write(CLIENT_KEY, [...getClients(), client])
+}
+
+export function updateClient(id, changes) {
+  const updated = getClients().map(client => client.id === id ? { ...client, ...changes, websiteName: websiteNameList(changes.websiteIds || client.websiteIds || []) } : client)
+  logAction(`Client updated: ${changes.name || id}`)
+  return write(CLIENT_KEY, updated)
+}
+
+export function deleteClient(id) {
+  const client = getClients().find(item => item.id === id)
+  logAction(`Client deleted: ${client?.name || id}`)
+  return write(CLIENT_KEY, getClients().filter(item => item.id !== id))
+}
+
+export function assignWebsiteToClient(clientId, websiteId) {
+  const client = getClients().find(item => item.id === clientId)
+  const ids = new Set(client?.websiteIds || [])
+  ids.add(websiteId)
+  return updateClient(clientId, { websiteIds: [...ids] })
+}
+
+export function removeWebsiteFromClient(clientId, websiteId) {
+  const client = getClients().find(item => item.id === clientId)
+  return updateClient(clientId, { websiteIds: (client?.websiteIds || []).filter(id => id !== websiteId) })
+}
+
+export function resetClientPassword(clientId) {
+  const password = `ksj-${Math.random().toString(36).slice(2, 8)}`
+  updateClient(clientId, { password })
+  logAction(`Password reset prepared for ${clientId}`)
+  return password
+}
+
+export function prepareClientEmail(client) {
+  logAction(`Access email prepared for ${client.name}`)
+  return `Hello ${client.name}, your KSJ Digital access has been updated. Email: ${client.email} Password: ${client.password}`
+}
+
+export function getAccountLog() {
+  return read(ACCOUNT_LOG_KEY, [])
 }
 
 export function getWebsitePages() {
