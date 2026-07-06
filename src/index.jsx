@@ -18,6 +18,7 @@ import './styles/branding.css'
 import './styles/brand-manager.css'
 import './styles/pipeline.css'
 import './styles/website-actions.css'
+import './styles/page-builder.css'
 import './styles/consistency.css'
 
 createRoot(document.getElementById('root')).render(<App />)
