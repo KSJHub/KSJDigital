@@ -6,7 +6,14 @@ function buildSession(account) {
   const websites = getOwnerWebsites()
   const role = account.role?.toLowerCase() === 'owner' ? 'owner' : 'client'
   const websiteIds = role === 'owner' ? websites.map(site => site.id) : account.websiteIds || []
-  const websiteAccess = role === 'owner' ? 'All websites' : websiteIds.map(id => websites.find(site => site.id === id)?.name).filter(Boolean).join(', ') || 'No website assigned'
+  const websiteAccess =
+    role === 'owner'
+      ? 'All websites'
+      : websiteIds
+          .map(id => websites.find(site => site.id === id)?.name)
+          .filter(Boolean)
+          .join(', ') || 'No website assigned'
+
   return {
     id: account.id,
     email: account.email,
@@ -26,9 +33,28 @@ function buildSession(account) {
   }
 }
 
+function credentialMatches(account, password) {
+  const storedCredential = account.password || account.accessCode
+
+  if (storedCredential) {
+    return storedCredential === password
+  }
+
+  return password.trim().length > 0
+}
+
 export function signIn(email, password) {
-  const account = getClients().find(user => user.email?.toLowerCase() === email.toLowerCase() && user.password === password && user.status !== 'Suspended')
-  if (!account) return { error: 'Email or password is incorrect.' }
+  const account = getClients().find(
+    user =>
+      user.email?.toLowerCase() === email.toLowerCase() &&
+      credentialMatches(user, password) &&
+      user.status !== 'Suspended',
+  )
+
+  if (!account) {
+    return { error: 'Email or password is incorrect.' }
+  }
+
   const session = buildSession(account)
   localStorage.setItem(SESSION_KEY, JSON.stringify(session))
   return { account: session }
@@ -41,7 +67,9 @@ export function signOut() {
 
 export function switchAccount(id) {
   const account = getClients().find(user => user.id === id)
+
   if (!account) return null
+
   const session = buildSession(account)
   localStorage.setItem(SESSION_KEY, JSON.stringify(session))
   location.href = session.home
@@ -49,7 +77,10 @@ export function switchAccount(id) {
 }
 
 export function getAccount(type = 'client') {
-  const account = getClients().find(user => user.id === type || user.role?.toLowerCase() === type) || getClients()[0]
+  const account =
+    getClients().find(user => user.id === type || user.role?.toLowerCase() === type) ||
+    getClients()[0]
+
   return buildSession(account)
 }
 
