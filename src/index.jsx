@@ -21,6 +21,7 @@ import './styles/website-actions.css'
 import './styles/page-builder.css'
 import './styles/site-engine.css'
 import './styles/media-library.css'
+import './styles/form-builder.css'
 import './styles/consistency.css'
 
 createRoot(document.getElementById('root')).render(<App />)
