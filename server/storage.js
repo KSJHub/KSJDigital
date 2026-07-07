@@ -27,10 +27,12 @@ export async function getFolderSize(dir) {
   try {
     const entries = await fs.readdir(dir, { withFileTypes: true })
     let total = 0
+
     for (const entry of entries) {
       const full = path.join(dir, entry.name)
       total += entry.isDirectory() ? await getFolderSize(full) : (await fs.stat(full)).size
     }
+
     return total
   } catch {
     return 0
@@ -38,10 +40,17 @@ export async function getFolderSize(dir) {
 }
 
 export function safeName(value = 'file') {
-  return value.toString().toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/(^-|-$)/g, '') || 'file'
+  return (
+    value
+      .toString()
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, '-')
+      .replace(/(^-|-$)/g, '') || 'file'
+  )
 }
 
 export const paths = {
+  websites: () => path.join(DATA_DIR, 'websites.json'),
   content: websiteId => path.join(DATA_DIR, 'content', `${safeName(websiteId)}.json`),
   requests: () => path.join(DATA_DIR, 'publish-requests.json'),
   history: () => path.join(DATA_DIR, 'publish-history.json'),
