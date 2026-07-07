@@ -1,13 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Layout } from '../layouts/Shell.jsx'
 import { WebsiteCard } from '../components/UI.jsx'
+import { api } from '../services/api.js'
 import { addWebsite, getWebsites, removeWebsite, saveWebsite } from '../services/websites.js'
 
 export function OwnerWebsitesPage() {
   const [websites, setWebsites] = useState(getWebsites)
   const [selectedId, setSelectedId] = useState(websites[0]?.id)
   const [form, setForm] = useState(websites[0] || {})
-  const [notice, setNotice] = useState('Ready')
+  const [notice, setNotice] = useState('Loading')
   const selected = websites.find(site => site.id === selectedId) || websites[0]
 
   function applyWebsiteState(nextWebsites, nextId = selectedId) {
@@ -18,9 +19,21 @@ export function OwnerWebsitesPage() {
     setForm(next)
   }
 
-  function refresh(nextId = selectedId) {
-    applyWebsiteState(getWebsites(), nextId)
+  async function loadServerWebsites(nextId = selectedId) {
+    try {
+      const serverWebsites = await api.getWebsites()
+      localStorage.setItem('ksjDigitalWebsites', JSON.stringify(serverWebsites))
+      applyWebsiteState(serverWebsites, nextId)
+      setNotice('Server synced')
+    } catch {
+      applyWebsiteState(getWebsites(), nextId)
+      setNotice('Local mode')
+    }
   }
+
+  useEffect(() => {
+    loadServerWebsites()
+  }, [])
 
   function choose(site) {
     setSelectedId(site.id)
@@ -32,27 +45,51 @@ export function OwnerWebsitesPage() {
     setForm(current => ({ ...current, ...changes }))
   }
 
-  function create() {
-    const name = 'New Website'
-    addWebsite({ name, domain: 'new-website.co.uk', owner: 'Unassigned' })
-    refresh('new-website')
-    setNotice('Website added')
+  async function create() {
+    const payload = { name: 'New Website', domain: 'new-website.co.uk', owner: 'Unassigned' }
+
+    try {
+      const created = await api.createWebsite(payload)
+      const next = await api.getWebsites()
+      localStorage.setItem('ksjDigitalWebsites', JSON.stringify(next))
+      applyWebsiteState(next, created.id)
+      setNotice('Website added')
+    } catch {
+      addWebsite(payload)
+      applyWebsiteState(getWebsites(), 'new-website')
+      setNotice('Website added locally')
+    }
   }
 
-  function save() {
+  async function save() {
     if (!selected?.id) return
 
-    const updated = saveWebsite(selected.id, form)
-    applyWebsiteState(updated, selected.id)
-    setNotice('Website saved')
+    try {
+      const updated = await api.updateWebsite(selected.id, form)
+      const next = websites.map(site => (site.id === selected.id ? updated : site))
+      localStorage.setItem('ksjDigitalWebsites', JSON.stringify(next))
+      applyWebsiteState(next, selected.id)
+      setNotice('Website saved to server')
+    } catch {
+      const updated = saveWebsite(selected.id, form)
+      applyWebsiteState(updated, selected.id)
+      setNotice('Website saved locally')
+    }
   }
 
-  function remove() {
+  async function remove() {
     if (!selected?.id) return
 
-    const remaining = removeWebsite(selected.id)
-    applyWebsiteState(remaining, remaining[0]?.id)
-    setNotice('Website removed')
+    try {
+      const result = await api.deleteWebsite(selected.id)
+      localStorage.setItem('ksjDigitalWebsites', JSON.stringify(result.websites))
+      applyWebsiteState(result.websites, result.websites[0]?.id)
+      setNotice('Website removed from server')
+    } catch {
+      const remaining = removeWebsite(selected.id)
+      applyWebsiteState(remaining, remaining[0]?.id)
+      setNotice('Website removed locally')
+    }
   }
 
   return (
@@ -188,10 +225,10 @@ export function OwnerWebsitesPage() {
           </div>
           {form.id && <WebsiteCard site={form} active />}
           <div className="ruleGrid">
-            <span>Repository is owner-only.</span>
-            <span>Clients only see assigned websites.</span>
-            <span>Deleting removes website access from clients.</span>
-            <span>Preview opens client portal view.</span>
+            <span>Website records now save into server-data/websites.json.</span>
+            <span>Dashboard keeps a browser copy for fast loading.</span>
+            <span>Deleting removes the server record.</span>
+            <span>Source starter files are only defaults.</span>
           </div>
         </aside>
       </section>
