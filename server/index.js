@@ -2,7 +2,17 @@ import cors from 'cors'
 import express from 'express'
 import multer from 'multer'
 import path from 'node:path'
-import { ASSET_DIR, STORAGE_LIMIT_BYTES, ensureDir, getFolderSize, paths, readJson, safeName, writeJson } from './storage.js'
+import { starterWebsites } from './defaults.js'
+import {
+  ASSET_DIR,
+  STORAGE_LIMIT_BYTES,
+  ensureDir,
+  getFolderSize,
+  paths,
+  readJson,
+  safeName,
+  writeJson,
+} from './storage.js'
 
 const app = express()
 const port = Number(process.env.PORT || 4174)
@@ -12,8 +22,77 @@ app.use(cors())
 app.use(express.json({ limit: '25mb' }))
 app.use('/assets', express.static(ASSET_DIR))
 
+function idFrom(value = 'new-website') {
+  return safeName(value).replace(/[._]+/g, '-')
+}
+
+async function getWebsiteRecords() {
+  const stored = await readJson(paths.websites(), null)
+
+  if (!stored) {
+    return writeJson(paths.websites(), starterWebsites)
+  }
+
+  return stored
+}
+
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'KSJ Digital API' })
+})
+
+app.get('/api/websites', async (_req, res) => {
+  res.json(await getWebsiteRecords())
+})
+
+app.post('/api/websites', async (req, res) => {
+  const websites = await getWebsiteRecords()
+  const website = {
+    id: idFrom(req.body?.name),
+    name: req.body?.name || 'New Website',
+    domain: req.body?.domain || 'example.com',
+    status: req.body?.status || 'Draft',
+    pageCount: Number(req.body?.pageCount || 1),
+    mediaCount: Number(req.body?.mediaCount || 0),
+    owner: req.body?.owner || 'Unassigned',
+    logo: (req.body?.name || 'NW').slice(0, 2).toUpperCase(),
+    plan: req.body?.plan || 'Build',
+    seo: Number(req.body?.seo || 0),
+    performance: Number(req.body?.performance || 0),
+    repository: req.body?.repository || '',
+    notes: req.body?.notes || '',
+  }
+
+  const next = [...websites.filter(site => site.id !== website.id), website]
+  await writeJson(paths.websites(), next)
+  res.json(website)
+})
+
+app.patch('/api/websites/:id', async (req, res) => {
+  const websites = await getWebsiteRecords()
+  const existing = websites.find(site => site.id === req.params.id)
+
+  if (!existing) {
+    return res.status(404).json({ error: 'Website not found' })
+  }
+
+  const updated = {
+    ...existing,
+    ...req.body,
+    domain: req.body?.domain?.trim() || existing.domain,
+    logo: (req.body?.name || existing.name).slice(0, 2).toUpperCase(),
+  }
+
+  const next = websites.map(site => (site.id === req.params.id ? updated : site))
+  await writeJson(paths.websites(), next)
+  res.json(updated)
+})
+
+app.delete('/api/websites/:id', async (req, res) => {
+  const websites = await getWebsiteRecords()
+  const next = websites.filter(site => site.id !== req.params.id)
+
+  await writeJson(paths.websites(), next)
+  res.json({ ok: true, websites: next })
 })
 
 app.get('/api/storage/:ownerId', async (req, res) => {
@@ -24,22 +103,42 @@ app.get('/api/storage/:ownerId', async (req, res) => {
 
 app.post('/api/assets/:ownerId/:websiteId/:slotId', upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
+
   const ownerId = safeName(req.params.ownerId)
   const websiteId = safeName(req.params.websiteId)
   const slotId = safeName(req.params.slotId)
   const ownerDir = path.join(ASSET_DIR, ownerId)
   const used = await getFolderSize(ownerDir)
-  if (used + req.file.size > STORAGE_LIMIT_BYTES) return res.status(413).json({ error: '2GB storage limit reached' })
+
+  if (used + req.file.size > STORAGE_LIMIT_BYTES) {
+    return res.status(413).json({ error: '2GB storage limit reached' })
+  }
+
   const assetDir = path.join(ownerDir, websiteId, slotId)
   await ensureDir(assetDir)
+
   const manifestFile = paths.manifest(ownerId)
   const manifest = await readJson(manifestFile, [])
   const existing = manifest.filter(item => item.websiteId === websiteId && item.slotId === slotId)
   const version = existing.length + 1
   const fileName = `${version}-${Date.now()}-${safeName(req.file.originalname)}`
   const filePath = path.join(assetDir, fileName)
+
   await import('node:fs/promises').then(fs => fs.writeFile(filePath, req.file.buffer))
-  const asset = { id: `${ownerId}:${websiteId}:${slotId}:${version}`, ownerId, websiteId, slotId, name: req.file.originalname, type: req.file.mimetype, size: req.file.size, version, url: `/assets/${ownerId}/${websiteId}/${slotId}/${fileName}`, updatedAt: new Date().toISOString() }
+
+  const asset = {
+    id: `${ownerId}:${websiteId}:${slotId}:${version}`,
+    ownerId,
+    websiteId,
+    slotId,
+    name: req.file.originalname,
+    type: req.file.mimetype,
+    size: req.file.size,
+    version,
+    url: `/assets/${ownerId}/${websiteId}/${slotId}/${fileName}`,
+    updatedAt: new Date().toISOString(),
+  }
+
   await writeJson(manifestFile, [asset, ...manifest])
   res.json(asset)
 })
@@ -54,7 +153,10 @@ app.get('/api/content/:websiteId', async (req, res) => {
 })
 
 app.put('/api/content/:websiteId', async (req, res) => {
-  const data = await writeJson(paths.content(req.params.websiteId), { ...req.body, updatedAt: new Date().toISOString() })
+  const data = await writeJson(paths.content(req.params.websiteId), {
+    ...req.body,
+    updatedAt: new Date().toISOString(),
+  })
   res.json(data)
 })
 
@@ -64,14 +166,30 @@ app.get('/api/publish/requests', async (_req, res) => {
 
 app.post('/api/publish/requests', async (req, res) => {
   const requests = await readJson(paths.requests(), [])
-  const request = { id: crypto.randomUUID(), status: 'Waiting Review', createdAt: new Date().toISOString(), ...req.body }
+  const request = {
+    id: crypto.randomUUID(),
+    status: 'Waiting Review',
+    createdAt: new Date().toISOString(),
+    ...req.body,
+  }
+
   await writeJson(paths.requests(), [request, ...requests])
   res.json(request)
 })
 
 app.post('/api/publish/requests/:id/reject', async (req, res) => {
   const requests = await readJson(paths.requests(), [])
-  const updated = requests.map(item => item.id === req.params.id ? { ...item, status: 'Rejected', rejectionReason: req.body?.reason || '', reviewedAt: new Date().toISOString() } : item)
+  const updated = requests.map(item =>
+    item.id === req.params.id
+      ? {
+          ...item,
+          status: 'Rejected',
+          rejectionReason: req.body?.reason || '',
+          reviewedAt: new Date().toISOString(),
+        }
+      : item,
+  )
+
   await writeJson(paths.requests(), updated)
   res.json(updated.find(item => item.id === req.params.id))
 })
@@ -79,11 +197,29 @@ app.post('/api/publish/requests/:id/reject', async (req, res) => {
 app.post('/api/publish/requests/:id/approve', async (req, res) => {
   const requests = await readJson(paths.requests(), [])
   const request = requests.find(item => item.id === req.params.id)
+
   if (!request) return res.status(404).json({ error: 'Request not found' })
-  const updatedRequest = { ...request, status: 'Approved', approvedAt: new Date().toISOString() }
-  await writeJson(paths.requests(), requests.map(item => item.id === req.params.id ? updatedRequest : item))
+
+  const updatedRequest = {
+    ...request,
+    status: 'Approved',
+    approvedAt: new Date().toISOString(),
+  }
+  await writeJson(
+    paths.requests(),
+    requests.map(item => (item.id === req.params.id ? updatedRequest : item)),
+  )
+
   const history = await readJson(paths.history(), [])
-  const deployment = { id: crypto.randomUUID(), requestId: request.id, websiteId: request.websiteId, status: 'Ready for repository deployment', approvedAt: updatedRequest.approvedAt, repository: request.repository || null }
+  const deployment = {
+    id: crypto.randomUUID(),
+    requestId: request.id,
+    websiteId: request.websiteId,
+    status: 'Ready for repository deployment',
+    approvedAt: updatedRequest.approvedAt,
+    repository: request.repository || null,
+  }
+
   await writeJson(paths.history(), [deployment, ...history])
   res.json(deployment)
 })
