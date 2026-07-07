@@ -15,6 +15,11 @@ async function request(path, options = {}) {
 
 export const api = {
   health: () => request('/health'),
+  getWebsites: () => request('/websites'),
+  createWebsite: payload => request('/websites', { method: 'POST', body: JSON.stringify(payload) }),
+  updateWebsite: (id, payload) =>
+    request(`/websites/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteWebsite: id => request(`/websites/${id}`, { method: 'DELETE' }),
   storage: ownerId => request(`/storage/${ownerId}`),
   assets: (ownerId, websiteId) => request(`/assets/${ownerId}/${websiteId}`),
   uploadAsset: (ownerId, websiteId, slotId, file) => {
@@ -23,10 +28,17 @@ export const api = {
     return request(`/assets/${ownerId}/${websiteId}/${slotId}`, { method: 'POST', body })
   },
   getContent: websiteId => request(`/content/${websiteId}`),
-  saveContent: (websiteId, content) => request(`/content/${websiteId}`, { method: 'PUT', body: JSON.stringify(content) }),
+  saveContent: (websiteId, content) =>
+    request(`/content/${websiteId}`, { method: 'PUT', body: JSON.stringify(content) }),
   getPublishRequests: () => request('/publish/requests'),
-  createPublishRequest: payload => request('/publish/requests', { method: 'POST', body: JSON.stringify(payload) }),
-  approvePublishRequest: id => request(`/publish/requests/${id}/approve`, { method: 'POST', body: JSON.stringify({}) }),
-  rejectPublishRequest: (id, reason = '') => request(`/publish/requests/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  createPublishRequest: payload =>
+    request('/publish/requests', { method: 'POST', body: JSON.stringify(payload) }),
+  approvePublishRequest: id =>
+    request(`/publish/requests/${id}/approve`, { method: 'POST', body: JSON.stringify({}) }),
+  rejectPublishRequest: (id, reason = '') =>
+    request(`/publish/requests/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
   getPublishHistory: () => request('/publish/history'),
 }
