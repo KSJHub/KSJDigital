@@ -1,13 +1,70 @@
 import { useState } from 'react'
-import { ActivityPanel, Preview, PublishPanel, QuickActions, Stat, StatusPanel, TicketPanel, WebsiteCard } from '../components/UI.jsx'
+import {
+  ActivityPanel,
+  Preview,
+  PublishPanel,
+  QuickActions,
+  Stat,
+  StatusPanel,
+  TicketPanel,
+  WebsiteCard,
+} from '../components/UI.jsx'
 import { getDashboardStats } from '../services/dashboardStats.js'
-import { createClient, deleteClient, editableFields, getAccountLog, getClients, getClientWebsite, getContent, getMediaItems, getOwnerWebsites, getTickets, getUpdateRequests, getWebsitePages, prepareClientEmail, requestUpdate, resetClientPassword, saveContent, updateClient } from '../services/platform.js'
+import {
+  createClient,
+  deleteClient,
+  editableFields,
+  getAccountLog,
+  getClients,
+  getClientWebsite,
+  getContent,
+  getMediaItems,
+  getOwnerWebsites,
+  getTickets,
+  getUpdateRequests,
+  getWebsitePages,
+  prepareClientEmail,
+  requestUpdate,
+  resetClientPassword,
+  saveContent,
+  updateClient,
+} from '../services/platform.js'
+import { getAccountFromPath } from '../services/auth.js'
+import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
 import { Layout } from '../layouts/Shell.jsx'
 
 export function DashboardPage({ client = false }) {
-  const visibleWebsites = client ? [getClientWebsite()] : getOwnerWebsites()
+  const account = getAccountFromPath()
+  const { websites } = useWebsites()
+  const visibleWebsites = client ? [findClientWebsite(websites, account)].filter(Boolean) : websites
   const stats = getDashboardStats(client)
-  return <Layout client={client} title={client ? 'My Website' : 'Dashboard'}><div className="stats">{stats.map(item => <Stat key={item[0]} item={item} />)}</div><div className="singleGrid"><section className="card websites"><div className="panelHead"><h2>{client ? 'Your Website' : 'Client Websites'}</h2><button onClick={() => location.href = client ? '/client/website' : '/owner/websites'}>{client ? 'Manage Website' : 'Manage Websites'}</button></div>{visibleWebsites.map((site, index) => <WebsiteCard key={site.name} site={site} active={index === 0} />)}</section><Preview /></div><div className="bottom four"><ActivityPanel /><PublishPanel /><TicketPanel /><StatusPanel /></div><QuickActions client={client} /></Layout>
+
+  return (
+    <Layout client={client} title={client ? 'My Website' : 'Dashboard'}>
+      <div className="stats">{stats.map(item => <Stat key={item[0]} item={item} />)}</div>
+      <div className="singleGrid">
+        <section className="card websites">
+          <div className="panelHead">
+            <h2>{client ? 'Your Website' : 'Client Websites'}</h2>
+            <button onClick={() => (location.href = client ? '/client/website' : '/owner/websites')}>
+              {client ? 'Manage Website' : 'Manage Websites'}
+            </button>
+          </div>
+          {visibleWebsites.map((site, index) => (
+            <WebsiteCard key={site.id || site.name} site={site} active={index === 0} />
+          ))}
+        </section>
+        <Preview />
+      </div>
+      <div className="bottom four">
+        <ActivityPanel />
+        <PublishPanel />
+        <TicketPanel />
+        <StatusPanel />
+      </div>
+      <QuickActions client={client} />
+    </Layout>
+  )
 }
 
 export function WebsitePage() {
