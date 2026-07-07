@@ -3,6 +3,7 @@ import { canAccessOwner, getAccountFromPath } from './services/auth.js'
 import { LoginPage } from './pages/LoginPage.jsx'
 import { OwnerSupportPage } from './pages/OwnerSupportPage.jsx'
 import { OwnerWebsitesPage } from './pages/OwnerWebsitesPage.jsx'
+import { OwnerClientsPage } from './pages/OwnerClientsPage.jsx'
 import { ClientWebsitePage } from './pages/ClientWebsitePage.jsx'
 import { BrandCentrePage } from './pages/BrandCentrePage.jsx'
 import { PublishPipelinePage } from './pages/PublishPipelinePage.jsx'
@@ -12,7 +13,7 @@ import { MediaLibraryPage } from './pages/MediaLibraryPage.jsx'
 import { FormBuilderPage } from './pages/FormBuilderPage.jsx'
 import { OperationsPage } from './pages/OperationsPage.jsx'
 import { ReleaseCentrePage } from './pages/ReleaseCentrePage.jsx'
-import { ClientsPage, DashboardPage, SettingsPage, SupportPage } from './pages/Pages.jsx'
+import { DashboardPage, SettingsPage, SupportPage } from './pages/Pages.jsx'
 
 function route() {
   return location.pathname.replace(/\/$/, '') || '/'
@@ -20,7 +21,7 @@ function route() {
 
 function Workspace({ client = false, type }) {
   if (!client && type === 'websites') return <OwnerWebsitesPage />
-  if (!client && type === 'clients') return <ClientsPage />
+  if (!client && type === 'clients') return <OwnerClientsPage />
   if (!client && type === 'branding') return <BrandCentrePage />
   if (!client && type === 'engine') return <SiteEnginePage />
   if (!client && type === 'forms') return <FormBuilderPage />
