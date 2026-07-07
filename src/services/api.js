@@ -20,6 +20,11 @@ export const api = {
   updateWebsite: (id, payload) =>
     request(`/websites/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteWebsite: id => request(`/websites/${id}`, { method: 'DELETE' }),
+  getClients: () => request('/clients'),
+  createClient: payload => request('/clients', { method: 'POST', body: JSON.stringify(payload) }),
+  updateClient: (id, payload) =>
+    request(`/clients/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteClient: id => request(`/clients/${id}`, { method: 'DELETE' }),
   storage: ownerId => request(`/storage/${ownerId}`),
   assets: (ownerId, websiteId) => request(`/assets/${ownerId}/${websiteId}`),
   uploadAsset: (ownerId, websiteId, slotId, file) => {
