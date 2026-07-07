@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Layout } from '../layouts/Shell.jsx'
 import { api } from '../services/api.js'
-import { prepareClientEmail, resetClientPassword } from '../services/platform.js'
 import { useClients } from '../hooks/useClients.js'
 import { useWebsites } from '../hooks/useWebsites.js'
 
@@ -20,6 +19,10 @@ function normaliseClient(client = {}) {
     canRequestUpdates: client.canRequestUpdates ?? true,
     canViewSupport: client.canViewSupport ?? true,
   }
+}
+
+function createAccessCode() {
+  return `ksj-${Math.random().toString(36).slice(2, 8)}`
 }
 
 export function OwnerClientsPage() {
@@ -51,6 +54,7 @@ export function OwnerClientsPage() {
     const payload = {
       name: 'New Client',
       email: 'client@example.com',
+      accessCode: createAccessCode(),
       websiteIds: websites[0]?.id ? [websites[0].id] : [],
       status: 'Draft',
     }
@@ -103,13 +107,13 @@ export function OwnerClientsPage() {
   }
 
   function resetAccess() {
-    const code = resetClientPassword(selected.id)
-    updateForm({ accessCode: code })
-    setStatus(`New access code: ${code}`)
+    const accessCode = createAccessCode()
+    updateForm({ accessCode })
+    setStatus(`New access code: ${accessCode}`)
   }
 
   function emailClient() {
-    setStatus(prepareClientEmail(form))
+    setStatus(`Email ${form.email || 'client'} with access code ${form.accessCode || 'not set'}`)
   }
 
   return (
