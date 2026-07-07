@@ -3,6 +3,7 @@ import { getAccountFromPath, signOut } from '../services/auth.js'
 import { getSystemBrand } from '../services/brandAssets.js'
 import { createAssetUrl, getLatestSystemLogoAsset } from '../services/assetStorage.js'
 import { PermissionBanner } from '../components/UI.jsx'
+import { syncWebsitesFromServer } from '../services/serverSync.js'
 
 function route() {
   return location.pathname.replace(/\/$/, '') || '/'
@@ -125,6 +126,10 @@ export function Header({ client = false, title, account }) {
 
 export function Layout({ client = false, title, children }) {
   const account = getAccountFromPath()
+
+  useEffect(() => {
+    syncWebsitesFromServer().catch(() => {})
+  }, [])
 
   return (
     <div className="shell">
