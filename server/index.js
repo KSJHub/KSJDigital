@@ -2,7 +2,7 @@ import cors from 'cors'
 import express from 'express'
 import multer from 'multer'
 import path from 'node:path'
-import { starterWebsites } from './defaults.js'
+import { starterClients, starterWebsites } from './defaults.js'
 import {
   ASSET_DIR,
   STORAGE_LIMIT_BYTES,
@@ -22,7 +22,7 @@ app.use(cors())
 app.use(express.json({ limit: '25mb' }))
 app.use('/assets', express.static(ASSET_DIR))
 
-function idFrom(value = 'new-website') {
+function idFrom(value = 'new-record') {
   return safeName(value).replace(/[._]+/g, '-')
 }
 
@@ -31,6 +31,16 @@ async function getWebsiteRecords() {
 
   if (!stored) {
     return writeJson(paths.websites(), starterWebsites)
+  }
+
+  return stored
+}
+
+async function getClientRecords() {
+  const stored = await readJson(paths.clients(), null)
+
+  if (!stored) {
+    return writeJson(paths.clients(), starterClients)
   }
 
   return stored
@@ -90,9 +100,67 @@ app.patch('/api/websites/:id', async (req, res) => {
 app.delete('/api/websites/:id', async (req, res) => {
   const websites = await getWebsiteRecords()
   const next = websites.filter(site => site.id !== req.params.id)
+  const clients = await getClientRecords()
+  const nextClients = clients.map(client => ({
+    ...client,
+    websiteIds: (client.websiteIds || []).filter(websiteId => websiteId !== req.params.id),
+  }))
 
   await writeJson(paths.websites(), next)
-  res.json({ ok: true, websites: next })
+  await writeJson(paths.clients(), nextClients)
+  res.json({ ok: true, websites: next, clients: nextClients })
+})
+
+app.get('/api/clients', async (_req, res) => {
+  res.json(await getClientRecords())
+})
+
+app.post('/api/clients', async (req, res) => {
+  const clients = await getClientRecords()
+  const client = {
+    id: idFrom(req.body?.name || req.body?.email),
+    name: req.body?.name || 'New Client',
+    email: req.body?.email || 'client@example.com',
+    accessCode: req.body?.accessCode || `ksj-${Math.random().toString(36).slice(2, 8)}`,
+    role: req.body?.role || 'Client',
+    websiteIds: req.body?.websiteIds || [],
+    status: req.body?.status || 'Draft',
+    access: req.body?.access || 'Website editor',
+    canEdit: req.body?.canEdit ?? true,
+    canRequestUpdates: req.body?.canRequestUpdates ?? true,
+    canManageMedia: req.body?.canManageMedia ?? true,
+    canViewSupport: req.body?.canViewSupport ?? true,
+  }
+
+  const next = [client, ...clients.filter(item => item.id !== client.id)]
+  await writeJson(paths.clients(), next)
+  res.json(client)
+})
+
+app.patch('/api/clients/:id', async (req, res) => {
+  const clients = await getClientRecords()
+  const existing = clients.find(client => client.id === req.params.id)
+
+  if (!existing) {
+    return res.status(404).json({ error: 'Client not found' })
+  }
+
+  const updated = {
+    ...existing,
+    ...req.body,
+    email: req.body?.email?.trim() || existing.email,
+  }
+
+  const next = clients.map(client => (client.id === req.params.id ? updated : client))
+  await writeJson(paths.clients(), next)
+  res.json(updated)
+})
+
+app.delete('/api/clients/:id', async (req, res) => {
+  const clients = await getClientRecords()
+  const next = clients.filter(client => client.id !== req.params.id)
+  await writeJson(paths.clients(), next)
+  res.json({ ok: true, clients: next })
 })
 
 app.get('/api/storage/:ownerId', async (req, res) => {
