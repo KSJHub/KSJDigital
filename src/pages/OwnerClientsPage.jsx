@@ -9,7 +9,6 @@ function normaliseClient(client = {}) {
     id: client.id || '',
     name: client.name || '',
     email: client.email || '',
-    accessCode: client.accessCode || '',
     role: client.role || 'Client',
     websiteIds: client.websiteIds || [],
     status: client.status || 'Draft',
@@ -21,8 +20,9 @@ function normaliseClient(client = {}) {
   }
 }
 
-function createAccessCode() {
-  return `ksj-${Math.random().toString(36).slice(2, 8)}`
+function websiteNameList(websites, ids = []) {
+  if (!ids.length) return 'No websites assigned'
+  return ids.map(id => websites.find(site => site.id === id)?.name || id).join(', ')
 }
 
 export function OwnerClientsPage() {
@@ -37,8 +37,11 @@ export function OwnerClientsPage() {
     if (next) {
       setSelectedId(next.id)
       setForm(normaliseClient(next))
+    } else {
+      setSelectedId('')
+      setForm(normaliseClient())
     }
-  }, [clients])
+  }, [clients, selectedId])
 
   function choose(client) {
     setSelectedId(client.id)
@@ -54,9 +57,9 @@ export function OwnerClientsPage() {
     const payload = {
       name: 'New Client',
       email: 'client@example.com',
-      accessCode: createAccessCode(),
       websiteIds: websites[0]?.id ? [websites[0].id] : [],
       status: 'Draft',
+      role: 'Client',
     }
 
     try {
@@ -106,14 +109,8 @@ export function OwnerClientsPage() {
     updateForm({ websiteIds: [...ids] })
   }
 
-  function resetAccess() {
-    const accessCode = createAccessCode()
-    updateForm({ accessCode })
-    setStatus(`New access code: ${accessCode}`)
-  }
-
-  function emailClient() {
-    setStatus(`Email ${form.email || 'client'} with access code ${form.accessCode || 'not set'}`)
+  function prepareEmail() {
+    setStatus(`Prepare invite email for ${form.email || 'client'}`)
   }
 
   return (
@@ -162,13 +159,6 @@ export function OwnerClientsPage() {
               <input value={form.email || ''} onChange={event => updateForm({ email: event.target.value })} />
             </label>
             <label>
-              Access Code
-              <input
-                value={form.accessCode || ''}
-                onChange={event => updateForm({ accessCode: event.target.value })}
-              />
-            </label>
-            <label>
               Status
               <select value={form.status || 'Draft'} onChange={event => updateForm({ status: event.target.value })}>
                 <option>Active</option>
@@ -197,44 +187,15 @@ export function OwnerClientsPage() {
           </div>
 
           <div className="permissionGrid">
-            <label>
-              <input
-                type="checkbox"
-                checked={!!form.canEdit}
-                onChange={event => updateForm({ canEdit: event.target.checked })}
-              />
-              Can edit pages
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={!!form.canManageMedia}
-                onChange={event => updateForm({ canManageMedia: event.target.checked })}
-              />
-              Can manage media
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={!!form.canRequestUpdates}
-                onChange={event => updateForm({ canRequestUpdates: event.target.checked })}
-              />
-              Can request updates
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={!!form.canViewSupport}
-                onChange={event => updateForm({ canViewSupport: event.target.checked })}
-              />
-              Can use support
-            </label>
+            <label><input type="checkbox" checked={!!form.canEdit} onChange={event => updateForm({ canEdit: event.target.checked })} />Can edit pages</label>
+            <label><input type="checkbox" checked={!!form.canManageMedia} onChange={event => updateForm({ canManageMedia: event.target.checked })} />Can manage media</label>
+            <label><input type="checkbox" checked={!!form.canRequestUpdates} onChange={event => updateForm({ canRequestUpdates: event.target.checked })} />Can request updates</label>
+            <label><input type="checkbox" checked={!!form.canViewSupport} onChange={event => updateForm({ canViewSupport: event.target.checked })} />Can use support</label>
           </div>
 
           <div className="accountActions">
             <button onClick={save}>Save Account</button>
-            <button onClick={resetAccess}>Reset Access</button>
-            <button onClick={emailClient}>Prepare Email</button>
+            <button onClick={prepareEmail}>Prepare Email</button>
             <button onClick={remove}>Delete Account</button>
           </div>
         </section>
@@ -246,11 +207,7 @@ export function OwnerClientsPage() {
           </div>
           {websites.map(site => (
             <label key={site.id}>
-              <input
-                type="checkbox"
-                checked={(form.websiteIds || []).includes(site.id)}
-                onChange={() => toggleWebsite(site.id)}
-              />
+              <input type="checkbox" checked={(form.websiteIds || []).includes(site.id)} onChange={() => toggleWebsite(site.id)} />
               <span>
                 <b>{site.name}</b>
                 <small>{site.domain}</small>
@@ -258,6 +215,20 @@ export function OwnerClientsPage() {
             </label>
           ))}
         </aside>
+      </section>
+
+      <section className="accountGrid bottomGrid">
+        <section className="card accessPanel">
+          <div className="panelHead">
+            <h2>Current Access Summary</h2>
+            <button>Server Source</button>
+          </div>
+          <div className="ruleGrid">
+            <span>{form.name || 'Client'} can access: {websiteNameList(websites, form.websiteIds)}</span>
+            <span>Email: {form.email || 'Not set'}</span>
+            <span>Status: {form.status || 'Draft'}</span>
+          </div>
+        </section>
       </section>
     </Layout>
   )
