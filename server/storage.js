@@ -51,6 +51,7 @@ export function safeName(value = 'file') {
 
 export const paths = {
   websites: () => path.join(DATA_DIR, 'websites.json'),
+  clients: () => path.join(DATA_DIR, 'clients.json'),
   content: websiteId => path.join(DATA_DIR, 'content', `${safeName(websiteId)}.json`),
   requests: () => path.join(DATA_DIR, 'publish-requests.json'),
   history: () => path.join(DATA_DIR, 'publish-history.json'),
