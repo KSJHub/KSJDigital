@@ -1,6 +1,7 @@
 import { AccessDenied } from './components/UI.jsx'
 import { canAccessOwner, getAccountFromPath } from './services/auth.js'
 import { LoginPage } from './pages/LoginPage.jsx'
+import { DashboardPage } from './pages/DashboardPage.jsx'
 import { OwnerSupportPage } from './pages/OwnerSupportPage.jsx'
 import { OwnerWebsitesPage } from './pages/OwnerWebsitesPage.jsx'
 import { OwnerClientsPage } from './pages/OwnerClientsPage.jsx'
@@ -13,7 +14,7 @@ import { MediaLibraryPage } from './pages/MediaLibraryPage.jsx'
 import { FormBuilderPage } from './pages/FormBuilderPage.jsx'
 import { OperationsPage } from './pages/OperationsPage.jsx'
 import { ReleaseCentrePage } from './pages/ReleaseCentrePage.jsx'
-import { DashboardPage, SettingsPage, SupportPage } from './pages/Pages.jsx'
+import { SettingsPage, SupportPage } from './pages/Pages.jsx'
 
 function route() {
   return location.pathname.replace(/\/$/, '') || '/'
