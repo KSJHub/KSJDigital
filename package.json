@@ -9,28 +9,29 @@
     "server": "node server/index.js",
     "build": "vite build",
     "lint": "eslint .",
+    "check": "npm run lint && npm run build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "lucide-react": "latest",
-    "clsx": "latest",
-    "express": "latest",
-    "cors": "latest",
-    "multer": "latest",
-    "concurrently": "latest"
+    "@vitejs/plugin-react": "6.0.1",
+    "vite": "8.0.12",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "lucide-react": "0.468.0",
+    "clsx": "2.1.1",
+    "express": "4.21.2",
+    "cors": "2.8.5",
+    "multer": "1.4.5-lts.1",
+    "concurrently": "9.2.1"
   },
   "devDependencies": {
-    "eslint": "latest",
-    "@eslint/js": "latest",
-    "eslint-plugin-react-hooks": "latest",
-    "eslint-plugin-react-refresh": "latest",
-    "globals": "latest",
-    "prettier": "latest"
+    "eslint": "10.3.0",
+    "@eslint/js": "10.0.1",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "eslint-plugin-react-refresh": "0.5.2",
+    "globals": "17.6.0",
+    "prettier": "3.4.2"
   }
 }
