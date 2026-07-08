@@ -8,29 +8,32 @@ function liveUrl(domain) {
   return domain?.startsWith('http') ? domain : `https://${domain}`
 }
 
-function assetOwnerId(website, account) {
-  return website?.owner || account?.id || website?.id || 'unassigned'
+function assetOwnerId(website, accountId) {
+  return website?.owner || accountId || website?.id || 'unassigned'
 }
 
 export function ClientWebsitePage() {
   const account = getAccountFromPath()
   const { websites, status } = useWebsites()
   const website = findClientWebsite(websites, account)
+  const accountId = account?.id
+  const websiteId = website?.id
+  const websiteOwner = website?.owner
   const [content, setContent] = useState({ pages: [] })
   const [assets, setAssets] = useState([])
   const [contentStatus, setContentStatus] = useState('Loading content')
   const pages = content.pages || []
 
   useEffect(() => {
-    if (!website?.id) return
+    if (!websiteId) return
 
     let cancelled = false
 
     async function loadWebsiteData() {
       try {
         const [contentRecord, assetRecords] = await Promise.all([
-          api.getContent(website.id),
-          api.assets(assetOwnerId(website, account), website.id),
+          api.getContent(websiteId),
+          api.assets(assetOwnerId({ id: websiteId, owner: websiteOwner }, accountId), websiteId),
         ])
 
         if (cancelled) return
@@ -47,7 +50,7 @@ export function ClientWebsitePage() {
     return () => {
       cancelled = true
     }
-  }, [account, website])
+  }, [accountId, websiteId, websiteOwner])
 
   return (
     <Layout client title="My Website">
