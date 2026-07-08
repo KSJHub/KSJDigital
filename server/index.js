@@ -3,6 +3,7 @@ import express from 'express'
 import multer from 'multer'
 import path from 'node:path'
 import { starterClients, starterWebsites } from './defaults.js'
+import { getStarterSiteContent } from './siteContentDefaults.js'
 import {
   ASSET_DIR,
   STORAGE_LIMIT_BYTES,
@@ -44,6 +45,13 @@ async function getClientRecords() {
   }
 
   return stored
+}
+
+async function getSiteContentRecord(websiteId) {
+  const defaultContent = getStarterSiteContent(safeName(websiteId))
+  const stored = await readJson(paths.content(websiteId), null)
+
+  return stored ? { ...defaultContent, ...stored } : defaultContent
 }
 
 app.get('/api/health', (_req, res) => {
@@ -217,7 +225,7 @@ app.get('/api/assets/:ownerId/:websiteId', async (req, res) => {
 })
 
 app.get('/api/content/:websiteId', async (req, res) => {
-  res.json(await readJson(paths.content(req.params.websiteId), { pages: [] }))
+  res.json(await getSiteContentRecord(req.params.websiteId))
 })
 
 app.put('/api/content/:websiteId', async (req, res) => {
@@ -226,6 +234,26 @@ app.put('/api/content/:websiteId', async (req, res) => {
     updatedAt: new Date().toISOString(),
   })
   res.json(data)
+})
+
+app.get('/api/public/sites/:websiteId', async (req, res) => {
+  const websiteId = safeName(req.params.websiteId)
+  const websites = await getWebsiteRecords()
+  const website = websites.find(site => safeName(site.id) === websiteId)
+
+  if (!website) {
+    return res.status(404).json({ error: 'Website not found' })
+  }
+
+  const content = await getSiteContentRecord(websiteId)
+  const assets = await readJson(paths.manifest(website.owner || websiteId), [])
+
+  res.json({
+    website,
+    content,
+    assets: assets.filter(asset => asset.websiteId === websiteId),
+    publishedAt: content.updatedAt || null,
+  })
 })
 
 app.get('/api/publish/requests', async (_req, res) => {
