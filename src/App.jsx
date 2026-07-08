@@ -14,7 +14,8 @@ import { MediaLibraryPage } from './pages/MediaLibraryPage.jsx'
 import { FormBuilderPage } from './pages/FormBuilderPage.jsx'
 import { OperationsPage } from './pages/OperationsPage.jsx'
 import { ReleaseCentrePage } from './pages/ReleaseCentrePage.jsx'
-import { SettingsPage, SupportPage } from './pages/Pages.jsx'
+import { SettingsPage } from './pages/SettingsPage.jsx'
+import { SupportPage } from './pages/SupportPage.jsx'
 
 function route() {
   return location.pathname.replace(/\/$/, '') || '/'
