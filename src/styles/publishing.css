@@ -1,1 +1,67 @@
-.publishGrid{display:grid;grid-template-columns:1.4fr 1fr;gap:24px;margin-bottom:24px}.publishPanel{padding:24px}.publishPanel.wide{min-height:360px}.publishRow{display:grid;grid-template-columns:1fr 150px auto;gap:16px;align-items:center;border-bottom:1px solid #1c2638;padding:16px 0}.publishRow small{display:block;color:#9ba8bd;margin-top:6px}.publishRow span{border:1px solid #8d6d2b;color:#ffd37a;background:#241a09;border-radius:999px;padding:6px 10px;font-size:12px;text-align:center;font-weight:800}.publishRow button{border:1px solid #24314a;background:#111a28;color:#fff;border-radius:10px;padding:10px 14px}.safetyList{display:grid;gap:12px}.safetyList span{border:1px solid #263650;border-radius:14px;background:#09111d;padding:16px;color:#dce7ff}.ownerSteps span{display:grid;gap:8px}.ownerSteps b{color:#8fc5ff;font-size:22px}@media(max-width:900px){.publishGrid,.publishRow{grid-template-columns:1fr}}
+.publishGrid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+.publishPanel {
+  padding: 24px;
+}
+.publishPanel.wide {
+  min-height: 360px;
+}
+.publishRow {
+  display: grid;
+  grid-template-columns: 1fr 150px auto;
+  gap: 16px;
+  align-items: center;
+  border-bottom: 1px solid #1c2638;
+  padding: 16px 0;
+}
+.publishRow small {
+  display: block;
+  color: #9ba8bd;
+  margin-top: 6px;
+}
+.publishRow span {
+  border: 1px solid #8d6d2b;
+  color: #ffd37a;
+  background: #241a09;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  text-align: center;
+  font-weight: 800;
+}
+.publishRow button {
+  border: 1px solid #24314a;
+  background: #111a28;
+  color: #fff;
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+.safetyList {
+  display: grid;
+  gap: 12px;
+}
+.safetyList span {
+  border: 1px solid #263650;
+  border-radius: 14px;
+  background: #09111d;
+  padding: 16px;
+  color: #dce7ff;
+}
+.ownerSteps span {
+  display: grid;
+  gap: 8px;
+}
+.ownerSteps b {
+  color: #8fc5ff;
+  font-size: 22px;
+}
+@media (max-width: 900px) {
+  .publishGrid,
+  .publishRow {
+    grid-template-columns: 1fr;
+  }
+}

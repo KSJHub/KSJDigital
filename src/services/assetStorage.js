@@ -43,7 +43,9 @@ export async function getAssetsForWebsite(websiteId) {
 
 export async function getStorageUsed(ownerId = 'default') {
   const all = await getAllAssets()
-  return all.filter(asset => asset.ownerId === ownerId).reduce((total, asset) => total + (asset.size || 0), 0)
+  return all
+    .filter(asset => asset.ownerId === ownerId)
+    .reduce((total, asset) => total + (asset.size || 0), 0)
 }
 
 export async function saveAsset({ ownerId = 'default', websiteId = 'system', slotId, file }) {
@@ -63,7 +65,18 @@ export async function saveAsset({ ownerId = 'default', websiteId = 'system', slo
     blob: file,
     updatedAt: new Date().toLocaleString(),
     version: (existing?.version || 0) + 1,
-    history: existing ? [...(existing.history || []), { name: existing.name, size: existing.size, type: existing.type, updatedAt: existing.updatedAt, version: existing.version }] : [],
+    history: existing
+      ? [
+          ...(existing.history || []),
+          {
+            name: existing.name,
+            size: existing.size,
+            type: existing.type,
+            updatedAt: existing.updatedAt,
+            version: existing.version,
+          },
+        ]
+      : [],
   }
   await asPromise((await tx('readwrite')).put(asset))
   window.dispatchEvent(new CustomEvent('ksj-brand-updated', { detail: asset }))
@@ -71,7 +84,9 @@ export async function saveAsset({ ownerId = 'default', websiteId = 'system', slo
 }
 
 export async function removeAsset(ownerId = 'default', websiteId = 'system', slotId) {
-  const result = await asPromise((await tx('readwrite')).delete(`${ownerId}:${websiteId}:${slotId}`))
+  const result = await asPromise(
+    (await tx('readwrite')).delete(`${ownerId}:${websiteId}:${slotId}`),
+  )
   window.dispatchEvent(new CustomEvent('ksj-brand-updated'))
   return result
 }
@@ -82,7 +97,14 @@ export async function getAsset(ownerId = 'default', websiteId = 'system', slotId
 
 export async function getLatestSystemLogoAsset() {
   const all = await getAllAssets()
-  return all.filter(asset => asset.websiteId === 'system' && asset.slotId === 'primaryLogo' && asset.type?.startsWith('image/')).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))[0]
+  return all
+    .filter(
+      asset =>
+        asset.websiteId === 'system' &&
+        asset.slotId === 'primaryLogo' &&
+        asset.type?.startsWith('image/'),
+    )
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))[0]
 }
 
 export function createAssetUrl(asset) {

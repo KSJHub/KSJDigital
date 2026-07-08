@@ -1,1 +1,137 @@
-.mediaHero{padding:28px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;gap:24px;background:linear-gradient(135deg,#0f1a2c,#07101b 55%,#241043)}.mediaHero h2{font-size:38px;margin:8px 0}.mediaHero p{color:#aeb8cc;margin:0}.mediaHero button,.mediaToolbar button,.mediaItem footer button,.advancedUpload button{border:1px solid #24314a;background:#0b111d;color:#fff;border-radius:12px;padding:13px 18px}.mediaHero button,.advancedUpload button:first-child{background:linear-gradient(90deg,#157bff,#9434e8);font-weight:800}.mediaStats{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-bottom:24px}.mediaStat{padding:22px}.mediaStat strong{display:block;font-size:28px;margin:12px 0}.mediaWorkspace{display:grid;grid-template-columns:260px 1fr;gap:24px}.mediaFolders{padding:20px}.mediaFolders h2{margin-top:0}.mediaFolders button{width:100%;display:flex;align-items:center;justify-content:space-between;border:1px solid #243249;border-radius:12px;background:#0a111c;color:#fff;padding:14px;margin-bottom:10px}.mediaFolders button.active{border-color:#8f35ff;background:#171026}.advancedUpload{text-align:left;display:flex;align-items:center;justify-content:space-between;gap:20px}.advancedUpload div{display:flex;gap:10px}.mediaToolbar{display:flex;gap:12px;align-items:center;margin:18px 0}.mediaToolbar .search{flex:1}.advancedMedia{grid-template-columns:repeat(4,1fr)}.mediaItem p{color:#aeb8cc}.mediaItem footer{display:flex;gap:10px;margin-top:16px}.mediaItem footer button{flex:1;padding:10px}@media(max-width:1350px){.mediaStats,.advancedMedia{grid-template-columns:repeat(2,1fr)}.mediaWorkspace{grid-template-columns:1fr}.advancedUpload{display:block}.advancedUpload div{margin-top:12px}}@media(max-width:800px){.mediaHero,.mediaToolbar{display:block}.mediaHero button,.mediaToolbar button{margin-top:10px}.mediaStats,.advancedMedia{grid-template-columns:1fr}}
+.mediaHero {
+  padding: 28px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  background: linear-gradient(135deg, #0f1a2c, #07101b 55%, #241043);
+}
+.mediaHero h2 {
+  font-size: 38px;
+  margin: 8px 0;
+}
+.mediaHero p {
+  color: #aeb8cc;
+  margin: 0;
+}
+.mediaHero button,
+.mediaToolbar button,
+.mediaItem footer button,
+.advancedUpload button {
+  border: 1px solid #24314a;
+  background: #0b111d;
+  color: #fff;
+  border-radius: 12px;
+  padding: 13px 18px;
+}
+.mediaHero button,
+.advancedUpload button:first-child {
+  background: linear-gradient(90deg, #157bff, #9434e8);
+  font-weight: 800;
+}
+.mediaStats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+  margin-bottom: 24px;
+}
+.mediaStat {
+  padding: 22px;
+}
+.mediaStat strong {
+  display: block;
+  font-size: 28px;
+  margin: 12px 0;
+}
+.mediaWorkspace {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 24px;
+}
+.mediaFolders {
+  padding: 20px;
+}
+.mediaFolders h2 {
+  margin-top: 0;
+}
+.mediaFolders button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid #243249;
+  border-radius: 12px;
+  background: #0a111c;
+  color: #fff;
+  padding: 14px;
+  margin-bottom: 10px;
+}
+.mediaFolders button.active {
+  border-color: #8f35ff;
+  background: #171026;
+}
+.advancedUpload {
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.advancedUpload div {
+  display: flex;
+  gap: 10px;
+}
+.mediaToolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 18px 0;
+}
+.mediaToolbar .search {
+  flex: 1;
+}
+.advancedMedia {
+  grid-template-columns: repeat(4, 1fr);
+}
+.mediaItem p {
+  color: #aeb8cc;
+}
+.mediaItem footer {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+.mediaItem footer button {
+  flex: 1;
+  padding: 10px;
+}
+@media (max-width: 1350px) {
+  .mediaStats,
+  .advancedMedia {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .mediaWorkspace {
+    grid-template-columns: 1fr;
+  }
+  .advancedUpload {
+    display: block;
+  }
+  .advancedUpload div {
+    margin-top: 12px;
+  }
+}
+@media (max-width: 800px) {
+  .mediaHero,
+  .mediaToolbar {
+    display: block;
+  }
+  .mediaHero button,
+  .mediaToolbar button {
+    margin-top: 10px;
+  }
+  .mediaStats,
+  .advancedMedia {
+    grid-template-columns: 1fr;
+  }
+}

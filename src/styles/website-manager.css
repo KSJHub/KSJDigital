@@ -1,1 +1,161 @@
-.websiteManagerHero{margin-bottom:24px}.websiteManagerLayout,.simpleWebsiteGrid{display:grid;grid-template-columns:1.35fr .85fr;gap:24px;margin-bottom:24px}.managerPanel{padding:24px}.managerPanel.wide,.mainWork{min-height:330px}.managerPageRow,.simplePageRow{display:grid;grid-template-columns:1fr 110px auto;gap:14px;align-items:center;border-bottom:1px solid #1c2638;padding:15px 0}.managerPageRow small,.simplePageRow small,.navManagerRow small,.seoManagerRow small{display:block;color:#96a3b8;margin-top:5px}.managerPageRow span,.managerPageRow em,.simplePageRow span,.navManagerRow span,.seoManagerRow span{border:1px solid #2b8f61;color:#42f39a;background:#092117;border-radius:999px;padding:6px 10px;font-size:12px;text-align:center;font-style:normal}.managerPageRow button,.simplePageRow button,.managerActions button,.managerPanel .panelHead button,.nextSteps button,.publishBox button{border:1px solid #24314a;background:#0b111d;color:#fff;border-radius:12px;padding:11px 15px}.managerPanel .panelHead button,.publishBox button{background:linear-gradient(90deg,#157bff,#9434e8);font-weight:800}.managerActions,.nextSteps{display:grid;grid-template-columns:1fr;gap:12px}.nextSteps h2{margin-top:0}.managerActions button,.nextSteps button{height:58px;justify-content:flex-start}.navManagerRow{display:grid;grid-template-columns:44px 1fr 90px;gap:14px;align-items:center;border-bottom:1px solid #1c2638;padding:14px 0}.navManagerRow>b{color:#8fc5ff}.seoManagerRow{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #1c2638;padding:14px 0;gap:18px}.miniMediaGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.miniMediaGrid article{border:1px solid #263650;border-radius:14px;background:#09111d;padding:16px}.miniMediaGrid b{display:grid;place-items:center;width:44px;height:44px;border-radius:14px;background:radial-gradient(circle,#9434e8,#07101b);margin-bottom:10px}.miniMediaGrid span{color:#dce7ff;font-size:13px}.controlGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.controlGrid span{border:1px solid #263650;border-radius:14px;background:#09111d;padding:18px;color:#dce7ff}.publishBox p{color:#aeb8cc}.simpleHealth{margin-bottom:24px}@media(max-width:1200px){.websiteManagerLayout,.simpleWebsiteGrid{grid-template-columns:1fr}.controlGrid,.miniMediaGrid{grid-template-columns:1fr 1fr}}@media(max-width:800px){.managerPageRow,.simplePageRow,.navManagerRow{grid-template-columns:1fr}.controlGrid,.miniMediaGrid{grid-template-columns:1fr}}
+.websiteManagerHero {
+  margin-bottom: 24px;
+}
+.websiteManagerLayout,
+.simpleWebsiteGrid {
+  display: grid;
+  grid-template-columns: 1.35fr 0.85fr;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+.managerPanel {
+  padding: 24px;
+}
+.managerPanel.wide,
+.mainWork {
+  min-height: 330px;
+}
+.managerPageRow,
+.simplePageRow {
+  display: grid;
+  grid-template-columns: 1fr 110px auto;
+  gap: 14px;
+  align-items: center;
+  border-bottom: 1px solid #1c2638;
+  padding: 15px 0;
+}
+.managerPageRow small,
+.simplePageRow small,
+.navManagerRow small,
+.seoManagerRow small {
+  display: block;
+  color: #96a3b8;
+  margin-top: 5px;
+}
+.managerPageRow span,
+.managerPageRow em,
+.simplePageRow span,
+.navManagerRow span,
+.seoManagerRow span {
+  border: 1px solid #2b8f61;
+  color: #42f39a;
+  background: #092117;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  text-align: center;
+  font-style: normal;
+}
+.managerPageRow button,
+.simplePageRow button,
+.managerActions button,
+.managerPanel .panelHead button,
+.nextSteps button,
+.publishBox button {
+  border: 1px solid #24314a;
+  background: #0b111d;
+  color: #fff;
+  border-radius: 12px;
+  padding: 11px 15px;
+}
+.managerPanel .panelHead button,
+.publishBox button {
+  background: linear-gradient(90deg, #157bff, #9434e8);
+  font-weight: 800;
+}
+.managerActions,
+.nextSteps {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+.nextSteps h2 {
+  margin-top: 0;
+}
+.managerActions button,
+.nextSteps button {
+  height: 58px;
+  justify-content: flex-start;
+}
+.navManagerRow {
+  display: grid;
+  grid-template-columns: 44px 1fr 90px;
+  gap: 14px;
+  align-items: center;
+  border-bottom: 1px solid #1c2638;
+  padding: 14px 0;
+}
+.navManagerRow > b {
+  color: #8fc5ff;
+}
+.seoManagerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #1c2638;
+  padding: 14px 0;
+  gap: 18px;
+}
+.miniMediaGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+.miniMediaGrid article {
+  border: 1px solid #263650;
+  border-radius: 14px;
+  background: #09111d;
+  padding: 16px;
+}
+.miniMediaGrid b {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: radial-gradient(circle, #9434e8, #07101b);
+  margin-bottom: 10px;
+}
+.miniMediaGrid span {
+  color: #dce7ff;
+  font-size: 13px;
+}
+.controlGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+.controlGrid span {
+  border: 1px solid #263650;
+  border-radius: 14px;
+  background: #09111d;
+  padding: 18px;
+  color: #dce7ff;
+}
+.publishBox p {
+  color: #aeb8cc;
+}
+.simpleHealth {
+  margin-bottom: 24px;
+}
+@media (max-width: 1200px) {
+  .websiteManagerLayout,
+  .simpleWebsiteGrid {
+    grid-template-columns: 1fr;
+  }
+  .controlGrid,
+  .miniMediaGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+@media (max-width: 800px) {
+  .managerPageRow,
+  .simplePageRow,
+  .navManagerRow {
+    grid-template-columns: 1fr;
+  }
+  .controlGrid,
+  .miniMediaGrid {
+    grid-template-columns: 1fr;
+  }
+}

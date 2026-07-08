@@ -13,7 +13,10 @@ export function PublishPipelinePage({ client = false }) {
 
   async function load() {
     try {
-      const [nextRequests, nextHistory] = await Promise.all([api.getPublishRequests(), api.getPublishHistory()])
+      const [nextRequests, nextHistory] = await Promise.all([
+        api.getPublishRequests(),
+        api.getPublishHistory(),
+      ])
       setRequests(nextRequests)
       setHistory(nextHistory)
       setNotice('Connected')
@@ -22,7 +25,9 @@ export function PublishPipelinePage({ client = false }) {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+  }, [])
 
   async function createRequest() {
     try {
@@ -61,5 +66,78 @@ export function PublishPipelinePage({ client = false }) {
     }
   }
 
-  return <Layout client={client} title={client ? 'Updates' : 'Publishing'}><section className="moduleHero card"><div><span>{client ? 'Website Updates' : 'Publishing Pipeline'}</span><h2>{client ? 'Request Website Update' : 'Review & Publish'}</h2><p>{client ? 'Create a real update request for KSJ Digital review.' : 'Review client changes, approve them, and prepare deployment history.'}</p></div><button onClick={client ? createRequest : load}>{notice}</button></section><section className="publishFlow card"><h2>Workflow</h2><div className="publishSteps"><span>1. Draft saved</span><span>2. Request created</span><span>3. KSJ review</span><span>4. Approved</span><span>5. Repository deployment</span><span>6. Website live</span></div></section><section className="publishGrid"><div className="card publishPanel"><div className="panelHead"><h2>{client ? 'My Requests' : 'Update Requests'}</h2><button onClick={createRequest}>New Request</button></div>{requests.length ? requests.map(request => <article className="publishRow" key={request.id}><div><b>{request.title || 'Website update'}</b><small>{request.websiteName || request.websiteId} · {request.createdBy || 'Client'} · {request.createdAt}</small></div><span>{request.status}</span>{!client && <div className="publishActions"><button onClick={() => approve(request.id)}>Approve</button><button onClick={() => reject(request.id)}>Reject</button></div>}</article>) : <p>No publish requests yet.</p>}</div><aside className="card publishPanel"><div className="panelHead"><h2>Deploy History</h2><button>Live</button></div>{history.length ? history.map(item => <article className="publishHistoryRow" key={item.id}><b>{item.websiteId}</b><small>{item.status}</small><span>{item.approvedAt}</span></article>) : <p>No deployments yet.</p>}</aside></section></Layout>
+  return (
+    <Layout client={client} title={client ? 'Updates' : 'Publishing'}>
+      <section className="moduleHero card">
+        <div>
+          <span>{client ? 'Website Updates' : 'Publishing Pipeline'}</span>
+          <h2>{client ? 'Request Website Update' : 'Review & Publish'}</h2>
+          <p>
+            {client
+              ? 'Create a real update request for KSJ Digital review.'
+              : 'Review client changes, approve them, and prepare deployment history.'}
+          </p>
+        </div>
+        <button onClick={client ? createRequest : load}>{notice}</button>
+      </section>
+      <section className="publishFlow card">
+        <h2>Workflow</h2>
+        <div className="publishSteps">
+          <span>1. Draft saved</span>
+          <span>2. Request created</span>
+          <span>3. KSJ review</span>
+          <span>4. Approved</span>
+          <span>5. Repository deployment</span>
+          <span>6. Website live</span>
+        </div>
+      </section>
+      <section className="publishGrid">
+        <div className="card publishPanel">
+          <div className="panelHead">
+            <h2>{client ? 'My Requests' : 'Update Requests'}</h2>
+            <button onClick={createRequest}>New Request</button>
+          </div>
+          {requests.length ? (
+            requests.map(request => (
+              <article className="publishRow" key={request.id}>
+                <div>
+                  <b>{request.title || 'Website update'}</b>
+                  <small>
+                    {request.websiteName || request.websiteId} · {request.createdBy || 'Client'} ·{' '}
+                    {request.createdAt}
+                  </small>
+                </div>
+                <span>{request.status}</span>
+                {!client && (
+                  <div className="publishActions">
+                    <button onClick={() => approve(request.id)}>Approve</button>
+                    <button onClick={() => reject(request.id)}>Reject</button>
+                  </div>
+                )}
+              </article>
+            ))
+          ) : (
+            <p>No publish requests yet.</p>
+          )}
+        </div>
+        <aside className="card publishPanel">
+          <div className="panelHead">
+            <h2>Deploy History</h2>
+            <button>Live</button>
+          </div>
+          {history.length ? (
+            history.map(item => (
+              <article className="publishHistoryRow" key={item.id}>
+                <b>{item.websiteId}</b>
+                <small>{item.status}</small>
+                <span>{item.approvedAt}</span>
+              </article>
+            ))
+          ) : (
+            <p>No deployments yet.</p>
+          )}
+        </aside>
+      </section>
+    </Layout>
+  )
 }

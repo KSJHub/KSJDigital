@@ -1,4 +1,12 @@
-import { getClients, getClientWebsite, getMediaItems, getOwnerWebsites, getTickets, getUpdateRequests, getWebsitePages } from './platform.js'
+import {
+  getClients,
+  getClientWebsite,
+  getMediaItems,
+  getOwnerWebsites,
+  getTickets,
+  getUpdateRequests,
+  getWebsitePages,
+} from './platform.js'
 
 export function getDashboardStats(isClient = false) {
   const websites = getOwnerWebsites()

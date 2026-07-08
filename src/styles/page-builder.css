@@ -1,6 +1,6 @@
 .builderGrid {
   display: grid;
-  grid-template-columns: .8fr 1.3fr 1fr;
+  grid-template-columns: 0.8fr 1.3fr 1fr;
   gap: 24px;
 }
 
@@ -24,7 +24,7 @@
 
 .builderPages article.active {
   border-color: #157bff;
-  background: linear-gradient(135deg, rgba(21, 123, 255, .18), rgba(148, 52, 232, .12));
+  background: linear-gradient(135deg, rgba(21, 123, 255, 0.18), rgba(148, 52, 232, 0.12));
 }
 
 .builderPages small {
@@ -144,7 +144,7 @@
   color: #8fc5ff;
   font-size: 12px;
   font-weight: 900;
-  letter-spacing: .12em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 

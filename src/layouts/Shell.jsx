@@ -90,7 +90,11 @@ export function Sidebar({ client = false }) {
       </nav>
       <div className="supportBox">
         <b>{client ? 'Client Website' : 'Owner Control'}</b>
-        <p>{client ? 'Your assigned website portal.' : 'Manage clients, websites, access and approvals.'}</p>
+        <p>
+          {client
+            ? 'Your assigned website portal.'
+            : 'Manage clients, websites, access and approvals.'}
+        </p>
         <button onClick={() => go(client ? '/client/website' : '/owner/websites')}>
           {client ? 'Open My Website' : 'Manage Websites'}
         </button>

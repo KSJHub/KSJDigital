@@ -17,11 +17,39 @@ export const websiteHealth = [
 
 export const websitePages = [
   { title: 'Home', slug: '/', status: 'Published', draft: 'No draft', seo: 96, locked: false },
-  { title: 'About', slug: '/about', status: 'Published', draft: 'Draft saved', seo: 91, locked: false },
-  { title: 'Content', slug: '/content', status: 'Published', draft: 'No draft', seo: 87, locked: false },
-  { title: 'Community', slug: '/community', status: 'Published', draft: 'Needs review', seo: 89, locked: false },
+  {
+    title: 'About',
+    slug: '/about',
+    status: 'Published',
+    draft: 'Draft saved',
+    seo: 91,
+    locked: false,
+  },
+  {
+    title: 'Content',
+    slug: '/content',
+    status: 'Published',
+    draft: 'No draft',
+    seo: 87,
+    locked: false,
+  },
+  {
+    title: 'Community',
+    slug: '/community',
+    status: 'Published',
+    draft: 'Needs review',
+    seo: 89,
+    locked: false,
+  },
   { title: 'Merch', slug: '/merch', status: 'Draft', draft: 'Coming soon', seo: 72, locked: false },
-  { title: 'Contact', slug: '/contact', status: 'Published', draft: 'No draft', seo: 94, locked: false },
+  {
+    title: 'Contact',
+    slug: '/contact',
+    status: 'Published',
+    draft: 'No draft',
+    seo: 94,
+    locked: false,
+  },
 ]
 
 export const navigationItems = [

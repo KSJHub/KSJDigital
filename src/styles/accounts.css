@@ -1,7 +1,7 @@
 .accountGrid,
 .websiteAdminGrid {
   display: grid;
-  grid-template-columns: .75fr 1.35fr .9fr;
+  grid-template-columns: 0.75fr 1.35fr 0.9fr;
   gap: 24px;
   margin-bottom: 24px;
 }
@@ -31,7 +31,7 @@
 
 .accountList button.active {
   border-color: #157bff;
-  background: linear-gradient(135deg, rgba(21, 123, 255, .22), rgba(148, 52, 232, .12));
+  background: linear-gradient(135deg, rgba(21, 123, 255, 0.22), rgba(148, 52, 232, 0.12));
 }
 
 .accountList small,

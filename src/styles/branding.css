@@ -3,7 +3,7 @@
   max-width: 100%;
   height: auto;
   border-radius: 14px;
-  box-shadow: 0 0 35px rgba(21, 123, 255, .16);
+  box-shadow: 0 0 35px rgba(21, 123, 255, 0.16);
 }
 
 .brandLogo .logoMark,
@@ -45,14 +45,14 @@
   margin-bottom: 8px;
   border-radius: 22px;
   background: radial-gradient(circle, #9434e8, #07101b);
-  box-shadow: 0 0 38px rgba(148, 52, 232, .42);
+  box-shadow: 0 0 38px rgba(148, 52, 232, 0.42);
   font-size: 34px;
   font-weight: 900;
 }
 
 .supportOwnerGrid {
   display: grid;
-  grid-template-columns: 1.4fr .7fr;
+  grid-template-columns: 1.4fr 0.7fr;
   gap: 24px;
 }
 

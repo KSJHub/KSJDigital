@@ -212,12 +212,15 @@ input:focus,
 select:focus,
 textarea:focus {
   border-color: var(--ksj-purple) !important;
-  box-shadow: 0 0 0 3px rgba(148, 52, 232, .18);
+  box-shadow: 0 0 0 3px rgba(148, 52, 232, 0.18);
 }
 
 button {
   cursor: pointer;
-  transition: transform .16s ease, border-color .16s ease, background .16s ease;
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    background 0.16s ease;
 }
 
 button:hover {
@@ -226,7 +229,9 @@ button:hover {
 }
 
 .card {
-  transition: border-color .16s ease, transform .16s ease;
+  transition:
+    border-color 0.16s ease,
+    transform 0.16s ease;
 }
 
 .card:hover {

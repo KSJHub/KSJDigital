@@ -1,6 +1,6 @@
 .formsGrid {
   display: grid;
-  grid-template-columns: .75fr 1.35fr 1fr;
+  grid-template-columns: 0.75fr 1.35fr 1fr;
   gap: 24px;
 }
 
@@ -29,7 +29,7 @@
 
 .formList button.active {
   border-color: #157bff;
-  background: linear-gradient(135deg, rgba(21, 123, 255, .2), rgba(148, 52, 232, .12));
+  background: linear-gradient(135deg, rgba(21, 123, 255, 0.2), rgba(148, 52, 232, 0.12));
 }
 
 .formList small,

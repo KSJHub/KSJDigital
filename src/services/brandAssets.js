@@ -1,7 +1,23 @@
 const BRAND_KEY = 'ksjDigitalBrandAssets'
 const SYSTEM_KEY = 'ksjDigitalSystemBrand'
 
-export const acceptedBrandFormats = ['SVG', 'PNG', 'WEBP', 'JPG', 'JPEG', 'ICO', 'GIF', 'MP4', 'WEBM', 'PDF', 'ZIP', 'WOFF', 'WOFF2', 'TTF', 'OTF']
+export const acceptedBrandFormats = [
+  'SVG',
+  'PNG',
+  'WEBP',
+  'JPG',
+  'JPEG',
+  'ICO',
+  'GIF',
+  'MP4',
+  'WEBM',
+  'PDF',
+  'ZIP',
+  'WOFF',
+  'WOFF2',
+  'TTF',
+  'OTF',
+]
 
 export const brandSlots = [
   { id: 'primaryLogo', label: 'Primary Logo', formats: 'SVG, PNG, WebP, JPG' },
@@ -23,7 +39,11 @@ const defaultSystemBrand = {
 }
 
 function read(key, fallback) {
-  try { return JSON.parse(localStorage.getItem(key) || 'null') || fallback } catch { return fallback }
+  try {
+    return JSON.parse(localStorage.getItem(key) || 'null') || fallback
+  } catch {
+    return fallback
+  }
 }
 
 function write(key, value) {
@@ -61,7 +81,14 @@ export function removeBrandAsset(websiteId, slotId) {
 export function fileToAsset(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = () => resolve({ name: file.name, type: file.type || 'Unknown', size: file.size, updatedAt: new Date().toLocaleString(), dataUrl: reader.result })
+    reader.onload = () =>
+      resolve({
+        name: file.name,
+        type: file.type || 'Unknown',
+        size: file.size,
+        updatedAt: new Date().toLocaleString(),
+        dataUrl: reader.result,
+      })
     reader.onerror = reject
     reader.readAsDataURL(file)
   })

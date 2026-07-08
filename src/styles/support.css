@@ -1,1 +1,134 @@
-.supportHero{padding:28px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;gap:24px;background:linear-gradient(135deg,#0f1a2c,#07101b 55%,#241043)}.supportHero h2{font-size:38px;margin:8px 0}.supportHero p{color:#aeb8cc;margin:0}.supportHero button,.ticketInbox button,.supportConversation button{border:1px solid #24314a;background:#0b111d;color:#fff;border-radius:12px;padding:13px 18px}.supportHero button,.replyActions button:last-child{background:linear-gradient(90deg,#157bff,#9434e8);font-weight:800}.supportStats{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-bottom:24px}.supportStats article{padding:22px}.supportStats strong{display:block;font-size:30px;margin:12px 0}.supportDesk{display:grid;grid-template-columns:1fr 1.35fr .85fr;gap:24px}.ticketInbox,.supportConversation,.helpPanel{padding:24px}.ticketInbox article{display:grid;grid-template-columns:1fr 120px 80px;gap:12px;align-items:center;border-bottom:1px solid #1c2638;padding:15px 0}.ticketInbox small{display:block;color:#96a3b8;margin-top:5px}.ticketInbox span,.ticketInbox em{border:1px solid #8d6d2b;color:#ffd37a;background:#241a09;border-radius:999px;padding:6px 10px;font-size:12px;text-align:center;font-style:normal}.message{border:1px solid #21304a;border-radius:14px;padding:16px;margin-bottom:14px}.message p{color:#dce7ff}.clientMessage{background:#09111d}.ksjMessage{background:#111026;border-color:#6f35d7}.replyActions{display:flex;gap:12px}.replyActions button{flex:1}.helpPanel article{border-bottom:1px solid #1c2638;padding:16px 0}.helpPanel p{color:#aeb8cc;margin-bottom:0}@media(max-width:1200px){.supportStats,.supportDesk{grid-template-columns:1fr 1fr}.helpPanel{grid-column:1/-1}}@media(max-width:800px){.supportHero,.replyActions{display:block}.supportHero button,.replyActions button{margin-top:10px}.supportStats,.supportDesk,.ticketInbox article{grid-template-columns:1fr}}
+.supportHero {
+  padding: 28px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  background: linear-gradient(135deg, #0f1a2c, #07101b 55%, #241043);
+}
+.supportHero h2 {
+  font-size: 38px;
+  margin: 8px 0;
+}
+.supportHero p {
+  color: #aeb8cc;
+  margin: 0;
+}
+.supportHero button,
+.ticketInbox button,
+.supportConversation button {
+  border: 1px solid #24314a;
+  background: #0b111d;
+  color: #fff;
+  border-radius: 12px;
+  padding: 13px 18px;
+}
+.supportHero button,
+.replyActions button:last-child {
+  background: linear-gradient(90deg, #157bff, #9434e8);
+  font-weight: 800;
+}
+.supportStats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+  margin-bottom: 24px;
+}
+.supportStats article {
+  padding: 22px;
+}
+.supportStats strong {
+  display: block;
+  font-size: 30px;
+  margin: 12px 0;
+}
+.supportDesk {
+  display: grid;
+  grid-template-columns: 1fr 1.35fr 0.85fr;
+  gap: 24px;
+}
+.ticketInbox,
+.supportConversation,
+.helpPanel {
+  padding: 24px;
+}
+.ticketInbox article {
+  display: grid;
+  grid-template-columns: 1fr 120px 80px;
+  gap: 12px;
+  align-items: center;
+  border-bottom: 1px solid #1c2638;
+  padding: 15px 0;
+}
+.ticketInbox small {
+  display: block;
+  color: #96a3b8;
+  margin-top: 5px;
+}
+.ticketInbox span,
+.ticketInbox em {
+  border: 1px solid #8d6d2b;
+  color: #ffd37a;
+  background: #241a09;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  text-align: center;
+  font-style: normal;
+}
+.message {
+  border: 1px solid #21304a;
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+.message p {
+  color: #dce7ff;
+}
+.clientMessage {
+  background: #09111d;
+}
+.ksjMessage {
+  background: #111026;
+  border-color: #6f35d7;
+}
+.replyActions {
+  display: flex;
+  gap: 12px;
+}
+.replyActions button {
+  flex: 1;
+}
+.helpPanel article {
+  border-bottom: 1px solid #1c2638;
+  padding: 16px 0;
+}
+.helpPanel p {
+  color: #aeb8cc;
+  margin-bottom: 0;
+}
+@media (max-width: 1200px) {
+  .supportStats,
+  .supportDesk {
+    grid-template-columns: 1fr 1fr;
+  }
+  .helpPanel {
+    grid-column: 1/-1;
+  }
+}
+@media (max-width: 800px) {
+  .supportHero,
+  .replyActions {
+    display: block;
+  }
+  .supportHero button,
+  .replyActions button {
+    margin-top: 10px;
+  }
+  .supportStats,
+  .supportDesk,
+  .ticketInbox article {
+    grid-template-columns: 1fr;
+  }
+}

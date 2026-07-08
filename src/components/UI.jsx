@@ -42,7 +42,9 @@ export function WebsiteCard({ site, active = false, client = false }) {
         <h3>
           {site.name} <em>{site.status}</em>
         </h3>
-        <p>{site.domain} · {site.plan}</p>
+        <p>
+          {site.domain} · {site.plan}
+        </p>
         <div className="siteStats">
           <b>
             {site.pageCount}
@@ -57,12 +59,10 @@ export function WebsiteCard({ site, active = false, client = false }) {
             <small>Owner</small>
           </b>
           <b>
-            {site.seo}%
-            <small>SEO</small>
+            {site.seo}%<small>SEO</small>
           </b>
           <b>
-            {site.performance}%
-            <small>Speed</small>
+            {site.performance}%<small>Speed</small>
           </b>
         </div>
         <div className="websiteActions">
@@ -85,7 +85,9 @@ export function PermissionBanner({ account, client = false }) {
       <div>
         <span>{client ? 'Client Portal' : 'Owner Portal'}</span>
         <h2>{account.label}</h2>
-        <p>{summary.access} · {summary.edit} · {summary.publish}</p>
+        <p>
+          {summary.access} · {summary.edit} · {summary.publish}
+        </p>
       </div>
       <div className="permissionPills">
         <b>{summary.role}</b>
@@ -149,7 +151,13 @@ export function ActivityPanel() {
         <h2>Recent Website Activity</h2>
         <a>View All</a>
       </div>
-      {['Homepage draft saved', 'New image uploaded', 'About page edited', 'Update request created', 'Support reply received'].map((item, index) => (
+      {[
+        'Homepage draft saved',
+        'New image uploaded',
+        'About page edited',
+        'Update request created',
+        'Support reply received',
+      ].map((item, index) => (
         <p key={item}>
           <i></i>
           <b>{item}</b>
@@ -234,7 +242,12 @@ export function PublishPanel() {
     <section className="card status">
       <h2>Updates</h2>
       <h3>Owner approval required</h3>
-      {['Client saves draft', 'Client requests update', 'KSJ reviews update', 'Website goes live'].map(item => (
+      {[
+        'Client saves draft',
+        'Client requests update',
+        'KSJ reviews update',
+        'Website goes live',
+      ].map(item => (
         <p key={item}>
           <span>✓</span>
           {item}

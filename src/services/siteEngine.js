@@ -129,9 +129,7 @@ export function updateNavigationItem(websiteId, id, changes) {
 
   return saveSiteConfig(websiteId, {
     ...config,
-    navigation: config.navigation.map(item =>
-      item.id === id ? { ...item, ...changes } : item,
-    ),
+    navigation: config.navigation.map(item => (item.id === id ? { ...item, ...changes } : item)),
   })
 }
 
@@ -173,9 +171,7 @@ export function buildSiteExport(website, pages = [], config = getSiteConfig(webs
       domain: website.domain,
       status: website.status,
     },
-    navigation: config.navigation
-      .filter(item => item.visible)
-      .sort((a, b) => a.order - b.order),
+    navigation: config.navigation.filter(item => item.visible).sort((a, b) => a.order - b.order),
     theme: config.theme,
     globals: config.globals,
     seo: config.seo,
