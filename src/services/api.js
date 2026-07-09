@@ -39,6 +39,33 @@ export const api = {
   getContent: websiteId => request(`/content/${websiteId}`),
   saveContent: (websiteId, content) =>
     request(`/content/${websiteId}`, { method: 'PUT', body: JSON.stringify(content) }),
+  getForms: websiteId => request(`/forms/${websiteId}`),
+  saveForms: (websiteId, forms) =>
+    request(`/forms/${websiteId}`, { method: 'PUT', body: JSON.stringify({ forms }) }),
+  createForm: (websiteId, payload = {}) =>
+    request(`/forms/${websiteId}`, { method: 'POST', body: JSON.stringify(payload) }),
+  updateForm: (websiteId, formId, payload) =>
+    request(`/forms/${websiteId}/${formId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  deleteForm: (websiteId, formId) => request(`/forms/${websiteId}/${formId}`, { method: 'DELETE' }),
+  addField: (websiteId, formId, payload) =>
+    request(`/forms/${websiteId}/${formId}/fields`, { method: 'POST', body: JSON.stringify(payload) }),
+  updateField: (websiteId, formId, fieldId, payload) =>
+    request(`/forms/${websiteId}/${formId}/fields/${fieldId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  deleteField: (websiteId, formId, fieldId) =>
+    request(`/forms/${websiteId}/${formId}/fields/${fieldId}`, { method: 'DELETE' }),
+  moveField: (websiteId, formId, fieldId, direction) =>
+    request(`/forms/${websiteId}/${formId}/fields/${fieldId}/move`, {
+      method: 'POST',
+      body: JSON.stringify({ direction }),
+    }),
+  submitTestForm: (websiteId, formId) =>
+    request(`/forms/${websiteId}/${formId}/test-submission`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
   getPublishRequests: () => request('/publish/requests'),
   createPublishRequest: payload =>
     request('/publish/requests', { method: 'POST', body: JSON.stringify(payload) }),
