@@ -1,38 +1,79 @@
+import { useEffect, useState } from 'react'
 import { getAccountFromPath } from '../services/auth.js'
 import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
 import { Layout } from '../layouts/Shell.jsx'
-import { getClientWebsite, getMediaItems, getWebsitePages } from '../services/platform.js'
+import { api } from '../services/api.js'
 
 function liveUrl(domain) {
   return domain?.startsWith('http') ? domain : `https://${domain}`
 }
 
+function assetOwnerId(website, accountId) {
+  return website?.owner || accountId || website?.id || 'unassigned'
+}
+
 export function ClientWebsitePage() {
   const account = getAccountFromPath()
   const { websites, status } = useWebsites()
-  const website = findClientWebsite(websites, account) || getClientWebsite()
-  const pages = getWebsitePages()
-  const mediaItems = getMediaItems()
+  const website = findClientWebsite(websites, account)
+  const accountId = account?.id
+  const websiteId = website?.id
+  const websiteOwner = website?.owner
+  const [content, setContent] = useState({ pages: [] })
+  const [assets, setAssets] = useState([])
+  const [contentStatus, setContentStatus] = useState('Loading content')
+  const pages = content.pages || []
+
+  useEffect(() => {
+    if (!websiteId) return
+
+    let cancelled = false
+
+    async function loadWebsiteData() {
+      try {
+        const [contentRecord, assetRecords] = await Promise.all([
+          api.getContent(websiteId),
+          api.assets(assetOwnerId({ id: websiteId, owner: websiteOwner }, accountId), websiteId),
+        ])
+
+        if (cancelled) return
+        setContent({ ...contentRecord, pages: contentRecord.pages || [] })
+        setAssets(assetRecords)
+        setContentStatus('API synced')
+      } catch (error) {
+        if (!cancelled) setContentStatus(error.message || 'API unavailable')
+      }
+    }
+
+    loadWebsiteData()
+
+    return () => {
+      cancelled = true
+    }
+  }, [accountId, websiteId, websiteOwner])
 
   return (
     <Layout client title="My Website">
       <section className="clientSyncHero card websiteManagerHero brandedHero">
         <div>
           <span>Client Website Portal</span>
-          <h2>{website.name}</h2>
+          <h2>{website?.name || 'Assigned Website'}</h2>
           <p>Manage your assigned website content and request updates through KSJ Digital.</p>
           <div className="brandActions">
-            <a href={liveUrl(website.domain)} target="_blank" rel="noreferrer">
-              Open Live Website
-            </a>
+            {website?.domain && (
+              <a href={liveUrl(website.domain)} target="_blank" rel="noreferrer">
+                Open Live Website
+              </a>
+            )}
             <button onClick={() => (location.href = '/client/editor')}>Edit Website</button>
           </div>
         </div>
         <div className="repoCard clientSummary brandCard">
-          <div className="clientLogoMark">{website.logo}</div>
-          <b>{website.status}</b>
-          <small>{website.domain}</small>
+          <div className="clientLogoMark">{website?.logo || 'KSJ'}</div>
+          <b>{website?.status || 'Loading'}</b>
+          <small>{website?.domain || 'Waiting for API website record'}</small>
           <small>{status}</small>
+          <small>{contentStatus}</small>
         </div>
       </section>
 
@@ -43,25 +84,26 @@ export function ClientWebsitePage() {
             <button onClick={() => (location.href = '/client/editor')}>Edit Content</button>
           </div>
           {pages.map((page, index) => (
-            <article className="simplePageRow" key={page}>
+            <article className="simplePageRow" key={page.id || page.slug || page.title}>
               <div>
-                <b>{page}</b>
+                <b>{page.title}</b>
                 <small>
-                  {index === 0 ? '/' : '/' + page.toLowerCase()} ·{' '}
-                  {index < 5 ? 'Published' : 'Draft'}
+                  {page.slug || (index === 0 ? '/' : '/' + page.title.toLowerCase())} ·{' '}
+                  {page.status || 'Draft'}
                 </small>
               </div>
-              <span>{index < 5 ? 'Live' : 'Draft'}</span>
+              <span>{page.status === 'Published' ? 'Live' : page.status || 'Draft'}</span>
               <button onClick={() => (location.href = '/client/editor')}>Edit</button>
             </article>
           ))}
+          {!pages.length && <p className="emptyState">No pages loaded from KSJ Digital yet.</p>}
         </div>
         <aside className="card managerPanel nextSteps">
           <h2>Website Actions</h2>
           <button onClick={() => (location.href = '/client/editor')}>Edit website text</button>
           <button onClick={() => (location.href = '/client/media')}>Upload images</button>
           <button onClick={() => (location.href = '/client/publish')}>Request update</button>
-          <button onClick={() => window.open(liveUrl(website.domain), '_blank')}>Open live site</button>
+          {website?.domain && <button onClick={() => window.open(liveUrl(website.domain), '_blank')}>Open live site</button>}
         </aside>
       </section>
 
@@ -72,13 +114,14 @@ export function ClientWebsitePage() {
             <button onClick={() => (location.href = '/client/media')}>Open Media</button>
           </div>
           <div className="miniMediaGrid">
-            {mediaItems.slice(0, 6).map(item => (
-              <article key={item}>
-                <b>{item.slice(0, 2).toUpperCase()}</b>
-                <span>{item}</span>
+            {assets.slice(0, 6).map(item => (
+              <article key={item.id || item.url || item.name}>
+                <b>{(item.slotId || item.name || 'AS').slice(0, 2).toUpperCase()}</b>
+                <span>{item.name}</span>
               </article>
             ))}
           </div>
+          {!assets.length && <p className="emptyState">No media loaded from KSJ Digital yet.</p>}
         </div>
         <div className="card managerPanel publishBox">
           <h2>Updates</h2>

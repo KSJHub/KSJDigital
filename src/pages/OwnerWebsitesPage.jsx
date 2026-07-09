@@ -2,12 +2,11 @@ import { useEffect, useState } from 'react'
 import { Layout } from '../layouts/Shell.jsx'
 import { WebsiteCard } from '../components/UI.jsx'
 import { api } from '../services/api.js'
-import { addWebsite, getWebsites, removeWebsite, saveWebsite } from '../services/websites.js'
 
 export function OwnerWebsitesPage() {
-  const [websites, setWebsites] = useState(getWebsites)
-  const [selectedId, setSelectedId] = useState(websites[0]?.id)
-  const [form, setForm] = useState(websites[0] || {})
+  const [websites, setWebsites] = useState([])
+  const [selectedId, setSelectedId] = useState('')
+  const [form, setForm] = useState({})
   const [notice, setNotice] = useState('Loading')
   const selected = websites.find(site => site.id === selectedId) || websites[0]
 
@@ -17,17 +16,17 @@ export function OwnerWebsitesPage() {
     setWebsites(nextWebsites)
     setSelectedId(next.id || '')
     setForm(next)
+    window.dispatchEvent(new CustomEvent('ksj-websites-updated', { detail: nextWebsites }))
   }
 
   async function loadServerWebsites(nextId = selectedId) {
     try {
       const serverWebsites = await api.getWebsites()
-      localStorage.setItem('ksjDigitalWebsites', JSON.stringify(serverWebsites))
       applyWebsiteState(serverWebsites, nextId)
       setNotice('Server synced')
-    } catch {
-      applyWebsiteState(getWebsites(), nextId)
-      setNotice('Local mode')
+    } catch (error) {
+      applyWebsiteState([], '')
+      setNotice(error.message || 'API unavailable')
     }
   }
 
@@ -51,13 +50,10 @@ export function OwnerWebsitesPage() {
     try {
       const created = await api.createWebsite(payload)
       const next = await api.getWebsites()
-      localStorage.setItem('ksjDigitalWebsites', JSON.stringify(next))
       applyWebsiteState(next, created.id)
       setNotice('Website added')
-    } catch {
-      addWebsite(payload)
-      applyWebsiteState(getWebsites(), 'new-website')
-      setNotice('Website added locally')
+    } catch (error) {
+      setNotice(error.message || 'Create failed')
     }
   }
 
@@ -67,13 +63,10 @@ export function OwnerWebsitesPage() {
     try {
       const updated = await api.updateWebsite(selected.id, form)
       const next = websites.map(site => (site.id === selected.id ? updated : site))
-      localStorage.setItem('ksjDigitalWebsites', JSON.stringify(next))
       applyWebsiteState(next, selected.id)
       setNotice('Website saved to server')
-    } catch {
-      const updated = saveWebsite(selected.id, form)
-      applyWebsiteState(updated, selected.id)
-      setNotice('Website saved locally')
+    } catch (error) {
+      setNotice(error.message || 'Save failed')
     }
   }
 
@@ -82,13 +75,10 @@ export function OwnerWebsitesPage() {
 
     try {
       const result = await api.deleteWebsite(selected.id)
-      localStorage.setItem('ksjDigitalWebsites', JSON.stringify(result.websites))
       applyWebsiteState(result.websites, result.websites[0]?.id)
       setNotice('Website removed from server')
-    } catch {
-      const remaining = removeWebsite(selected.id)
-      applyWebsiteState(remaining, remaining[0]?.id)
-      setNotice('Website removed locally')
+    } catch (error) {
+      setNotice(error.message || 'Delete failed')
     }
   }
 
@@ -120,6 +110,7 @@ export function OwnerWebsitesPage() {
               <span>{site.status}</span>
             </button>
           ))}
+          {!websites.length && <p className="emptyState">No websites loaded from the API.</p>}
         </aside>
 
         <section className="card accountEditor">
@@ -211,10 +202,10 @@ export function OwnerWebsitesPage() {
           </label>
 
           <div className="accountActions">
-            <button onClick={save}>Save Website</button>
+            <button onClick={save} disabled={!selected?.id}>Save Website</button>
             <button onClick={() => (location.href = '/owner/clients')}>Manage Access</button>
             <button onClick={() => (location.href = '/client/website')}>Preview Client View</button>
-            <button onClick={remove}>Delete Website</button>
+            <button onClick={remove} disabled={!selected?.id}>Delete Website</button>
           </div>
         </section>
 
@@ -225,10 +216,10 @@ export function OwnerWebsitesPage() {
           </div>
           {form.id && <WebsiteCard site={form} active />}
           <div className="ruleGrid">
-            <span>Website records now save into server-data/websites.json.</span>
-            <span>Dashboard keeps a browser copy for fast loading.</span>
+            <span>Website records save into server-data/websites.json.</span>
+            <span>The API is now the owner website source of truth.</span>
             <span>Deleting removes the server record.</span>
-            <span>Source starter files are only defaults.</span>
+            <span>No browser business-data fallback is used here.</span>
           </div>
         </aside>
       </section>
