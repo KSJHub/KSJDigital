@@ -1,10 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Layout } from '../layouts/Shell.jsx'
 import { acceptedBrandFormats, brandSlots } from '../services/brandAssets.js'
-import { formatBytes, storagePercent, USER_STORAGE_LIMIT } from '../services/assetStorage.js'
 import { getAccountFromPath } from '../services/auth.js'
 import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
 import { api } from '../services/api.js'
+
+const USER_STORAGE_LIMIT = 2 * 1024 * 1024 * 1024
+
+function formatBytes(bytes = 0) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+
+function storagePercent(bytes = 0) {
+  return Math.min(100, Math.round((bytes / USER_STORAGE_LIMIT) * 100))
+}
 
 function assetUrl(asset) {
   if (!asset?.url) return ''
