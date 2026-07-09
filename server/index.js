@@ -184,6 +184,12 @@ function requireOwner(req, res) {
   return false
 }
 
+function requirePermission(req, res, permission, message = 'Permission required') {
+  if (req.session?.role === 'owner' || req.session?.[permission]) return true
+  res.status(403).json({ error: message })
+  return false
+}
+
 function requireWebsiteAccess(req, res, websiteId) {
   if (canAccessWebsite(req.session, websiteId)) return true
   res.status(403).json({ error: 'Website access denied' })
@@ -395,6 +401,7 @@ app.delete('/api/clients/:id', async (req, res) => {
 
 app.get('/api/storage/:ownerId', async (req, res) => {
   if (!requireStorageAccess(req, res, req.params.ownerId)) return
+  if (!requirePermission(req, res, 'canManageMedia', 'Media permission required')) return
 
   const ownerId = safeName(req.params.ownerId)
   const ownerDir = path.join(ASSET_DIR, ownerId)
@@ -405,6 +412,7 @@ app.get('/api/storage/:ownerId', async (req, res) => {
 app.post('/api/assets/:ownerId/:websiteId/:slotId', upload.single('file'), async (req, res) => {
   if (!requireStorageAccess(req, res, req.params.ownerId)) return
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+  if (!requirePermission(req, res, 'canManageMedia', 'Media permission required')) return
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
 
   const ownerId = safeName(req.params.ownerId)
@@ -449,6 +457,7 @@ app.post('/api/assets/:ownerId/:websiteId/:slotId', upload.single('file'), async
 app.get('/api/assets/:ownerId/:websiteId', async (req, res) => {
   if (!requireStorageAccess(req, res, req.params.ownerId)) return
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+  if (!requirePermission(req, res, 'canManageMedia', 'Media permission required')) return
 
   const manifest = await readJson(paths.manifest(req.params.ownerId), [])
   res.json(manifest.filter(item => item.websiteId === safeName(req.params.websiteId)))
@@ -461,9 +470,7 @@ app.get('/api/content/:websiteId', async (req, res) => {
 
 app.put('/api/content/:websiteId', async (req, res) => {
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
-  if (req.session.role !== 'owner' && !req.session.canEdit) {
-    return res.status(403).json({ error: 'Edit permission required' })
-  }
+  if (!requirePermission(req, res, 'canEdit', 'Edit permission required')) return
 
   const data = await writeJson(paths.content(req.params.websiteId), {
     ...req.body,
@@ -479,11 +486,13 @@ app.get('/api/forms/:websiteId', async (req, res) => {
 
 app.put('/api/forms/:websiteId', async (req, res) => {
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+  if (!requirePermission(req, res, 'canEdit', 'Edit permission required')) return
   res.json(await writeJson(paths.forms(req.params.websiteId), req.body?.forms || []))
 })
 
 app.post('/api/forms/:websiteId', async (req, res) => {
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+  if (!requirePermission(req, res, 'canEdit', 'Edit permission required')) return
 
   const forms = await getFormRecords(req.params.websiteId)
   const form = {
@@ -502,6 +511,7 @@ app.post('/api/forms/:websiteId', async (req, res) => {
 
 app.patch('/api/forms/:websiteId/:formId', async (req, res) => {
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+  if (!requirePermission(req, res, 'canEdit', 'Edit permission required')) return
 
   const forms = await getFormRecords(req.params.websiteId)
   const next = updateFormList(forms, req.params.formId, form => ({ ...form, ...req.body }))
@@ -511,6 +521,7 @@ app.patch('/api/forms/:websiteId/:formId', async (req, res) => {
 
 app.delete('/api/forms/:websiteId/:formId', async (req, res) => {
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+  if (!requirePermission(req, res, 'canEdit', 'Edit permission required')) return
 
   const forms = await getFormRecords(req.params.websiteId)
   const next = forms.filter(form => form.id !== req.params.formId)
@@ -520,6 +531,7 @@ app.delete('/api/forms/:websiteId/:formId', async (req, res) => {
 
 app.post('/api/forms/:websiteId/:formId/fields', async (req, res) => {
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+  if (!requirePermission(req, res, 'canEdit', 'Edit permission required')) return
 
   const forms = await getFormRecords(req.params.websiteId)
   const field = {
@@ -539,6 +551,7 @@ app.post('/api/forms/:websiteId/:formId/fields', async (req, res) => {
 
 app.patch('/api/forms/:websiteId/:formId/fields/:fieldId', async (req, res) => {
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+  if (!requirePermission(req, res, 'canEdit', 'Edit permission required')) return
 
   const forms = await getFormRecords(req.params.websiteId)
   const next = updateFormList(forms, req.params.formId, form => ({
@@ -553,6 +566,7 @@ app.patch('/api/forms/:websiteId/:formId/fields/:fieldId', async (req, res) => {
 
 app.delete('/api/forms/:websiteId/:formId/fields/:fieldId', async (req, res) => {
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+  if (!requirePermission(req, res, 'canEdit', 'Edit permission required')) return
 
   const forms = await getFormRecords(req.params.websiteId)
   const next = updateFormList(forms, req.params.formId, form => ({
@@ -565,6 +579,7 @@ app.delete('/api/forms/:websiteId/:formId/fields/:fieldId', async (req, res) => 
 
 app.post('/api/forms/:websiteId/:formId/fields/:fieldId/move', async (req, res) => {
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+  if (!requirePermission(req, res, 'canEdit', 'Edit permission required')) return
 
   const forms = await getFormRecords(req.params.websiteId)
   const next = updateFormList(forms, req.params.formId, form => {
@@ -584,6 +599,7 @@ app.post('/api/forms/:websiteId/:formId/fields/:fieldId/move', async (req, res) 
 
 app.post('/api/forms/:websiteId/:formId/test-submission', async (req, res) => {
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+  if (!requirePermission(req, res, 'canEdit', 'Edit permission required')) return
 
   const forms = await getFormRecords(req.params.websiteId)
   const next = updateFormList(forms, req.params.formId, form => ({
@@ -603,11 +619,15 @@ app.post('/api/forms/:websiteId/:formId/test-submission', async (req, res) => {
 })
 
 app.get('/api/support/tickets', async (req, res) => {
+  if (!requirePermission(req, res, 'canViewSupport', 'Support permission required')) return
+
   const tickets = await getTicketRecords()
   res.json(filterBySessionWebsites(req.session, tickets))
 })
 
 app.post('/api/support/tickets', async (req, res) => {
+  if (!requirePermission(req, res, 'canViewSupport', 'Support permission required')) return
+
   const requestedWebsite = safeName(req.body?.websiteId || req.session.websiteId || 'unassigned')
   if (!requireWebsiteAccess(req, res, requestedWebsite)) return
 
@@ -649,6 +669,8 @@ app.patch('/api/support/tickets/:id', async (req, res) => {
 })
 
 app.post('/api/support/tickets/:id/replies', async (req, res) => {
+  if (!requirePermission(req, res, 'canViewSupport', 'Support permission required')) return
+
   const tickets = await getTicketRecords()
   const existing = tickets.find(ticket => ticket.id === req.params.id)
 
@@ -699,6 +721,8 @@ app.get('/api/publish/requests', async (req, res) => {
 })
 
 app.post('/api/publish/requests', async (req, res) => {
+  if (!requirePermission(req, res, 'canRequestUpdates', 'Publish request permission required')) return
+
   const websiteId = safeName(req.body?.websiteId || req.session.websiteId)
   if (!requireWebsiteAccess(req, res, websiteId)) return
 
