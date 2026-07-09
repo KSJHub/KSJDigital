@@ -1,5 +1,4 @@
 import { getPermissionSummary } from '../services/auth.js'
-import { getTickets } from '../services/platform.js'
 
 function liveUrl(domain = '') {
   return domain.startsWith('http') ? domain : `https://${domain}`
@@ -145,23 +144,25 @@ export function Preview() {
 }
 
 export function ActivityPanel() {
+  const activity = [
+    'API content foundation active',
+    'Website manager moved server-side',
+    'Client manager moved server-side',
+    'Forms migrated to API storage',
+    'Site settings editor connected',
+  ]
+
   return (
     <section className="card activity">
       <div className="panelHead">
         <h2>Recent Website Activity</h2>
         <a>View All</a>
       </div>
-      {[
-        'Homepage draft saved',
-        'New image uploaded',
-        'About page edited',
-        'Update request created',
-        'Support reply received',
-      ].map((item, index) => (
+      {activity.map((item, index) => (
         <p key={item}>
           <i></i>
           <b>{item}</b>
-          <small>{index + 1}h ago</small>
+          <small>{index + 1} step</small>
         </p>
       ))}
     </section>
@@ -169,23 +170,19 @@ export function ActivityPanel() {
 }
 
 export function TicketPanel() {
-  const tickets = getTickets()
-
   return (
     <section className="card tickets">
       <div className="panelHead">
         <h2>Support</h2>
-        <a>Open Support</a>
+        <a onClick={() => (location.href = '/owner/support')}>Open Support</a>
       </div>
-      {tickets.slice(0, 3).map(([client, subject, priority]) => (
-        <p key={subject}>
-          <b>
-            {subject}
-            <small>{client}</small>
-          </b>
-          <em>{priority}</em>
-        </p>
-      ))}
+      <p>
+        <b>
+          Support centre pending API migration
+          <small>KSJ Digital</small>
+        </b>
+        <em>Planned</em>
+      </p>
     </section>
   )
 }
