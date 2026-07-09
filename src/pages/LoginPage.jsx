@@ -24,6 +24,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [remember, setRemember] = useState(remembered.remember)
   const [error, setError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
     if (remember) {
@@ -31,9 +32,13 @@ export function LoginPage() {
     }
   }, [email, remember])
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault()
-    const result = signIn(email, password)
+    setError('')
+    setIsSubmitting(true)
+
+    const result = await signIn(email, password)
+    setIsSubmitting(false)
 
     if (result.error) {
       setError(result.error)
@@ -97,8 +102,8 @@ export function LoginPage() {
           </button>
         </div>
         {error && <p className="loginError">{error}</p>}
-        <button className="loginSubmit" type="submit">
-          Sign In
+        <button className="loginSubmit" type="submit" disabled={isSubmitting}>
+          {isSubmitting ? 'Signing In...' : 'Sign In'}
         </button>
         <div className="loginHint">
           <b>Secure account access</b>
