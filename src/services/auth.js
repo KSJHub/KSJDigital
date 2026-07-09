@@ -1,87 +1,48 @@
-import { getClients, getOwnerWebsites } from './platform.js'
+import { api } from './api.js'
 
 const SESSION_KEY = 'ksjDigitalSession'
 
-function buildSession(account) {
-  const websites = getOwnerWebsites()
-  const role = account.role?.toLowerCase() === 'owner' ? 'owner' : 'client'
-  const websiteIds = role === 'owner' ? websites.map(site => site.id) : account.websiteIds || []
-  const websiteAccess =
-    role === 'owner'
-      ? 'All websites'
-      : websiteIds
-          .map(id => websites.find(site => site.id === id)?.name)
-          .filter(Boolean)
-          .join(', ') || 'No website assigned'
+function cacheSession(account) {
+  localStorage.setItem(SESSION_KEY, JSON.stringify(account))
+  return account
+}
 
-  return {
-    id: account.id,
-    email: account.email,
-    name: account.name,
-    role,
-    label: role === 'owner' ? 'KSJ Digital' : account.websiteName || account.name,
-    home: role === 'owner' ? '/owner' : '/client',
-    websiteId: websiteIds[0],
-    websiteIds,
-    websiteAccess,
-    canPublish: role === 'owner',
-    canManageClients: role === 'owner',
-    canEdit: !!account.canEdit,
-    canManageMedia: !!account.canManageMedia,
-    canRequestUpdates: !!account.canRequestUpdates,
-    canViewSupport: !!account.canViewSupport,
+export async function signIn(email, password) {
+  try {
+    const result = await api.login({ email, password })
+    return { account: cacheSession(result.account) }
+  } catch (error) {
+    return { error: error.message || 'Email or password is incorrect.' }
   }
 }
 
-function credentialMatches(account, password) {
-  const storedCredential = account.password || account.accessCode
-
-  if (storedCredential) {
-    return storedCredential === password
+export async function signOut() {
+  try {
+    await api.logout()
+  } catch {
+    // The local portal session should still be cleared even if the API is unavailable.
   }
 
-  return password.trim().length > 0
-}
-
-export function signIn(email, password) {
-  const account = getClients().find(
-    user =>
-      user.email?.toLowerCase() === email.toLowerCase() &&
-      credentialMatches(user, password) &&
-      user.status !== 'Suspended',
-  )
-
-  if (!account) {
-    return { error: 'Email or password is incorrect.' }
-  }
-
-  const session = buildSession(account)
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session))
-  return { account: session }
-}
-
-export function signOut() {
   localStorage.removeItem(SESSION_KEY)
   location.href = '/login'
 }
 
-export function switchAccount(id) {
-  const account = getClients().find(user => user.id === id)
-
-  if (!account) return null
-
-  const session = buildSession(account)
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session))
-  location.href = session.home
-  return session
+export async function refreshSession() {
+  try {
+    const result = await api.me()
+    return cacheSession(result.account)
+  } catch {
+    localStorage.removeItem(SESSION_KEY)
+    return null
+  }
 }
 
-export function getAccount(type = 'client') {
-  const account =
-    getClients().find(user => user.id === type || user.role?.toLowerCase() === type) ||
-    getClients()[0]
+export function switchAccount() {
+  return null
+}
 
-  return buildSession(account)
+export function getAccount() {
+  return getCurrentAccount()
 }
 
 export function getCurrentAccount() {
