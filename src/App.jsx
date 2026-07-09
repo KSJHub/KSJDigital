@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react'
 import { AccessDenied } from './components/UI.jsx'
-import { canAccessOwner, getAccountFromPath } from './services/auth.js'
+import { canAccessOwner, getAccountFromPath, refreshSession } from './services/auth.js'
 import { LoginPage } from './pages/LoginPage.jsx'
 import { DashboardPage } from './pages/DashboardPage.jsx'
 import { OwnerSupportPage } from './pages/OwnerSupportPage.jsx'
@@ -48,8 +49,28 @@ function Workspace({ client = false, type }) {
 
 export default function App() {
   const path = route()
-  const account = getAccountFromPath()
+  const [account, setAccount] = useState(getAccountFromPath())
+  const [sessionChecked, setSessionChecked] = useState(path === '/login' || path === '/')
+
+  useEffect(() => {
+    if (path === '/login' || path === '/') return
+
+    let cancelled = false
+
+    refreshSession().then(serverAccount => {
+      if (!cancelled) {
+        setAccount(serverAccount)
+        setSessionChecked(true)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [path])
+
   if (path === '/login' || path === '/') return <LoginPage />
+  if (!sessionChecked) return <LoginPage />
   if (!account) return <LoginPage />
   if (path.startsWith('/owner') && !canAccessOwner(account))
     return <AccessDenied account={account} />
