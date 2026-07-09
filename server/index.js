@@ -172,6 +172,12 @@ function canAccessWebsite(session, websiteId) {
   return (session.websiteIds || []).map(safeName).includes(safeName(websiteId))
 }
 
+function canAccessStorageOwner(session, ownerId) {
+  if (!session || !ownerId) return false
+  if (session.role === 'owner') return true
+  return safeName(ownerId) === safeName(session.id)
+}
+
 function requireOwner(req, res) {
   if (req.session?.role === 'owner') return true
   res.status(403).json({ error: 'Owner access required' })
@@ -181,6 +187,12 @@ function requireOwner(req, res) {
 function requireWebsiteAccess(req, res, websiteId) {
   if (canAccessWebsite(req.session, websiteId)) return true
   res.status(403).json({ error: 'Website access denied' })
+  return false
+}
+
+function requireStorageAccess(req, res, ownerId) {
+  if (canAccessStorageOwner(req.session, ownerId)) return true
+  res.status(403).json({ error: 'Storage access denied' })
   return false
 }
 
@@ -382,17 +394,16 @@ app.delete('/api/clients/:id', async (req, res) => {
 })
 
 app.get('/api/storage/:ownerId', async (req, res) => {
-  const ownerId = safeName(req.params.ownerId)
-  if (req.session.role !== 'owner' && ownerId !== safeName(req.session.id)) {
-    return res.status(403).json({ error: 'Storage access denied' })
-  }
+  if (!requireStorageAccess(req, res, req.params.ownerId)) return
 
+  const ownerId = safeName(req.params.ownerId)
   const ownerDir = path.join(ASSET_DIR, ownerId)
   const used = await getFolderSize(ownerDir)
   res.json({ used, limit: STORAGE_LIMIT_BYTES })
 })
 
 app.post('/api/assets/:ownerId/:websiteId/:slotId', upload.single('file'), async (req, res) => {
+  if (!requireStorageAccess(req, res, req.params.ownerId)) return
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
 
@@ -436,6 +447,7 @@ app.post('/api/assets/:ownerId/:websiteId/:slotId', upload.single('file'), async
 })
 
 app.get('/api/assets/:ownerId/:websiteId', async (req, res) => {
+  if (!requireStorageAccess(req, res, req.params.ownerId)) return
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
 
   const manifest = await readJson(paths.manifest(req.params.ownerId), [])
