@@ -1,9 +1,38 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Layout } from '../layouts/Shell.jsx'
-import { acceptedBrandFormats, brandSlots } from '../services/brandAssets.js'
 import { getAccountFromPath } from '../services/auth.js'
 import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
 import { api } from '../services/api.js'
+
+const acceptedBrandFormats = [
+  'SVG',
+  'PNG',
+  'WEBP',
+  'JPG',
+  'JPEG',
+  'ICO',
+  'GIF',
+  'MP4',
+  'WEBM',
+  'PDF',
+  'ZIP',
+  'WOFF',
+  'WOFF2',
+  'TTF',
+  'OTF',
+]
+
+const brandSlots = [
+  { id: 'primaryLogo', label: 'Primary Logo', formats: 'SVG, PNG, WebP, JPG' },
+  { id: 'darkLogo', label: 'Dark Logo', formats: 'SVG, PNG, WebP, JPG' },
+  { id: 'lightLogo', label: 'Light Logo', formats: 'SVG, PNG, WebP, JPG' },
+  { id: 'favicon', label: 'Favicon', formats: 'ICO, PNG, SVG' },
+  { id: 'socialIcon', label: 'Social Icon', formats: 'PNG, JPG, WebP' },
+  { id: 'discordIcon', label: 'Discord Icon', formats: 'PNG, JPG, WebP, GIF' },
+  { id: 'banner', label: 'Website Banner', formats: 'PNG, JPG, WebP, MP4, WebM' },
+  { id: 'font', label: 'Brand Font', formats: 'WOFF, WOFF2, TTF, OTF' },
+  { id: 'document', label: 'Brand Document', formats: 'PDF, ZIP' },
+]
 
 const USER_STORAGE_LIMIT = 2 * 1024 * 1024 * 1024
 
