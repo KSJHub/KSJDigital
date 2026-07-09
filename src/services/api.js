@@ -66,6 +66,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({}),
     }),
+  getTickets: () => request('/support/tickets'),
+  createTicket: payload => request('/support/tickets', { method: 'POST', body: JSON.stringify(payload) }),
+  updateTicket: (id, payload) =>
+    request(`/support/tickets/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  replyTicket: (id, payload) =>
+    request(`/support/tickets/${id}/replies`, { method: 'POST', body: JSON.stringify(payload) }),
   getPublishRequests: () => request('/publish/requests'),
   createPublishRequest: payload =>
     request('/publish/requests', { method: 'POST', body: JSON.stringify(payload) }),
