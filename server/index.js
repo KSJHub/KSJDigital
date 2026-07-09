@@ -166,6 +166,30 @@ function getSessionFromRequest(req) {
   return sessions.get(token) || null
 }
 
+function canAccessWebsite(session, websiteId) {
+  if (!session || !websiteId) return false
+  if (session.role === 'owner') return true
+  return (session.websiteIds || []).map(safeName).includes(safeName(websiteId))
+}
+
+function requireOwner(req, res) {
+  if (req.session?.role === 'owner') return true
+  res.status(403).json({ error: 'Owner access required' })
+  return false
+}
+
+function requireWebsiteAccess(req, res, websiteId) {
+  if (canAccessWebsite(req.session, websiteId)) return true
+  res.status(403).json({ error: 'Website access denied' })
+  return false
+}
+
+function filterBySessionWebsites(session, records = [], key = 'websiteId') {
+  if (session?.role === 'owner') return records
+  const allowed = new Set((session?.websiteIds || []).map(safeName))
+  return records.filter(item => allowed.has(safeName(item[key])))
+}
+
 async function getSiteContentRecord(websiteId) {
   const defaultContent = getStarterSiteContent(safeName(websiteId))
   const stored = await readJson(paths.content(websiteId), null)
@@ -220,11 +244,24 @@ app.get('/api/me', (req, res) => {
   res.json({ account: session })
 })
 
-app.get('/api/websites', async (_req, res) => {
-  res.json(await getWebsiteRecords())
+app.use('/api', (req, res, next) => {
+  if (req.path.startsWith('/public/')) return next()
+
+  const session = getSessionFromRequest(req)
+  if (!session) return res.status(401).json({ error: 'Not signed in' })
+
+  req.session = session
+  next()
+})
+
+app.get('/api/websites', async (req, res) => {
+  const websites = await getWebsiteRecords()
+  res.json(filterBySessionWebsites(req.session, websites, 'id'))
 })
 
 app.post('/api/websites', async (req, res) => {
+  if (!requireOwner(req, res)) return
+
   const websites = await getWebsiteRecords()
   const website = {
     id: idFrom(req.body?.name),
@@ -248,6 +285,8 @@ app.post('/api/websites', async (req, res) => {
 })
 
 app.patch('/api/websites/:id', async (req, res) => {
+  if (!requireOwner(req, res)) return
+
   const websites = await getWebsiteRecords()
   const existing = websites.find(site => site.id === req.params.id)
 
@@ -268,6 +307,8 @@ app.patch('/api/websites/:id', async (req, res) => {
 })
 
 app.delete('/api/websites/:id', async (req, res) => {
+  if (!requireOwner(req, res)) return
+
   const websites = await getWebsiteRecords()
   const next = websites.filter(site => site.id !== req.params.id)
   const clients = await getClientRecords()
@@ -281,11 +322,14 @@ app.delete('/api/websites/:id', async (req, res) => {
   res.json({ ok: true, websites: next, clients: nextClients })
 })
 
-app.get('/api/clients', async (_req, res) => {
+app.get('/api/clients', async (req, res) => {
+  if (!requireOwner(req, res)) return
   res.json(await getClientRecords())
 })
 
 app.post('/api/clients', async (req, res) => {
+  if (!requireOwner(req, res)) return
+
   const clients = await getClientRecords()
   const client = {
     id: idFrom(req.body?.name || req.body?.email),
@@ -308,6 +352,8 @@ app.post('/api/clients', async (req, res) => {
 })
 
 app.patch('/api/clients/:id', async (req, res) => {
+  if (!requireOwner(req, res)) return
+
   const clients = await getClientRecords()
   const existing = clients.find(client => client.id === req.params.id)
 
@@ -327,6 +373,8 @@ app.patch('/api/clients/:id', async (req, res) => {
 })
 
 app.delete('/api/clients/:id', async (req, res) => {
+  if (!requireOwner(req, res)) return
+
   const clients = await getClientRecords()
   const next = clients.filter(client => client.id !== req.params.id)
   await writeJson(paths.clients(), next)
@@ -334,12 +382,18 @@ app.delete('/api/clients/:id', async (req, res) => {
 })
 
 app.get('/api/storage/:ownerId', async (req, res) => {
-  const ownerDir = path.join(ASSET_DIR, safeName(req.params.ownerId))
+  const ownerId = safeName(req.params.ownerId)
+  if (req.session.role !== 'owner' && ownerId !== safeName(req.session.id)) {
+    return res.status(403).json({ error: 'Storage access denied' })
+  }
+
+  const ownerDir = path.join(ASSET_DIR, ownerId)
   const used = await getFolderSize(ownerDir)
   res.json({ used, limit: STORAGE_LIMIT_BYTES })
 })
 
 app.post('/api/assets/:ownerId/:websiteId/:slotId', upload.single('file'), async (req, res) => {
+  if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
 
   const ownerId = safeName(req.params.ownerId)
@@ -382,15 +436,23 @@ app.post('/api/assets/:ownerId/:websiteId/:slotId', upload.single('file'), async
 })
 
 app.get('/api/assets/:ownerId/:websiteId', async (req, res) => {
+  if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+
   const manifest = await readJson(paths.manifest(req.params.ownerId), [])
   res.json(manifest.filter(item => item.websiteId === safeName(req.params.websiteId)))
 })
 
 app.get('/api/content/:websiteId', async (req, res) => {
+  if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
   res.json(await getSiteContentRecord(req.params.websiteId))
 })
 
 app.put('/api/content/:websiteId', async (req, res) => {
+  if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+  if (req.session.role !== 'owner' && !req.session.canEdit) {
+    return res.status(403).json({ error: 'Edit permission required' })
+  }
+
   const data = await writeJson(paths.content(req.params.websiteId), {
     ...req.body,
     updatedAt: new Date().toISOString(),
@@ -399,14 +461,18 @@ app.put('/api/content/:websiteId', async (req, res) => {
 })
 
 app.get('/api/forms/:websiteId', async (req, res) => {
+  if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
   res.json(await getFormRecords(req.params.websiteId))
 })
 
 app.put('/api/forms/:websiteId', async (req, res) => {
+  if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
   res.json(await writeJson(paths.forms(req.params.websiteId), req.body?.forms || []))
 })
 
 app.post('/api/forms/:websiteId', async (req, res) => {
+  if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+
   const forms = await getFormRecords(req.params.websiteId)
   const form = {
     id: `form-${Date.now()}`,
@@ -423,6 +489,8 @@ app.post('/api/forms/:websiteId', async (req, res) => {
 })
 
 app.patch('/api/forms/:websiteId/:formId', async (req, res) => {
+  if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+
   const forms = await getFormRecords(req.params.websiteId)
   const next = updateFormList(forms, req.params.formId, form => ({ ...form, ...req.body }))
   await writeJson(paths.forms(req.params.websiteId), next)
@@ -430,6 +498,8 @@ app.patch('/api/forms/:websiteId/:formId', async (req, res) => {
 })
 
 app.delete('/api/forms/:websiteId/:formId', async (req, res) => {
+  if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+
   const forms = await getFormRecords(req.params.websiteId)
   const next = forms.filter(form => form.id !== req.params.formId)
   await writeJson(paths.forms(req.params.websiteId), next)
@@ -437,6 +507,8 @@ app.delete('/api/forms/:websiteId/:formId', async (req, res) => {
 })
 
 app.post('/api/forms/:websiteId/:formId/fields', async (req, res) => {
+  if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+
   const forms = await getFormRecords(req.params.websiteId)
   const field = {
     id: `field-${Date.now()}`,
@@ -454,6 +526,8 @@ app.post('/api/forms/:websiteId/:formId/fields', async (req, res) => {
 })
 
 app.patch('/api/forms/:websiteId/:formId/fields/:fieldId', async (req, res) => {
+  if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+
   const forms = await getFormRecords(req.params.websiteId)
   const next = updateFormList(forms, req.params.formId, form => ({
     ...form,
@@ -466,6 +540,8 @@ app.patch('/api/forms/:websiteId/:formId/fields/:fieldId', async (req, res) => {
 })
 
 app.delete('/api/forms/:websiteId/:formId/fields/:fieldId', async (req, res) => {
+  if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+
   const forms = await getFormRecords(req.params.websiteId)
   const next = updateFormList(forms, req.params.formId, form => ({
     ...form,
@@ -476,6 +552,8 @@ app.delete('/api/forms/:websiteId/:formId/fields/:fieldId', async (req, res) => 
 })
 
 app.post('/api/forms/:websiteId/:formId/fields/:fieldId/move', async (req, res) => {
+  if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+
   const forms = await getFormRecords(req.params.websiteId)
   const next = updateFormList(forms, req.params.formId, form => {
     const fields = [...(form.fields || [])]
@@ -493,6 +571,8 @@ app.post('/api/forms/:websiteId/:formId/fields/:fieldId/move', async (req, res) 
 })
 
 app.post('/api/forms/:websiteId/:formId/test-submission', async (req, res) => {
+  if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
+
   const forms = await getFormRecords(req.params.websiteId)
   const next = updateFormList(forms, req.params.formId, form => ({
     ...form,
@@ -510,16 +590,20 @@ app.post('/api/forms/:websiteId/:formId/test-submission', async (req, res) => {
   res.json(next)
 })
 
-app.get('/api/support/tickets', async (_req, res) => {
-  res.json(await getTicketRecords())
+app.get('/api/support/tickets', async (req, res) => {
+  const tickets = await getTicketRecords()
+  res.json(filterBySessionWebsites(req.session, tickets))
 })
 
 app.post('/api/support/tickets', async (req, res) => {
+  const requestedWebsite = safeName(req.body?.websiteId || req.session.websiteId || 'unassigned')
+  if (!requireWebsiteAccess(req, res, requestedWebsite)) return
+
   const tickets = await getTicketRecords()
   const ticket = {
     id: crypto.randomUUID(),
-    websiteId: safeName(req.body?.websiteId || 'unassigned'),
-    clientName: req.body?.clientName || 'Client',
+    websiteId: requestedWebsite,
+    clientName: req.body?.clientName || req.session.name || 'Client',
     subject: req.body?.subject || 'New support request',
     priority: req.body?.priority || 'Medium',
     status: req.body?.status || 'Open',
@@ -538,15 +622,18 @@ app.patch('/api/support/tickets/:id', async (req, res) => {
   const existing = tickets.find(ticket => ticket.id === req.params.id)
 
   if (!existing) return res.status(404).json({ error: 'Ticket not found' })
+  if (!requireWebsiteAccess(req, res, existing.websiteId)) return
+  if (req.session.role !== 'owner') return res.status(403).json({ error: 'Owner access required' })
 
   const next = updateTicketList(tickets, req.params.id, ticket => ({
     ...ticket,
     ...req.body,
+    websiteId: ticket.websiteId,
     updatedAt: new Date().toISOString(),
   }))
 
   await writeJson(paths.tickets(), next)
-  res.json(next)
+  res.json(filterBySessionWebsites(req.session, next))
 })
 
 app.post('/api/support/tickets/:id/replies', async (req, res) => {
@@ -554,23 +641,24 @@ app.post('/api/support/tickets/:id/replies', async (req, res) => {
   const existing = tickets.find(ticket => ticket.id === req.params.id)
 
   if (!existing) return res.status(404).json({ error: 'Ticket not found' })
+  if (!requireWebsiteAccess(req, res, existing.websiteId)) return
 
   const reply = {
     id: crypto.randomUUID(),
-    author: req.body?.author || 'KSJ Digital',
+    author: req.body?.author || req.session.name || 'KSJ Digital',
     message: req.body?.message || '',
     createdAt: new Date().toISOString(),
   }
 
   const next = updateTicketList(tickets, req.params.id, ticket => ({
     ...ticket,
-    status: req.body?.status || 'Waiting Reply',
+    status: req.body?.status || (req.session.role === 'owner' ? 'Waiting Reply' : 'Open'),
     replies: [reply, ...(ticket.replies || [])],
     updatedAt: new Date().toISOString(),
   }))
 
   await writeJson(paths.tickets(), next)
-  res.json(next)
+  res.json(filterBySessionWebsites(req.session, next))
 })
 
 app.get('/api/public/sites/:websiteId', async (req, res) => {
@@ -593,17 +681,23 @@ app.get('/api/public/sites/:websiteId', async (req, res) => {
   })
 })
 
-app.get('/api/publish/requests', async (_req, res) => {
-  res.json(await readJson(paths.requests(), []))
+app.get('/api/publish/requests', async (req, res) => {
+  const requests = await readJson(paths.requests(), [])
+  res.json(filterBySessionWebsites(req.session, requests))
 })
 
 app.post('/api/publish/requests', async (req, res) => {
+  const websiteId = safeName(req.body?.websiteId || req.session.websiteId)
+  if (!requireWebsiteAccess(req, res, websiteId)) return
+
   const requests = await readJson(paths.requests(), [])
   const request = {
     id: crypto.randomUUID(),
     status: 'Waiting Review',
     createdAt: new Date().toISOString(),
     ...req.body,
+    websiteId,
+    createdBy: req.session.name,
   }
 
   await writeJson(paths.requests(), [request, ...requests])
@@ -611,6 +705,8 @@ app.post('/api/publish/requests', async (req, res) => {
 })
 
 app.post('/api/publish/requests/:id/reject', async (req, res) => {
+  if (!requireOwner(req, res)) return
+
   const requests = await readJson(paths.requests(), [])
   const updated = requests.map(item =>
     item.id === req.params.id
@@ -628,6 +724,8 @@ app.post('/api/publish/requests/:id/reject', async (req, res) => {
 })
 
 app.post('/api/publish/requests/:id/approve', async (req, res) => {
+  if (!requireOwner(req, res)) return
+
   const requests = await readJson(paths.requests(), [])
   const request = requests.find(item => item.id === req.params.id)
 
@@ -657,8 +755,9 @@ app.post('/api/publish/requests/:id/approve', async (req, res) => {
   res.json(deployment)
 })
 
-app.get('/api/publish/history', async (_req, res) => {
-  res.json(await readJson(paths.history(), []))
+app.get('/api/publish/history', async (req, res) => {
+  const history = await readJson(paths.history(), [])
+  res.json(filterBySessionWebsites(req.session, history))
 })
 
 await ensureDir(ASSET_DIR)
