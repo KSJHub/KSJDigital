@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../services/api.js'
+import { getAccountFromPath } from '../services/auth.js'
 
 const groups = [
   [
@@ -69,6 +70,8 @@ function patchValue(content, groupKey, fieldKey, value) {
 }
 
 export function SiteSettingsPanel({ website }) {
+  const account = getAccountFromPath()
+  const canEdit = account?.role === 'owner' || account?.canEdit
   const [content, setContent] = useState(null)
   const [status, setStatus] = useState('Loading settings')
   const websiteId = website?.id
@@ -83,7 +86,7 @@ export function SiteSettingsPanel({ website }) {
         const data = await api.getContent(websiteId)
         if (!cancelled) {
           setContent(data)
-          setStatus('Settings ready')
+          setStatus(canEdit ? 'Settings ready' : 'Preview only')
         }
       } catch (error) {
         if (!cancelled) setStatus(error.message || 'Settings unavailable')
@@ -95,14 +98,19 @@ export function SiteSettingsPanel({ website }) {
     return () => {
       cancelled = true
     }
-  }, [websiteId])
+  }, [canEdit, websiteId])
 
   function setField(groupKey, fieldKey, value) {
+    if (!canEdit) return
     setContent(current => patchValue(current || {}, groupKey, fieldKey, value))
   }
 
   async function saveSettings() {
     if (!content || !websiteId) return
+    if (!canEdit) {
+      setStatus('Edit permission required')
+      return
+    }
     setStatus('Saving settings')
 
     try {
@@ -137,9 +145,9 @@ export function SiteSettingsPanel({ website }) {
       <div className="panelHead">
         <div>
           <h2>Site Settings</h2>
-          <p>Edit live website values without touching code.</p>
+          <p>{canEdit ? 'Edit live website values without touching code.' : 'View current website values.'}</p>
         </div>
-        <button onClick={saveSettings}>{status === 'Saving settings' ? 'Saving...' : 'Save Settings'}</button>
+        {canEdit && <button onClick={saveSettings}>{status === 'Saving settings' ? 'Saving...' : 'Save Settings'}</button>}
       </div>
 
       <div className="builderFields">
@@ -151,6 +159,7 @@ export function SiteSettingsPanel({ website }) {
                 {label}
                 <input
                   value={valueOf(content, groupKey, fieldKey)}
+                  disabled={!canEdit}
                   onChange={event => setField(groupKey, fieldKey, event.target.value)}
                 />
               </label>
@@ -166,11 +175,13 @@ export function SiteSettingsPanel({ website }) {
               {multiline ? (
                 <textarea
                   value={valueOf(content, 'home', fieldKey)}
+                  disabled={!canEdit}
                   onChange={event => setField('home', fieldKey, event.target.value)}
                 />
               ) : (
                 <input
                   value={valueOf(content, 'home', fieldKey)}
+                  disabled={!canEdit}
                   onChange={event => setField('home', fieldKey, event.target.value)}
                 />
               )}
