@@ -4,6 +4,15 @@ function liveUrl(domain = '') {
   return domain.startsWith('http') ? domain : `https://${domain}`
 }
 
+function clientActionAllowed(account, label) {
+  if (!account || account.role === 'owner') return true
+  if (label === 'Pages' || label === 'Edit Website') return !!account.canEdit
+  if (label === 'Media' || label === 'Branding' || label === 'Manage Media') return !!account.canManageMedia
+  if (label === 'Updates' || label === 'Request Update') return !!account.canRequestUpdates
+  if (label === 'Open Support') return !!account.canViewSupport
+  return true
+}
+
 export function Stat({ item }) {
   return (
     <div className="card stat">
@@ -17,8 +26,8 @@ export function Stat({ item }) {
   )
 }
 
-export function WebsiteCard({ site, active = false, client = false }) {
-  const actions = client
+export function WebsiteCard({ site, active = false, client = false, account = null }) {
+  const actions = (client
     ? [
         ['Open', () => window.open(liveUrl(site.domain), '_blank')],
         ['Pages', () => (location.href = '/client/editor')],
@@ -33,6 +42,7 @@ export function WebsiteCard({ site, active = false, client = false }) {
         ['Branding', () => (location.href = '/owner/branding')],
         ['Updates', () => (location.href = '/owner/publish-requests')],
       ]
+  ).filter(([label]) => !client || clientActionAllowed(account, label))
 
   return (
     <article className={active ? 'website activeSite websiteControl' : 'website websiteControl'}>
@@ -169,12 +179,14 @@ export function ActivityPanel() {
   )
 }
 
-export function TicketPanel() {
+export function TicketPanel({ client = false, account = null }) {
+  if (client && !clientActionAllowed(account, 'Open Support')) return null
+
   return (
     <section className="card tickets">
       <div className="panelHead">
         <h2>Support</h2>
-        <a onClick={() => (location.href = '/owner/support')}>Open Support</a>
+        <a onClick={() => (location.href = client ? '/client/support' : '/owner/support')}>Open Support</a>
       </div>
       <p>
         <b>
@@ -187,8 +199,8 @@ export function TicketPanel() {
   )
 }
 
-export function QuickActions({ client = false }) {
-  const actions = client
+export function QuickActions({ client = false, account = null }) {
+  const actions = (client
     ? [
         ['Edit Website', '/client/editor'],
         ['Manage Media', '/client/media'],
@@ -203,6 +215,7 @@ export function QuickActions({ client = false }) {
         ['Open Support', '/owner/support'],
         ['Settings', '/owner/settings'],
       ]
+  ).filter(([label]) => !client || clientActionAllowed(account, label))
 
   return (
     <section className="card quick">
@@ -234,7 +247,9 @@ export function StatusPanel() {
   )
 }
 
-export function PublishPanel() {
+export function PublishPanel({ client = false, account = null }) {
+  if (client && !clientActionAllowed(account, 'Request Update')) return null
+
   return (
     <section className="card status">
       <h2>Updates</h2>
