@@ -1,16 +1,16 @@
 import { api } from './api.js'
 
-const SESSION_KEY = 'ksjDigitalSession'
+let currentAccount = null
 
-function cacheSession(account) {
-  localStorage.setItem(SESSION_KEY, JSON.stringify(account))
-  return account
+function setCurrentAccount(account) {
+  currentAccount = account || null
+  return currentAccount
 }
 
 export async function signIn(email, password) {
   try {
     const result = await api.login({ email, password })
-    return { account: cacheSession(result.account) }
+    return { account: setCurrentAccount(result.account) }
   } catch (error) {
     return { error: error.message || 'Email or password is incorrect.' }
   }
@@ -20,46 +20,36 @@ export async function signOut() {
   try {
     await api.logout()
   } catch {
-    // The local portal session should still be cleared even if the API is unavailable.
+    // The portal should still leave the protected area even if the API is unavailable.
   }
 
-  localStorage.removeItem(SESSION_KEY)
+  setCurrentAccount(null)
   location.href = '/login'
 }
 
 export async function refreshSession() {
   try {
     const result = await api.me()
-    return cacheSession(result.account)
+    return setCurrentAccount(result.account)
   } catch {
-    localStorage.removeItem(SESSION_KEY)
-    return null
+    return setCurrentAccount(null)
   }
-}
-
-export function switchAccount() {
-  return null
 }
 
 export function getAccount() {
-  return getCurrentAccount()
+  return currentAccount
 }
 
 export function getCurrentAccount() {
-  try {
-    const session = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null')
-    return session || null
-  } catch {
-    return null
-  }
+  return currentAccount
 }
 
 export function getAccountFromPath() {
-  return getCurrentAccount()
+  return currentAccount
 }
 
 export function requireAccount() {
-  return getCurrentAccount()
+  return currentAccount
 }
 
 export function canAccessOwner(account) {
@@ -69,13 +59,13 @@ export function canAccessOwner(account) {
 export function canEditWebsite(account, websiteName = 'TwoToneTaj') {
   if (!account) return false
   if (account.role === 'owner') return true
-  return account.websiteAccess.includes(websiteName)
+  return account.websiteAccess?.includes(websiteName)
 }
 
-export function getPermissionSummary(account) {
+export function getPermissionSummary(account = {}) {
   return {
-    role: account.role,
-    access: account.websiteAccess,
+    role: account.role || 'guest',
+    access: account.websiteAccess || 'No website assigned',
     edit: account.canEdit ? 'Website editing enabled' : 'View only',
     publish: account.canPublish ? 'Final approval enabled' : 'Requests approval',
   }
