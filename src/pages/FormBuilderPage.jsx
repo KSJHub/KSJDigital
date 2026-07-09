@@ -2,17 +2,7 @@ import { useEffect, useState } from 'react'
 import { Layout } from '../layouts/Shell.jsx'
 import { getAccountFromPath } from '../services/auth.js'
 import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
-import {
-  addField,
-  createForm,
-  deleteField,
-  deleteForm,
-  getForms,
-  moveField,
-  submitTestForm,
-  updateField,
-  updateForm,
-} from '../services/formBuilder.js'
+import { api } from '../services/api.js'
 
 const fieldTypes = ['Text', 'Email', 'Textarea', 'Phone', 'Select', 'Checkbox', 'Date', 'File']
 
@@ -54,7 +44,7 @@ export function FormBuilderPage({ client = false }) {
     if (!websiteId) return
 
     try {
-      const next = await getForms(websiteId)
+      const next = await api.getForms(websiteId)
       setForms(next)
       setSelectedId(next.find(form => form.id === nextId)?.id || next[0]?.id || '')
       setNotice(message)
@@ -74,7 +64,7 @@ export function FormBuilderPage({ client = false }) {
     setNotice('Creating form')
 
     try {
-      const result = await createForm(websiteId)
+      const result = await api.createForm(websiteId, { name: 'New Form' })
       setForms(result.forms)
       setSelectedId(result.form.id)
       setNotice('Form created')
@@ -88,7 +78,7 @@ export function FormBuilderPage({ client = false }) {
     setNotice('Saving form')
 
     try {
-      const next = await updateForm(websiteId, selected.id, changes)
+      const next = await api.updateForm(websiteId, selected.id, changes)
       setForms(next)
       setSelectedId(selected.id)
       setNotice('Form saved')
@@ -102,7 +92,7 @@ export function FormBuilderPage({ client = false }) {
     setNotice('Deleting form')
 
     try {
-      const next = await deleteForm(websiteId, selected.id)
+      const next = await api.deleteForm(websiteId, selected.id)
       setForms(next)
       setSelectedId(next[0]?.id || '')
       setNotice('Form deleted')
@@ -116,7 +106,7 @@ export function FormBuilderPage({ client = false }) {
     setNotice('Adding field')
 
     try {
-      const next = await addField(websiteId, selected.id, type)
+      const next = await api.addField(websiteId, selected.id, { type })
       setForms(next)
       setSelectedId(selected.id)
       setNotice(`${type} field added`)
@@ -130,7 +120,7 @@ export function FormBuilderPage({ client = false }) {
     setNotice('Saving field')
 
     try {
-      const next = await updateField(websiteId, selected.id, fieldId, changes)
+      const next = await api.updateField(websiteId, selected.id, fieldId, changes)
       setForms(next)
       setSelectedId(selected.id)
       setNotice('Field updated')
@@ -144,7 +134,7 @@ export function FormBuilderPage({ client = false }) {
     setNotice('Removing field')
 
     try {
-      const next = await deleteField(websiteId, selected.id, fieldId)
+      const next = await api.deleteField(websiteId, selected.id, fieldId)
       setForms(next)
       setSelectedId(selected.id)
       setNotice('Field removed')
@@ -158,7 +148,7 @@ export function FormBuilderPage({ client = false }) {
     setNotice('Moving field')
 
     try {
-      const next = await moveField(websiteId, selected.id, fieldId, direction)
+      const next = await api.moveField(websiteId, selected.id, fieldId, direction)
       setForms(next)
       setSelectedId(selected.id)
       setNotice('Moved')
@@ -172,7 +162,7 @@ export function FormBuilderPage({ client = false }) {
     setNotice('Adding test submission')
 
     try {
-      const next = await submitTestForm(websiteId, selected.id)
+      const next = await api.submitTestForm(websiteId, selected.id)
       setForms(next)
       setSelectedId(selected.id)
       setNotice('Test submission added')
