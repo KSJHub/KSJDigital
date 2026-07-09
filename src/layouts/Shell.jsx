@@ -1,9 +1,5 @@
-import { useEffect, useState } from 'react'
 import { getAccountFromPath, signOut } from '../services/auth.js'
-import { getSystemBrand } from '../services/brandAssets.js'
-import { createAssetUrl, getLatestSystemLogoAsset } from '../services/assetStorage.js'
 import { PermissionBanner } from '../components/UI.jsx'
-import { syncWebsitesFromServer } from '../services/serverSync.js'
 
 function route() {
   return location.pathname.replace(/\/$/, '') || '/'
@@ -14,36 +10,9 @@ function go(path) {
 }
 
 export function Logo() {
-  const brand = getSystemBrand()
-  const [src, setSrc] = useState(brand.logo || '/ksj-digital-logo.svg')
-
-  useEffect(() => {
-    let activeUrl = ''
-
-    async function load() {
-      const asset = await getLatestSystemLogoAsset()
-      if (asset) {
-        activeUrl = createAssetUrl(asset)
-        setSrc(activeUrl)
-      } else {
-        setSrc(brand.logo || '/ksj-digital-logo.svg')
-      }
-    }
-
-    load()
-
-    const refresh = () => load()
-    window.addEventListener('ksj-brand-updated', refresh)
-
-    return () => {
-      window.removeEventListener('ksj-brand-updated', refresh)
-      if (activeUrl) URL.revokeObjectURL(activeUrl)
-    }
-  }, [])
-
   return (
     <div className="logo brandLogo">
-      <img src={src} alt="KSJ Digital" />
+      <img src="/ksj-digital-logo.svg" alt="KSJ Digital" />
     </div>
   )
 }
@@ -104,7 +73,10 @@ export function Sidebar({ client = false }) {
 }
 
 export function Header({ client = false, title, account }) {
-  const activeAccount = account || getAccountFromPath()
+  const activeAccount = account || getAccountFromPath() || {
+    label: 'KSJ Digital',
+    name: 'KSJ',
+  }
 
   return (
     <header className="header">
@@ -130,10 +102,6 @@ export function Header({ client = false, title, account }) {
 
 export function Layout({ client = false, title, children }) {
   const account = getAccountFromPath()
-
-  useEffect(() => {
-    syncWebsitesFromServer().catch(() => {})
-  }, [])
 
   return (
     <div className="shell">
