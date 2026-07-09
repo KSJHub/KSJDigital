@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { SiteSettingsPanel } from '../components/SiteSettingsPanel.jsx'
 import { getAccountFromPath } from '../services/auth.js'
 import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
 import { Layout } from '../layouts/Shell.jsx'
@@ -100,11 +101,29 @@ export function ClientWebsitePage() {
         </div>
         <aside className="card managerPanel nextSteps">
           <h2>Website Actions</h2>
-          <button onClick={() => (location.href = '/client/editor')}>Edit website text</button>
+          <button onClick={() => (location.href = '/client/editor')}>Edit website pages</button>
           <button onClick={() => (location.href = '/client/media')}>Upload images</button>
           <button onClick={() => (location.href = '/client/publish')}>Request update</button>
           {website?.domain && <button onClick={() => window.open(liveUrl(website.domain), '_blank')}>Open live site</button>}
         </aside>
+      </section>
+
+      <section className="simpleWebsiteGrid">
+        <SiteSettingsPanel website={website} />
+        <div className="card managerPanel publishBox">
+          <h2>Updates</h2>
+          <p>
+            Save your changes and request an update. KSJ Digital reviews everything before it goes
+            live.
+          </p>
+          <div className="publishSteps">
+            <span>1. Edit</span>
+            <span>2. Save</span>
+            <span>3. Request update</span>
+            <span>4. KSJ approves</span>
+          </div>
+          <button onClick={() => (location.href = '/client/publish')}>Request Update</button>
+        </div>
       </section>
 
       <section className="simpleWebsiteGrid">
@@ -122,20 +141,6 @@ export function ClientWebsitePage() {
             ))}
           </div>
           {!assets.length && <p className="emptyState">No media loaded from KSJ Digital yet.</p>}
-        </div>
-        <div className="card managerPanel publishBox">
-          <h2>Updates</h2>
-          <p>
-            Save your changes and request an update. KSJ Digital reviews everything before it goes
-            live.
-          </p>
-          <div className="publishSteps">
-            <span>1. Edit</span>
-            <span>2. Save</span>
-            <span>3. Request update</span>
-            <span>4. KSJ approves</span>
-          </div>
-          <button onClick={() => (location.href = '/client/publish')}>Request Update</button>
         </div>
       </section>
     </Layout>
