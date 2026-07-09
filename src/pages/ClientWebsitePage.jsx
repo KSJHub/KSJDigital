@@ -20,7 +20,9 @@ export function ClientWebsitePage() {
   const accountId = account?.id
   const websiteId = website?.id
   const websiteOwner = website?.owner
+  const canEdit = account?.role === 'owner' || account?.canEdit
   const canManageMedia = account?.role === 'owner' || account?.canManageMedia
+  const canRequestUpdates = account?.role === 'owner' || account?.canRequestUpdates
   const [content, setContent] = useState({ pages: [] })
   const [assets, setAssets] = useState([])
   const [contentStatus, setContentStatus] = useState('Loading content')
@@ -88,7 +90,7 @@ export function ClientWebsitePage() {
                 Open Live Website
               </a>
             )}
-            <button onClick={() => (location.href = '/client/editor')}>Edit Website</button>
+            {canEdit && <button onClick={() => (location.href = '/client/editor')}>Edit Website</button>}
           </div>
         </div>
         <div className="repoCard clientSummary brandCard">
@@ -104,7 +106,7 @@ export function ClientWebsitePage() {
         <div className="card managerPanel mainWork">
           <div className="panelHead">
             <h2>Pages</h2>
-            <button onClick={() => (location.href = '/client/editor')}>Edit Content</button>
+            {canEdit && <button onClick={() => (location.href = '/client/editor')}>Edit Content</button>}
           </div>
           {pages.map((page, index) => (
             <article className="simplePageRow" key={page.id || page.slug || page.title}>
@@ -116,43 +118,45 @@ export function ClientWebsitePage() {
                 </small>
               </div>
               <span>{page.status === 'Published' ? 'Live' : page.status || 'Draft'}</span>
-              <button onClick={() => (location.href = '/client/editor')}>Edit</button>
+              {canEdit && <button onClick={() => (location.href = '/client/editor')}>Edit</button>}
             </article>
           ))}
           {!pages.length && <p className="emptyState">No pages loaded from KSJ Digital yet.</p>}
         </div>
         <aside className="card managerPanel nextSteps">
           <h2>Website Actions</h2>
-          <button onClick={() => (location.href = '/client/editor')}>Edit website pages</button>
-          <button onClick={() => (location.href = '/client/media')}>Upload images</button>
-          <button onClick={() => (location.href = '/client/publish')}>Request update</button>
+          {canEdit && <button onClick={() => (location.href = '/client/editor')}>Edit website pages</button>}
+          {canManageMedia && <button onClick={() => (location.href = '/client/media')}>Upload images</button>}
+          {canRequestUpdates && <button onClick={() => (location.href = '/client/publish')}>Request update</button>}
           {website?.domain && <button onClick={() => window.open(liveUrl(website.domain), '_blank')}>Open live site</button>}
         </aside>
       </section>
 
       <section className="simpleWebsiteGrid">
         <SiteSettingsPanel website={website} />
-        <div className="card managerPanel publishBox">
-          <h2>Updates</h2>
-          <p>
-            Save your changes and request an update. KSJ Digital reviews everything before it goes
-            live.
-          </p>
-          <div className="publishSteps">
-            <span>1. Edit</span>
-            <span>2. Save</span>
-            <span>3. Request update</span>
-            <span>4. KSJ approves</span>
+        {canRequestUpdates && (
+          <div className="card managerPanel publishBox">
+            <h2>Updates</h2>
+            <p>
+              Save your changes and request an update. KSJ Digital reviews everything before it goes
+              live.
+            </p>
+            <div className="publishSteps">
+              <span>1. Edit</span>
+              <span>2. Save</span>
+              <span>3. Request update</span>
+              <span>4. KSJ approves</span>
+            </div>
+            <button onClick={() => (location.href = '/client/publish')}>Request Update</button>
           </div>
-          <button onClick={() => (location.href = '/client/publish')}>Request Update</button>
-        </div>
+        )}
       </section>
 
       <section className="simpleWebsiteGrid">
         <div className="card managerPanel">
           <div className="panelHead">
             <h2>Brand & Media</h2>
-            <button onClick={() => (location.href = '/client/media')}>Open Media</button>
+            {canManageMedia && <button onClick={() => (location.href = '/client/media')}>Open Media</button>}
           </div>
           <div className="miniMediaGrid">
             {assets.slice(0, 6).map(item => (
