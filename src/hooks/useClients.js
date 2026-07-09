@@ -1,11 +1,17 @@
 import { useEffect, useState } from 'react'
 import { api } from '../services/api.js'
 
-export function useClients() {
+export function useClients(enabled = true) {
   const [clients, setClients] = useState([])
-  const [status, setStatus] = useState('Loading')
+  const [status, setStatus] = useState(enabled ? 'Loading' : 'Disabled')
 
   async function refresh() {
+    if (!enabled) {
+      setClients([])
+      setStatus('Disabled')
+      return []
+    }
+
     try {
       const records = await api.getClients()
       setClients(records)
@@ -19,6 +25,12 @@ export function useClients() {
   }
 
   useEffect(() => {
+    if (!enabled) {
+      setClients([])
+      setStatus('Disabled')
+      return undefined
+    }
+
     refresh()
 
     function update(event) {
@@ -29,7 +41,7 @@ export function useClients() {
 
     window.addEventListener('ksj-clients-updated', update)
     return () => window.removeEventListener('ksj-clients-updated', update)
-  }, [])
+  }, [enabled])
 
   return { clients, setClients, refresh, status, setStatus }
 }
