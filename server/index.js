@@ -18,13 +18,31 @@ import {
 const app = express()
 const port = Number(process.env.PORT || 4174)
 const upload = multer({ storage: multer.memoryStorage() })
+const sessions = new Map()
+const SESSION_COOKIE = 'ksj_session'
 
-app.use(cors())
+app.use(cors({ origin: true, credentials: true }))
 app.use(express.json({ limit: '25mb' }))
 app.use('/assets', express.static(ASSET_DIR))
 
 function idFrom(value = 'new-record') {
   return safeName(value).replace(/[._]+/g, '-')
+}
+
+function parseCookies(header = '') {
+  return Object.fromEntries(
+    header
+      .split(';')
+      .map(cookie => cookie.trim().split('='))
+      .filter(parts => parts[0])
+      .map(([key, ...value]) => [key, decodeURIComponent(value.join('='))]),
+  )
+}
+
+function sessionCookie(token, { clear = false } = {}) {
+  const maxAge = clear ? 0 : 60 * 60 * 24 * 7
+  const value = clear ? '' : encodeURIComponent(token)
+  return `${SESSION_COOKIE}=${value}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAge}`
 }
 
 async function getWebsiteRecords() {
@@ -47,6 +65,50 @@ async function getClientRecords() {
   return stored
 }
 
+function credentialMatches(account, password = '') {
+  const storedCredential = account.password || account.accessCode
+
+  if (!storedCredential) return false
+  return storedCredential === password
+}
+
+async function buildSession(account) {
+  const websites = await getWebsiteRecords()
+  const role = account.role?.toLowerCase() === 'owner' ? 'owner' : 'client'
+  const websiteIds = role === 'owner' ? websites.map(site => site.id) : account.websiteIds || []
+  const websiteAccess =
+    role === 'owner'
+      ? 'All websites'
+      : websiteIds
+          .map(id => websites.find(site => site.id === id)?.name)
+          .filter(Boolean)
+          .join(', ') || 'No website assigned'
+
+  return {
+    id: account.id,
+    email: account.email,
+    name: account.name,
+    role,
+    label: role === 'owner' ? 'KSJ Digital' : account.websiteName || account.name,
+    home: role === 'owner' ? '/owner' : '/client',
+    websiteId: websiteIds[0],
+    websiteIds,
+    websiteAccess,
+    canPublish: role === 'owner',
+    canManageClients: role === 'owner',
+    canEdit: !!account.canEdit,
+    canManageMedia: !!account.canManageMedia,
+    canRequestUpdates: !!account.canRequestUpdates,
+    canViewSupport: !!account.canViewSupport,
+  }
+}
+
+function getSessionFromRequest(req) {
+  const token = parseCookies(req.headers.cookie)[SESSION_COOKIE]
+  if (!token) return null
+  return sessions.get(token) || null
+}
+
 async function getSiteContentRecord(websiteId) {
   const defaultContent = getStarterSiteContent(safeName(websiteId))
   const stored = await readJson(paths.content(websiteId), null)
@@ -56,6 +118,41 @@ async function getSiteContentRecord(websiteId) {
 
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'KSJ Digital API' })
+})
+
+app.post('/api/login', async (req, res) => {
+  const email = req.body?.email?.trim().toLowerCase()
+  const password = req.body?.password || ''
+  const clients = await getClientRecords()
+  const account = clients.find(
+    client =>
+      client.email?.toLowerCase() === email &&
+      credentialMatches(client, password) &&
+      client.status !== 'Suspended',
+  )
+
+  if (!account) {
+    return res.status(401).json({ error: 'Email or password is incorrect.' })
+  }
+
+  const session = await buildSession(account)
+  const token = crypto.randomUUID()
+  sessions.set(token, session)
+  res.setHeader('Set-Cookie', sessionCookie(token))
+  res.json({ account: session })
+})
+
+app.post('/api/logout', (req, res) => {
+  const token = parseCookies(req.headers.cookie)[SESSION_COOKIE]
+  if (token) sessions.delete(token)
+  res.setHeader('Set-Cookie', sessionCookie('', { clear: true }))
+  res.json({ ok: true })
+})
+
+app.get('/api/me', (req, res) => {
+  const session = getSessionFromRequest(req)
+  if (!session) return res.status(401).json({ error: 'Not signed in' })
+  res.json({ account: session })
 })
 
 app.get('/api/websites', async (_req, res) => {
