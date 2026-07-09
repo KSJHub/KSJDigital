@@ -1,84 +1,109 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Layout } from '../layouts/Shell.jsx'
-import {
-  addFolder,
-  addMediaAsset,
-  createMediaAsset,
-  deleteMediaAsset,
-  formatFileSize,
-  getMediaLibrary,
-  removeFolder,
-  replaceMediaAsset,
-  updateMediaAsset,
-} from '../services/mediaLibrary.js'
-import { getClientWebsite } from '../services/platform.js'
+import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
+import { getAccountFromPath } from '../services/auth.js'
+import { api } from '../services/api.js'
+import { formatFileSize, mediaFolders } from '../services/mediaLibrary.js'
 
 function FilePreview({ asset }) {
-  if (asset.type?.startsWith('image/')) return <img src={asset.url} alt={asset.name} />
-  if (asset.type?.startsWith('video/')) return <video src={asset.url} muted controls />
-  return <b>{asset.name.split('.').pop()?.toUpperCase()}</b>
+  const url = asset.url?.startsWith('http') ? asset.url : `${import.meta.env.VITE_KSJ_ASSET_URL || 'http://localhost:4174'}${asset.url || ''}`
+
+  if (asset.type?.startsWith('image/')) return <img src={url} alt={asset.name} />
+  if (asset.type?.startsWith('video/')) return <video src={url} muted controls />
+  return <b>{asset.name?.split('.').pop()?.toUpperCase() || 'FILE'}</b>
+}
+
+function ownerId(website, account) {
+  return website?.owner || account?.id || website?.id || 'unassigned'
 }
 
 export function MediaLibraryPage({ client = false }) {
-  const website = getClientWebsite()
-  const [library, setLibrary] = useState(getMediaLibrary(website.id))
+  const account = getAccountFromPath()
+  const { websites } = useWebsites()
+  const website = findClientWebsite(websites, account)
+  const websiteId = website?.id
+  const owner = ownerId(website, account)
+  const [assets, setAssets] = useState([])
   const [folder, setFolder] = useState('All')
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState('')
-  const [notice, setNotice] = useState('Ready')
-  const selected = library.assets.find(asset => asset.id === selectedId)
+  const [notice, setNotice] = useState('Loading')
+  const selected = assets.find(asset => asset.id === selectedId)
 
-  function refresh(message = 'Saved') {
-    setLibrary(getMediaLibrary(website.id))
-    setNotice(message)
+  async function loadAssets(message = 'Ready') {
+    if (!websiteId) {
+      setAssets([])
+      setNotice('Waiting for assigned website')
+      return
+    }
+
+    try {
+      const records = await api.assets(owner, websiteId)
+      setAssets(records)
+      setNotice(message)
+    } catch (error) {
+      setAssets([])
+      setNotice(error.message || 'Media API unavailable')
+    }
   }
 
+  useEffect(() => {
+    loadAssets('Server synced')
+  }, [owner, websiteId])
+
   async function upload(files) {
+    if (!websiteId) return
+
     const list = Array.from(files || [])
-    for (const file of list) {
-      const asset = await createMediaAsset(file, folder === 'All' ? 'Website' : folder)
-      addMediaAsset(website.id, asset)
+    const slot = folder === 'All' ? 'website' : folder.toLowerCase()
+    setNotice('Uploading')
+
+    try {
+      for (const file of list) {
+        await api.uploadAsset(owner, websiteId, slot, file)
+      }
+      await loadAssets(`${list.length} file(s) uploaded`)
+    } catch (error) {
+      setNotice(error.message || 'Upload failed')
     }
-    refresh(`${list.length} file(s) uploaded`)
   }
 
   async function replace(file) {
-    if (!file || !selected) return
-    const nextAsset = await createMediaAsset(file, selected.folder)
-    replaceMediaAsset(website.id, selected.id, nextAsset)
-    refresh('Asset replaced')
-  }
+    if (!file || !selected || !websiteId) return
+    setNotice('Replacing asset')
 
-  function addTag(value) {
-    if (!selected || !value.trim()) return
-    const tags = [...new Set([...(selected.tags || []), value.trim()])]
-    updateMediaAsset(website.id, selected.id, { tags })
-    refresh('Tag added')
+    try {
+      await api.uploadAsset(owner, websiteId, selected.slotId || 'website', file)
+      await loadAssets('Replacement uploaded as new version')
+    } catch (error) {
+      setNotice(error.message || 'Replace failed')
+    }
   }
 
   const visibleAssets = useMemo(
     () =>
-      library.assets.filter(asset => {
-        const folderMatch = folder === 'All' || asset.folder === folder
+      assets.filter(asset => {
+        const assetFolder = asset.slotId || 'website'
+        const folderMatch = folder === 'All' || assetFolder.toLowerCase() === folder.toLowerCase()
         const searchMatch =
           !search ||
-          `${asset.name} ${asset.folder} ${(asset.tags || []).join(' ')}`
+          `${asset.name} ${assetFolder}`
             .toLowerCase()
             .includes(search.toLowerCase())
         return folderMatch && searchMatch
       }),
-    [library.assets, folder, search],
+    [assets, folder, search],
   )
 
-  const storage = library.assets.reduce((total, asset) => total + asset.size, 0)
+  const storage = assets.reduce((total, asset) => total + (asset.size || 0), 0)
 
   return (
     <Layout client={client} title="Media">
       <section className="moduleHero card">
         <div>
           <span>Media Library</span>
-          <h2>{website.name} Assets</h2>
-          <p>Upload, organise, tag, replace and track media used across the website.</p>
+          <h2>{website?.name || 'Assigned Website'} Assets</h2>
+          <p>Upload, organise, replace and track media used across the website.</p>
         </div>
         <button>{notice}</button>
       </section>
@@ -86,26 +111,21 @@ export function MediaLibraryPage({ client = false }) {
         <aside className="card mediaFolders">
           <div className="panelHead">
             <h2>Folders</h2>
-            <button
-              onClick={() => {
-                addFolder(website.id)
-                refresh('Folder added')
-              }}
-            >
-              Add
-            </button>
+            <button disabled>API</button>
           </div>
-          <button className={folder === 'All' ? 'active' : ''} onClick={() => setFolder('All')}>
-            All Assets<small>{library.assets.length} files</small>
-          </button>
-          {library.folders.map(item => (
+          {mediaFolders.map(item => (
             <button
               className={folder === item ? 'active' : ''}
               key={item}
               onClick={() => setFolder(item)}
             >
-              {item}
-              <small>{library.assets.filter(asset => asset.folder === item).length} files</small>
+              {item} Assets
+              <small>
+                {item === 'All'
+                  ? assets.length
+                  : assets.filter(asset => (asset.slotId || '').toLowerCase() === item.toLowerCase()).length}{' '}
+                files
+              </small>
             </button>
           ))}
           <div className="mediaStorage">
@@ -118,11 +138,11 @@ export function MediaLibraryPage({ client = false }) {
             <input
               value={search}
               onChange={event => setSearch(event.target.value)}
-              placeholder="Search assets, folders or tags"
+              placeholder="Search assets or folders"
             />
             <label>
               Upload
-              <input type="file" multiple onChange={event => upload(event.target.files)} />
+              <input type="file" multiple onChange={event => upload(event.target.files)} disabled={!websiteId} />
             </label>
           </div>
           <div
@@ -148,9 +168,9 @@ export function MediaLibraryPage({ client = false }) {
                   </div>
                   <b>{asset.name}</b>
                   <small>
-                    {asset.folder} · {formatFileSize(asset.size)} · v{asset.version}
+                    {asset.slotId || 'Website'} · {formatFileSize(asset.size)} · v{asset.version}
                   </small>
-                  <p>{(asset.tags || []).join(', ') || 'No tags'}</p>
+                  <p>{asset.updatedAt || 'No update date'}</p>
                 </article>
               ))
             ) : (
@@ -167,78 +187,30 @@ export function MediaLibraryPage({ client = false }) {
               </div>
               <label>
                 Name
-                <input
-                  value={selected.name}
-                  onChange={event => {
-                    updateMediaAsset(website.id, selected.id, { name: event.target.value })
-                    refresh('Name updated')
-                  }}
-                />
+                <input value={selected.name || ''} disabled />
               </label>
               <label>
                 Folder
-                <select
-                  value={selected.folder}
-                  onChange={event => {
-                    updateMediaAsset(website.id, selected.id, { folder: event.target.value })
-                    refresh('Folder updated')
-                  }}
-                >
-                  {library.folders.map(item => (
-                    <option key={item}>{item}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Add Tag
-                <input
-                  onKeyDown={event => {
-                    if (event.key === 'Enter') {
-                      addTag(event.currentTarget.value)
-                      event.currentTarget.value = ''
-                    }
-                  }}
-                  placeholder="Press Enter"
-                />
+                <input value={selected.slotId || 'website'} disabled />
               </label>
               <div className="usageList">
-                <b>Used On</b>
-                {selected.usedOn?.length ? (
-                  selected.usedOn.map(item => <span key={item}>{item}</span>)
-                ) : (
-                  <span>Not used yet</span>
-                )}
+                <b>Asset URL</b>
+                <span>{selected.url}</span>
               </div>
               <div className="assetActions">
                 <label>
                   Replace
                   <input type="file" onChange={event => replace(event.target.files?.[0])} />
                 </label>
-                <button
-                  onClick={() => {
-                    deleteMediaAsset(website.id, selected.id)
-                    setSelectedId('')
-                    refresh('Asset deleted')
-                  }}
-                >
-                  Delete
-                </button>
+                <button disabled>Delete pending API</button>
               </div>
               <div className="versionList">
-                <b>Version History</b>
-                {selected.history?.length ? (
-                  selected.history.map(item => (
-                    <span key={`${item.name}-${item.version}`}>
-                      v{item.version} · {item.name}
-                    </span>
-                  ))
-                ) : (
-                  <span>No previous versions</span>
-                )}
+                <b>Version</b>
+                <span>v{selected.version || 1}</span>
               </div>
             </>
           ) : (
-            <p>Select an asset to edit details.</p>
+            <p>Select an asset to view details.</p>
           )}
         </aside>
       </section>
