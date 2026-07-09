@@ -1,15 +1,48 @@
+import { useEffect, useState } from 'react'
 import { Layout } from '../layouts/Shell.jsx'
-import { getTickets } from '../services/platform.js'
+import { api } from '../services/api.js'
 
-const queueStats = [
-  ['Open Tickets', '3', 'Across all clients'],
-  ['High Priority', '1', 'Needs attention'],
-  ['Waiting Reply', '2', 'Client waiting'],
-  ['Resolved', '8', 'This month'],
-]
+function queueStats(tickets) {
+  const open = tickets.filter(ticket => ticket.status !== 'Resolved')
+  const high = open.filter(ticket => ticket.priority === 'High')
+  const waiting = open.filter(ticket => ticket.status === 'Waiting Reply')
+  const resolved = tickets.filter(ticket => ticket.status === 'Resolved')
+
+  return [
+    ['Open Tickets', String(open.length), 'Across all clients'],
+    ['High Priority', String(high.length), 'Needs attention'],
+    ['Waiting Reply', String(waiting.length), 'Client waiting'],
+    ['Resolved', String(resolved.length), 'Resolved tickets'],
+  ]
+}
 
 export function OwnerSupportPage() {
-  const tickets = getTickets()
+  const [tickets, setTickets] = useState([])
+  const [status, setStatus] = useState('Loading')
+
+  useEffect(() => {
+    api
+      .getTickets()
+      .then(records => {
+        setTickets(records)
+        setStatus('Server synced')
+      })
+      .catch(error => {
+        setTickets([])
+        setStatus(error.message || 'Support API unavailable')
+      })
+  }, [])
+
+  async function updateTicket(ticket, changes) {
+    try {
+      const records = await api.updateTicket(ticket.id, changes)
+      setTickets(records)
+      setStatus('Ticket updated')
+    } catch (error) {
+      setStatus(error.message || 'Update failed')
+    }
+  }
+
   return (
     <Layout title="Support">
       <section className="moduleHero card">
@@ -21,10 +54,10 @@ export function OwnerSupportPage() {
             support portal.
           </p>
         </div>
-        <button>New Internal Note</button>
+        <button>{status}</button>
       </section>
       <div className="stats">
-        {queueStats.map(item => (
+        {queueStats(tickets).map(item => (
           <article className="card stat" key={item[0]}>
             <div>
               <span>{item[0]}</span>
@@ -39,27 +72,28 @@ export function OwnerSupportPage() {
         <section className="card ticketInbox ownerInbox">
           <div className="panelHead">
             <h2>All Client Tickets</h2>
-            <button>Filter</button>
+            <button>{tickets.length} Loaded</button>
           </div>
           {tickets.map(ticket => (
-            <article key={ticket[1]}>
+            <article key={ticket.id}>
               <div>
-                <b>{ticket[1]}</b>
-                <small>{ticket[0]} · Owner visible only</small>
+                <b>{ticket.subject}</b>
+                <small>{ticket.clientName || ticket.websiteId} · Owner visible only</small>
               </div>
-              <span>Open</span>
-              <em>{ticket[2]}</em>
-              <button>Reply</button>
+              <span>{ticket.status}</span>
+              <em>{ticket.priority}</em>
+              <button onClick={() => updateTicket(ticket, { status: 'Waiting Reply' })}>Reply</button>
             </article>
           ))}
+          {!tickets.length && <p className="emptyState">No support tickets loaded yet.</p>}
         </section>
         <aside className="card managerPanel">
           <h2>Owner Actions</h2>
           <div className="managerActions">
-            <button>Assign Ticket</button>
-            <button>Reply as KSJ Digital</button>
-            <button>Mark Resolved</button>
-            <button>Escalate</button>
+            <button disabled={!tickets.length}>Assign Ticket</button>
+            <button disabled={!tickets.length}>Reply as KSJ Digital</button>
+            <button disabled={!tickets.length}>Mark Resolved</button>
+            <button disabled={!tickets.length}>Escalate</button>
           </div>
         </aside>
       </section>
