@@ -1,46 +1,25 @@
-const RELEASE_KEY = 'ksjDigitalReleaseCentre'
-
-function read(key, fallback) {
-  try {
-    return JSON.parse(localStorage.getItem(key) || 'null') || fallback
-  } catch {
-    return fallback
+export function getReleaseState() {
+  return {
+    version: '0.3.0',
+    status: 'In Progress',
+    lastCheck: new Date().toLocaleString(),
+    checks: [
+      ['Portal Navigation', 'Ready', 'Owner and client workspaces routed'],
+      ['Client Access', 'In Progress', 'Server sessions active; route middleware hardening next'],
+      ['Brand Centre', 'Ready', 'Brand assets now use the API asset store'],
+      ['Page Builder', 'Ready', 'Pages and blocks save through content API'],
+      ['CMS Engine', 'Ready', 'Navigation, theme, globals, SEO and config save through content API'],
+      ['Media Library', 'Ready', 'Uploads and asset listing now use the API asset store'],
+      ['Form Builder', 'Ready', 'Forms and fields now use server-data through API'],
+      ['Publishing', 'In Progress', 'Request, review and history workflow active; GitHub deployment next'],
+      ['Operations', 'In Progress', 'Browser backups removed; server backup module next'],
+      ['API Server', 'Ready', 'Node API and server-data storage active'],
+    ],
   }
 }
 
-function write(key, value) {
-  localStorage.setItem(key, JSON.stringify(value))
-  return value
-}
-
-export function getReleaseState() {
-  return read(RELEASE_KEY, {
-    version: '1.0.0',
-    status: 'Ready',
-    lastCheck: null,
-    checks: [
-      ['Portal Navigation', 'Ready', 'Owner and client workspaces routed'],
-      ['Client Access', 'Ready', 'Accounts, permissions and website assignment active'],
-      ['Brand Centre', 'Ready', 'Brand assets and storage controls active'],
-      ['Page Builder', 'Ready', 'Pages, blocks and preview active'],
-      ['CMS Engine', 'Ready', 'Navigation, theme, globals, SEO and config active'],
-      ['Media Library', 'Ready', 'Folders, uploads, tags, versions and inspector active'],
-      ['Form Builder', 'Ready', 'Forms, fields, preview and submissions active'],
-      ['Publishing', 'Ready', 'Request, review and history workflow active'],
-      ['Operations', 'Ready', 'Backups, audit log and go-live checklist active'],
-      ['API Server', 'Ready', 'Local API and server storage active through npm run dev'],
-    ],
-  })
-}
-
 export function runReleaseCheck() {
-  const state = getReleaseState()
-
-  return write(RELEASE_KEY, {
-    ...state,
-    status: 'Ready',
-    lastCheck: new Date().toLocaleString(),
-  })
+  return getReleaseState()
 }
 
 export function getCompletionSummary() {
