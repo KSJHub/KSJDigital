@@ -1,75 +1,86 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Layout } from '../layouts/Shell.jsx'
 import { acceptedBrandFormats, brandSlots } from '../services/brandAssets.js'
-import {
-  createAssetUrl,
-  formatBytes,
-  getAssetsForWebsite,
-  getStorageUsed,
-  removeAsset,
-  saveAsset,
-  storagePercent,
-  USER_STORAGE_LIMIT,
-} from '../services/assetStorage.js'
+import { formatBytes, storagePercent, USER_STORAGE_LIMIT } from '../services/assetStorage.js'
 import { getAccountFromPath } from '../services/auth.js'
-import { getClientWebsite, getOwnerWebsites } from '../services/platform.js'
+import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
+import { api } from '../services/api.js'
+
+function assetUrl(asset) {
+  if (!asset?.url) return ''
+  return asset.url.startsWith('http') ? asset.url : `${import.meta.env.VITE_KSJ_ASSET_URL || 'http://localhost:4174'}${asset.url}`
+}
 
 function Preview({ asset }) {
-  const [url, setUrl] = useState('')
-  useEffect(() => {
-    if (!asset) return setUrl('')
-    const next = createAssetUrl(asset)
-    setUrl(next)
-    return () => URL.revokeObjectURL(next)
-  }, [asset])
   if (!asset) return <div className="assetEmpty">No file</div>
+  const url = assetUrl(asset)
   if (asset.type?.startsWith('image/')) return <img src={url} alt={asset.name} />
   if (asset.type?.startsWith('video/')) return <video src={url} muted controls />
-  return <div className="assetFile">{asset.name.split('.').pop()?.toUpperCase()}</div>
+  return <div className="assetFile">{asset.name?.split('.').pop()?.toUpperCase() || 'FILE'}</div>
+}
+
+function ownerId(website, account) {
+  return website?.owner || account?.id || website?.id || 'default'
 }
 
 export function BrandCentrePage({ client = false }) {
   const account = getAccountFromPath()
-  const ownerId = account?.id || 'default'
-  const websites = getOwnerWebsites()
-  const firstId = client ? getClientWebsite().id : 'system'
-  const [websiteId, setWebsiteId] = useState(firstId)
-  const [assets, setAssets] = useState({})
+  const { websites } = useWebsites()
+  const clientWebsite = findClientWebsite(websites, account)
+  const initialWebsiteId = client ? clientWebsite?.id || '' : 'system'
+  const [websiteId, setWebsiteId] = useState(initialWebsiteId)
+  const [assetList, setAssetList] = useState([])
   const [used, setUsed] = useState(0)
-  const [notice, setNotice] = useState('Ready')
+  const [notice, setNotice] = useState('Loading')
+  const selectedWebsite = websiteId === 'system' ? null : websites.find(site => site.id === websiteId)
+  const owner = ownerId(selectedWebsite || clientWebsite, account)
+  const assets = useMemo(() => Object.fromEntries(assetList.map(asset => [asset.slotId, asset])), [assetList])
 
-  async function reload(id = websiteId) {
-    setWebsiteId(id)
-    const list = await getAssetsForWebsite(id)
-    setAssets(Object.fromEntries(list.map(asset => [asset.slotId, asset])))
-    setUsed(await getStorageUsed(ownerId))
-  }
+  async function reload(nextWebsiteId = websiteId) {
+    if (!nextWebsiteId) {
+      setAssetList([])
+      setUsed(0)
+      setNotice('Waiting for assigned website')
+      return
+    }
 
-  useEffect(() => {
-    reload(firstId)
-  }, [])
+    setWebsiteId(nextWebsiteId)
 
-  async function upload(slotId, file) {
-    if (!file) return
     try {
-      const asset = await saveAsset({ ownerId, websiteId, slotId, file })
-      await reload()
-      setNotice(`${asset.name} saved`)
+      const [list, storage] = await Promise.all([
+        api.assets(owner, nextWebsiteId),
+        api.storage(owner),
+      ])
+      setAssetList(list)
+      setUsed(storage.used || 0)
+      setNotice('Server synced')
     } catch (error) {
-      setNotice(error.message)
+      setAssetList([])
+      setNotice(error.message || 'Brand API unavailable')
     }
   }
 
-  async function remove(slotId) {
-    await removeAsset(ownerId, websiteId, slotId)
-    await reload()
-    setNotice('Asset removed')
+  useEffect(() => {
+    reload(client ? clientWebsite?.id || '' : 'system')
+  }, [client, clientWebsite?.id, owner])
+
+  async function upload(slotId, file) {
+    if (!file || !websiteId) return
+    setNotice('Uploading')
+
+    try {
+      const asset = await api.uploadAsset(owner, websiteId, slotId, file)
+      await reload(websiteId)
+      setNotice(`${asset.name} saved`)
+    } catch (error) {
+      setNotice(error.message || 'Upload failed')
+    }
   }
 
   const selectedName =
     websiteId === 'system'
       ? 'KSJ Digital System'
-      : websites.find(site => site.id === websiteId)?.name
+      : websites.find(site => site.id === websiteId)?.name || 'Assigned Website'
 
   return (
     <Layout client={client} title="Branding">
@@ -106,7 +117,7 @@ export function BrandCentrePage({ client = false }) {
               KSJ Digital System<small>Portal branding</small>
             </button>
           )}
-          {websites.map(site => (
+          {(client ? websites.filter(site => account?.websiteIds?.includes(site.id)) : websites).map(site => (
             <button
               className={websiteId === site.id ? 'active' : ''}
               key={site.id}
@@ -140,9 +151,9 @@ export function BrandCentrePage({ client = false }) {
                 </div>
                 <label>
                   Upload
-                  <input type="file" onChange={event => upload(slot.id, event.target.files?.[0])} />
+                  <input type="file" onChange={event => upload(slot.id, event.target.files?.[0])} disabled={!websiteId} />
                 </label>
-                {assets[slot.id] && <button onClick={() => remove(slot.id)}>Remove</button>}
+                {assets[slot.id] && <button disabled>Remove pending API</button>}
               </article>
             ))}
           </div>
@@ -152,7 +163,7 @@ export function BrandCentrePage({ client = false }) {
           {acceptedBrandFormats.map(format => (
             <span key={format}>{format}</span>
           ))}
-          <p>Storage: IndexedDB now, server/R2 storage next.</p>
+          <p>Storage is managed by the KSJ Digital API.</p>
         </aside>
       </section>
     </Layout>
