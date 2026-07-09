@@ -69,10 +69,11 @@ export function BrandCentrePage({ client = false }) {
   const { websites } = useWebsites()
   const clientWebsite = findClientWebsite(websites, account)
   const initialWebsiteId = client ? clientWebsite?.id || '' : 'system'
+  const canManageMedia = account?.role === 'owner' || account?.canManageMedia
   const [websiteId, setWebsiteId] = useState(initialWebsiteId)
   const [assetList, setAssetList] = useState([])
   const [used, setUsed] = useState(0)
-  const [notice, setNotice] = useState('Loading')
+  const [notice, setNotice] = useState(canManageMedia ? 'Loading' : 'Media permission required')
   const selectedWebsite = websiteId === 'system' ? null : websites.find(site => site.id === websiteId)
   const selectedOwner = ownerId(selectedWebsite || clientWebsite, account)
   const assets = useMemo(() => Object.fromEntries(assetList.map(asset => [asset.slotId, asset])), [assetList])
@@ -84,6 +85,13 @@ export function BrandCentrePage({ client = false }) {
   }
 
   async function reload(nextWebsiteId = websiteId) {
+    if (!canManageMedia) {
+      setAssetList([])
+      setUsed(0)
+      setNotice('Media permission required')
+      return
+    }
+
     if (!nextWebsiteId) {
       setAssetList([])
       setUsed(0)
@@ -110,9 +118,10 @@ export function BrandCentrePage({ client = false }) {
 
   useEffect(() => {
     reload(client ? clientWebsite?.id || '' : 'system')
-  }, [client, clientWebsite?.id, websites.length, account?.id])
+  }, [canManageMedia, client, clientWebsite?.id, websites.length, account?.id])
 
   async function upload(slotId, file) {
+    if (!canManageMedia) return setNotice('Media permission required')
     if (!file || !websiteId) return
     const targetOwner = ownerFor(websiteId)
     setNotice('Uploading')
@@ -130,6 +139,21 @@ export function BrandCentrePage({ client = false }) {
     websiteId === 'system'
       ? 'KSJ Digital System'
       : websites.find(site => site.id === websiteId)?.name || 'Assigned Website'
+
+  if (!canManageMedia) {
+    return (
+      <Layout client={client} title="Branding">
+        <section className="moduleHero card">
+          <div>
+            <span>Brand Centre</span>
+            <h2>Brand access restricted</h2>
+            <p>Your account does not currently have permission to manage brand assets for this website.</p>
+          </div>
+          <button>{notice}</button>
+        </section>
+      </Layout>
+    )
+  }
 
   return (
     <Layout client={client} title="Branding">
