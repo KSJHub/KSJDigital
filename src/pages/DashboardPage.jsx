@@ -36,7 +36,7 @@ function clientStats(website) {
 export function DashboardPage({ client = false }) {
   const account = getAccountFromPath()
   const { websites } = useWebsites()
-  const { clients } = useClients()
+  const { clients } = useClients(!client)
   const website = findClientWebsite(websites, account)
   const visibleWebsites = client ? [website].filter(Boolean) : websites
   const stats = client ? clientStats(website) : ownerStats(websites, clients)
@@ -58,7 +58,7 @@ export function DashboardPage({ client = false }) {
             </button>
           </div>
           {visibleWebsites.map((site, index) => (
-            <WebsiteCard key={site.id || site.name} site={site} active={index === 0} />
+            <WebsiteCard key={site.id || site.name} site={site} active={index === 0} client={client} />
           ))}
         </section>
         <Preview />
