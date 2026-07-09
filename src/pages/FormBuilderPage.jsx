@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Layout } from '../layouts/Shell.jsx'
+import { getAccountFromPath } from '../services/auth.js'
+import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
 import {
   addField,
   createForm,
@@ -11,7 +13,6 @@ import {
   updateField,
   updateForm,
 } from '../services/formBuilder.js'
-import { getClientWebsite } from '../services/platform.js'
 
 const fieldTypes = ['Text', 'Email', 'Textarea', 'Phone', 'Select', 'Checkbox', 'Date', 'File']
 
@@ -40,41 +41,58 @@ function FieldPreview({ field }) {
 }
 
 export function FormBuilderPage({ client = false }) {
-  const website = getClientWebsite()
-  const [forms, setForms] = useState(getForms(website.id))
-  const [selectedId, setSelectedId] = useState(forms[0]?.id)
-  const [notice, setNotice] = useState('Ready')
+  const account = getAccountFromPath()
+  const { websites } = useWebsites()
+  const website = findClientWebsite(websites, account)
+  const websiteId = website?.id
+  const [forms, setForms] = useState([])
+  const [selectedId, setSelectedId] = useState('')
+  const [notice, setNotice] = useState('Loading')
   const selected = forms.find(form => form.id === selectedId) || forms[0]
 
-  function refresh(nextId = selectedId, message = 'Saved') {
-    const next = getForms(website.id)
+  useEffect(() => {
+    if (!websiteId) return
+    const next = getForms(websiteId)
     setForms(next)
-    setSelectedId(next.find(form => form.id === nextId)?.id || next[0]?.id)
+    setSelectedId(next[0]?.id || '')
+    setNotice('Ready')
+  }, [websiteId])
+
+  function refresh(nextId = selectedId, message = 'Saved') {
+    if (!websiteId) return
+    const next = getForms(websiteId)
+    setForms(next)
+    setSelectedId(next.find(form => form.id === nextId)?.id || next[0]?.id || '')
     setNotice(message)
   }
 
   function addForm() {
-    const form = createForm(website.id)
+    if (!websiteId) return
+    const form = createForm(websiteId)
     refresh(form.id, 'Form created')
   }
 
   function saveForm(changes) {
-    updateForm(website.id, selected.id, changes)
+    if (!websiteId || !selected?.id) return
+    updateForm(websiteId, selected.id, changes)
     refresh(selected.id, 'Form saved')
   }
 
   function removeForm() {
-    deleteForm(website.id, selected.id)
+    if (!websiteId || !selected?.id) return
+    deleteForm(websiteId, selected.id)
     refresh(undefined, 'Form deleted')
   }
 
   function addNewField(type) {
-    addField(website.id, selected.id, type)
+    if (!websiteId || !selected?.id) return
+    addField(websiteId, selected.id, type)
     refresh(selected.id, `${type} field added`)
   }
 
   function editField(fieldId, changes) {
-    updateField(website.id, selected.id, fieldId, changes)
+    if (!websiteId || !selected?.id) return
+    updateField(websiteId, selected.id, fieldId, changes)
     refresh(selected.id, 'Field updated')
   }
 
@@ -83,7 +101,7 @@ export function FormBuilderPage({ client = false }) {
       <section className="moduleHero card">
         <div>
           <span>Form Builder</span>
-          <h2>{website.name} Forms</h2>
+          <h2>{website?.name || 'Assigned Website'} Forms</h2>
           <p>
             Create contact, support, application and custom forms with delivery settings and spam
             protection.
@@ -95,7 +113,7 @@ export function FormBuilderPage({ client = false }) {
         <aside className="card formList">
           <div className="panelHead">
             <h2>Forms</h2>
-            <button onClick={addForm}>Create</button>
+            <button onClick={addForm} disabled={!websiteId}>Create</button>
           </div>
           {forms.map(form => (
             <button
@@ -109,16 +127,18 @@ export function FormBuilderPage({ client = false }) {
               </small>
             </button>
           ))}
+          {!forms.length && <p className="emptyState">No forms loaded yet.</p>}
         </aside>
         <section className="card formEditor">
           <div className="panelHead">
             <h2>Form Settings</h2>
             <button
+              disabled={!selected}
               onClick={() =>
                 saveForm({ status: selected.status === 'Active' ? 'Draft' : 'Active' })
               }
             >
-              {selected?.status}
+              {selected?.status || 'No form'}
             </button>
           </div>
           {selected && (
@@ -172,7 +192,7 @@ export function FormBuilderPage({ client = false }) {
                     <div>
                       <button
                         onClick={() => {
-                          moveField(website.id, selected.id, field.id, 'up')
+                          moveField(websiteId, selected.id, field.id, 'up')
                           refresh(selected.id, 'Moved')
                         }}
                       >
@@ -180,7 +200,7 @@ export function FormBuilderPage({ client = false }) {
                       </button>
                       <button
                         onClick={() => {
-                          moveField(website.id, selected.id, field.id, 'down')
+                          moveField(websiteId, selected.id, field.id, 'down')
                           refresh(selected.id, 'Moved')
                         }}
                       >
@@ -188,7 +208,7 @@ export function FormBuilderPage({ client = false }) {
                       </button>
                       <button
                         onClick={() => {
-                          deleteField(website.id, selected.id, field.id)
+                          deleteField(websiteId, selected.id, field.id)
                           refresh(selected.id, 'Field removed')
                         }}
                       >
@@ -230,8 +250,9 @@ export function FormBuilderPage({ client = false }) {
           <div className="panelHead">
             <h2>Preview</h2>
             <button
+              disabled={!websiteId || !selected?.id}
               onClick={() => {
-                submitTestForm(website.id, selected.id)
+                submitTestForm(websiteId, selected.id)
                 refresh(selected.id, 'Test submission added')
               }}
             >
