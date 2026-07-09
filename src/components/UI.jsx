@@ -120,7 +120,7 @@ export function Preview() {
       </div>
       <div className="sitePreview">
         <div className="mockNav">
-          <b>TAJ</b>
+          <b>KSJ</b>
           <span>HOME</span>
           <span>ABOUT</span>
           <span>COMMUNITY</span>
@@ -128,12 +128,12 @@ export function Preview() {
           <span>CONTACT</span>
         </div>
         <div className="mockHero">
-          <p>WELCOME TO</p>
+          <p>MANAGED WEBSITE</p>
           <h2>
-            TWOTONE<span>TAJ</span>
+            CLIENT<span>SITE</span>
           </h2>
-          <h4>It&apos;s all about the 💩 and giggles, folks.</h4>
-          <button>JOIN THE SQUAD</button>
+          <h4>Editable content powered by KSJ Digital.</h4>
+          <button>PRIMARY ACTION</button>
         </div>
       </div>
       <footer>
@@ -178,10 +178,10 @@ export function TicketPanel() {
       </div>
       <p>
         <b>
-          Support centre pending API migration
-          <small>KSJ Digital</small>
+          Support centre connected
+          <small>API-backed tickets</small>
         </b>
-        <em>Planned</em>
+        <em>Ready</em>
       </p>
     </section>
   )
