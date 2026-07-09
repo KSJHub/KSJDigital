@@ -1,15 +1,22 @@
 import { useState } from 'react'
 import { Layout } from '../layouts/Shell.jsx'
-import { getProductionChecklist } from '../services/auditBackup.js'
 import { getAccountFromPath } from '../services/auth.js'
 import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
+
+const checklist = [
+  ['Authentication', 'Server session endpoints active', 'Harden every API route with middleware'],
+  ['Storage', 'Server filesystem storage active', 'Cloud storage recommended for production'],
+  ['Publishing', 'Approval workflow ready', 'Repository token required for live deployment'],
+  ['Backups', 'Backup module pending API migration', 'Server-side restore points next'],
+  ['Audit Logs', 'Activity logging pending API migration', 'Server-side immutable logs next'],
+  ['Monitoring', 'Health endpoint ready', 'Uptime monitoring next'],
+]
 
 export function OperationsPage({ client = false }) {
   const account = getAccountFromPath()
   const { websites } = useWebsites()
   const website = findClientWebsite(websites, account)
   const [notice, setNotice] = useState('Ready')
-  const checklist = getProductionChecklist()
 
   function backupNow() {
     setNotice('Backup API pending')
