@@ -30,14 +30,21 @@ export function MediaLibraryPage({ client = false }) {
   const website = findClientWebsite(websites, account)
   const websiteId = website?.id
   const owner = ownerId(website, account)
+  const canManageMedia = account?.role === 'owner' || account?.canManageMedia
   const [assets, setAssets] = useState([])
   const [folder, setFolder] = useState('All')
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState('')
-  const [notice, setNotice] = useState('Loading')
+  const [notice, setNotice] = useState(canManageMedia ? 'Loading' : 'Media permission required')
   const selected = assets.find(asset => asset.id === selectedId)
 
   async function loadAssets(message = 'Ready') {
+    if (!canManageMedia) {
+      setAssets([])
+      setNotice('Media permission required')
+      return
+    }
+
     if (!websiteId) {
       setAssets([])
       setNotice('Waiting for assigned website')
@@ -56,9 +63,10 @@ export function MediaLibraryPage({ client = false }) {
 
   useEffect(() => {
     loadAssets('Server synced')
-  }, [owner, websiteId])
+  }, [canManageMedia, owner, websiteId])
 
   async function upload(files) {
+    if (!canManageMedia) return setNotice('Media permission required')
     if (!websiteId) return
 
     const list = Array.from(files || [])
@@ -76,6 +84,7 @@ export function MediaLibraryPage({ client = false }) {
   }
 
   async function replace(file) {
+    if (!canManageMedia) return setNotice('Media permission required')
     if (!file || !selected || !websiteId) return
     setNotice('Replacing asset')
 
@@ -103,6 +112,21 @@ export function MediaLibraryPage({ client = false }) {
   )
 
   const storage = assets.reduce((total, asset) => total + (asset.size || 0), 0)
+
+  if (!canManageMedia) {
+    return (
+      <Layout client={client} title="Media">
+        <section className="moduleHero card">
+          <div>
+            <span>Media Library</span>
+            <h2>Media access restricted</h2>
+            <p>Your account does not currently have permission to manage media for this website.</p>
+          </div>
+          <button>{notice}</button>
+        </section>
+      </Layout>
+    )
+  }
 
   return (
     <Layout client={client} title="Media">
