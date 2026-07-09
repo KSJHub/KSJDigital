@@ -53,6 +53,7 @@ export const paths = {
   websites: () => path.join(DATA_DIR, 'websites.json'),
   clients: () => path.join(DATA_DIR, 'clients.json'),
   content: websiteId => path.join(DATA_DIR, 'content', `${safeName(websiteId)}.json`),
+  forms: websiteId => path.join(DATA_DIR, 'forms', `${safeName(websiteId)}.json`),
   requests: () => path.join(DATA_DIR, 'publish-requests.json'),
   history: () => path.join(DATA_DIR, 'publish-history.json'),
   manifest: ownerId => path.join(DATA_DIR, 'asset-manifests', `${safeName(ownerId)}.json`),
