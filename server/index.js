@@ -43,6 +43,21 @@ const starterForms = [
   },
 ]
 
+const starterTickets = [
+  {
+    id: 'ticket-welcome',
+    websiteId: 'twotonetaj',
+    clientName: 'TwoToneTaj',
+    subject: 'Welcome to KSJ Digital Support',
+    priority: 'Medium',
+    status: 'Open',
+    message: 'Support requests will appear here once clients start using the portal.',
+    replies: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+]
+
 app.use(cors({ origin: true, credentials: true }))
 app.use(express.json({ limit: '25mb' }))
 app.use('/assets', express.static(ASSET_DIR))
@@ -92,6 +107,16 @@ async function getFormRecords(websiteId) {
 
   if (!stored) {
     return writeJson(paths.forms(websiteId), starterForms)
+  }
+
+  return stored
+}
+
+async function getTicketRecords() {
+  const stored = await readJson(paths.tickets(), null)
+
+  if (!stored) {
+    return writeJson(paths.tickets(), starterTickets)
   }
 
   return stored
@@ -150,6 +175,10 @@ async function getSiteContentRecord(websiteId) {
 
 function updateFormList(forms, formId, updater) {
   return forms.map(form => (form.id === formId ? updater(form) : form))
+}
+
+function updateTicketList(tickets, ticketId, updater) {
+  return tickets.map(ticket => (ticket.id === ticketId ? updater(ticket) : ticket))
 }
 
 app.get('/api/health', (_req, res) => {
@@ -478,6 +507,69 @@ app.post('/api/forms/:websiteId/:formId/test-submission', async (req, res) => {
     ],
   }))
   await writeJson(paths.forms(req.params.websiteId), next)
+  res.json(next)
+})
+
+app.get('/api/support/tickets', async (_req, res) => {
+  res.json(await getTicketRecords())
+})
+
+app.post('/api/support/tickets', async (req, res) => {
+  const tickets = await getTicketRecords()
+  const ticket = {
+    id: crypto.randomUUID(),
+    websiteId: safeName(req.body?.websiteId || 'unassigned'),
+    clientName: req.body?.clientName || 'Client',
+    subject: req.body?.subject || 'New support request',
+    priority: req.body?.priority || 'Medium',
+    status: req.body?.status || 'Open',
+    message: req.body?.message || '',
+    replies: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+
+  await writeJson(paths.tickets(), [ticket, ...tickets])
+  res.json(ticket)
+})
+
+app.patch('/api/support/tickets/:id', async (req, res) => {
+  const tickets = await getTicketRecords()
+  const existing = tickets.find(ticket => ticket.id === req.params.id)
+
+  if (!existing) return res.status(404).json({ error: 'Ticket not found' })
+
+  const next = updateTicketList(tickets, req.params.id, ticket => ({
+    ...ticket,
+    ...req.body,
+    updatedAt: new Date().toISOString(),
+  }))
+
+  await writeJson(paths.tickets(), next)
+  res.json(next)
+})
+
+app.post('/api/support/tickets/:id/replies', async (req, res) => {
+  const tickets = await getTicketRecords()
+  const existing = tickets.find(ticket => ticket.id === req.params.id)
+
+  if (!existing) return res.status(404).json({ error: 'Ticket not found' })
+
+  const reply = {
+    id: crypto.randomUUID(),
+    author: req.body?.author || 'KSJ Digital',
+    message: req.body?.message || '',
+    createdAt: new Date().toISOString(),
+  }
+
+  const next = updateTicketList(tickets, req.params.id, ticket => ({
+    ...ticket,
+    status: req.body?.status || 'Waiting Reply',
+    replies: [reply, ...(ticket.replies || [])],
+    updatedAt: new Date().toISOString(),
+  }))
+
+  await writeJson(paths.tickets(), next)
   res.json(next)
 })
 
