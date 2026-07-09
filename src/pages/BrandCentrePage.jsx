@@ -74,8 +74,14 @@ export function BrandCentrePage({ client = false }) {
   const [used, setUsed] = useState(0)
   const [notice, setNotice] = useState('Loading')
   const selectedWebsite = websiteId === 'system' ? null : websites.find(site => site.id === websiteId)
-  const owner = ownerId(selectedWebsite || clientWebsite, account)
+  const selectedOwner = ownerId(selectedWebsite || clientWebsite, account)
   const assets = useMemo(() => Object.fromEntries(assetList.map(asset => [asset.slotId, asset])), [assetList])
+
+  function ownerFor(nextWebsiteId) {
+    if (nextWebsiteId === 'system') return account?.id || 'system'
+    const target = websites.find(site => site.id === nextWebsiteId) || clientWebsite
+    return ownerId(target, account)
+  }
 
   async function reload(nextWebsiteId = websiteId) {
     if (!nextWebsiteId) {
@@ -85,12 +91,13 @@ export function BrandCentrePage({ client = false }) {
       return
     }
 
+    const nextOwner = ownerFor(nextWebsiteId)
     setWebsiteId(nextWebsiteId)
 
     try {
       const [list, storage] = await Promise.all([
-        api.assets(owner, nextWebsiteId),
-        api.storage(owner),
+        api.assets(nextOwner, nextWebsiteId),
+        api.storage(nextOwner),
       ])
       setAssetList(list)
       setUsed(storage.used || 0)
@@ -103,14 +110,15 @@ export function BrandCentrePage({ client = false }) {
 
   useEffect(() => {
     reload(client ? clientWebsite?.id || '' : 'system')
-  }, [client, clientWebsite?.id, owner])
+  }, [client, clientWebsite?.id, websites.length, account?.id])
 
   async function upload(slotId, file) {
     if (!file || !websiteId) return
+    const targetOwner = ownerFor(websiteId)
     setNotice('Uploading')
 
     try {
-      const asset = await api.uploadAsset(owner, websiteId, slotId, file)
+      const asset = await api.uploadAsset(targetOwner, websiteId, slotId, file)
       await reload(websiteId)
       setNotice(`${asset.name} saved`)
     } catch (error) {
@@ -205,6 +213,7 @@ export function BrandCentrePage({ client = false }) {
             <span key={format}>{format}</span>
           ))}
           <p>Storage is managed by the KSJ Digital API.</p>
+          <small>Current owner: {selectedOwner}</small>
         </aside>
       </section>
     </Layout>
