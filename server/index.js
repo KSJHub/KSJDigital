@@ -21,6 +21,28 @@ const upload = multer({ storage: multer.memoryStorage() })
 const sessions = new Map()
 const SESSION_COOKIE = 'ksj_session'
 
+const starterForms = [
+  {
+    id: 'contact',
+    name: 'Contact Form',
+    status: 'Active',
+    destination: 'support@ksjdigital.co.uk',
+    spamProtection: true,
+    fields: [
+      { id: 'name', label: 'Name', type: 'Text', required: true, placeholder: 'Your name' },
+      { id: 'email', label: 'Email', type: 'Email', required: true, placeholder: 'you@example.com' },
+      {
+        id: 'message',
+        label: 'Message',
+        type: 'Textarea',
+        required: true,
+        placeholder: 'How can we help?',
+      },
+    ],
+    submissions: [],
+  },
+]
+
 app.use(cors({ origin: true, credentials: true }))
 app.use(express.json({ limit: '25mb' }))
 app.use('/assets', express.static(ASSET_DIR))
@@ -60,6 +82,16 @@ async function getClientRecords() {
 
   if (!stored) {
     return writeJson(paths.clients(), starterClients)
+  }
+
+  return stored
+}
+
+async function getFormRecords(websiteId) {
+  const stored = await readJson(paths.forms(websiteId), null)
+
+  if (!stored) {
+    return writeJson(paths.forms(websiteId), starterForms)
   }
 
   return stored
@@ -114,6 +146,10 @@ async function getSiteContentRecord(websiteId) {
   const stored = await readJson(paths.content(websiteId), null)
 
   return stored ? { ...defaultContent, ...stored } : defaultContent
+}
+
+function updateFormList(forms, formId, updater) {
+  return forms.map(form => (form.id === formId ? updater(form) : form))
 }
 
 app.get('/api/health', (_req, res) => {
@@ -331,6 +367,118 @@ app.put('/api/content/:websiteId', async (req, res) => {
     updatedAt: new Date().toISOString(),
   })
   res.json(data)
+})
+
+app.get('/api/forms/:websiteId', async (req, res) => {
+  res.json(await getFormRecords(req.params.websiteId))
+})
+
+app.put('/api/forms/:websiteId', async (req, res) => {
+  res.json(await writeJson(paths.forms(req.params.websiteId), req.body?.forms || []))
+})
+
+app.post('/api/forms/:websiteId', async (req, res) => {
+  const forms = await getFormRecords(req.params.websiteId)
+  const form = {
+    id: `form-${Date.now()}`,
+    name: req.body?.name || 'New Form',
+    status: 'Draft',
+    destination: req.body?.destination || '',
+    spamProtection: req.body?.spamProtection ?? true,
+    fields: [],
+    submissions: [],
+  }
+  const next = [form, ...forms]
+  await writeJson(paths.forms(req.params.websiteId), next)
+  res.json({ form, forms: next })
+})
+
+app.patch('/api/forms/:websiteId/:formId', async (req, res) => {
+  const forms = await getFormRecords(req.params.websiteId)
+  const next = updateFormList(forms, req.params.formId, form => ({ ...form, ...req.body }))
+  await writeJson(paths.forms(req.params.websiteId), next)
+  res.json(next)
+})
+
+app.delete('/api/forms/:websiteId/:formId', async (req, res) => {
+  const forms = await getFormRecords(req.params.websiteId)
+  const next = forms.filter(form => form.id !== req.params.formId)
+  await writeJson(paths.forms(req.params.websiteId), next)
+  res.json(next)
+})
+
+app.post('/api/forms/:websiteId/:formId/fields', async (req, res) => {
+  const forms = await getFormRecords(req.params.websiteId)
+  const field = {
+    id: `field-${Date.now()}`,
+    label: `${req.body?.type || 'Text'} Field`,
+    type: req.body?.type || 'Text',
+    required: false,
+    placeholder: '',
+  }
+  const next = updateFormList(forms, req.params.formId, form => ({
+    ...form,
+    fields: [...(form.fields || []), field],
+  }))
+  await writeJson(paths.forms(req.params.websiteId), next)
+  res.json(next)
+})
+
+app.patch('/api/forms/:websiteId/:formId/fields/:fieldId', async (req, res) => {
+  const forms = await getFormRecords(req.params.websiteId)
+  const next = updateFormList(forms, req.params.formId, form => ({
+    ...form,
+    fields: (form.fields || []).map(field =>
+      field.id === req.params.fieldId ? { ...field, ...req.body } : field,
+    ),
+  }))
+  await writeJson(paths.forms(req.params.websiteId), next)
+  res.json(next)
+})
+
+app.delete('/api/forms/:websiteId/:formId/fields/:fieldId', async (req, res) => {
+  const forms = await getFormRecords(req.params.websiteId)
+  const next = updateFormList(forms, req.params.formId, form => ({
+    ...form,
+    fields: (form.fields || []).filter(field => field.id !== req.params.fieldId),
+  }))
+  await writeJson(paths.forms(req.params.websiteId), next)
+  res.json(next)
+})
+
+app.post('/api/forms/:websiteId/:formId/fields/:fieldId/move', async (req, res) => {
+  const forms = await getFormRecords(req.params.websiteId)
+  const next = updateFormList(forms, req.params.formId, form => {
+    const fields = [...(form.fields || [])]
+    const index = fields.findIndex(field => field.id === req.params.fieldId)
+    const nextIndex = req.body?.direction === 'up' ? index - 1 : index + 1
+
+    if (index < 0 || nextIndex < 0 || nextIndex >= fields.length) return form
+
+    const [field] = fields.splice(index, 1)
+    fields.splice(nextIndex, 0, field)
+    return { ...form, fields }
+  })
+  await writeJson(paths.forms(req.params.websiteId), next)
+  res.json(next)
+})
+
+app.post('/api/forms/:websiteId/:formId/test-submission', async (req, res) => {
+  const forms = await getFormRecords(req.params.websiteId)
+  const next = updateFormList(forms, req.params.formId, form => ({
+    ...form,
+    submissions: [
+      {
+        id: `sub-${Date.now()}`,
+        createdAt: new Date().toLocaleString(),
+        status: 'New',
+        source: 'Portal preview',
+      },
+      ...(form.submissions || []),
+    ],
+  }))
+  await writeJson(paths.forms(req.params.websiteId), next)
+  res.json(next)
 })
 
 app.get('/api/public/sites/:websiteId', async (req, res) => {
