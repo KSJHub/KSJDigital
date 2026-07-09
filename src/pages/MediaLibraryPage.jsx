@@ -3,7 +3,14 @@ import { Layout } from '../layouts/Shell.jsx'
 import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
 import { getAccountFromPath } from '../services/auth.js'
 import { api } from '../services/api.js'
-import { formatFileSize, mediaFolders } from '../services/mediaLibrary.js'
+
+const mediaFolders = ['All', 'Website', 'Brand', 'Social', 'Documents']
+
+function formatFileSize(bytes = 0) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
 
 function FilePreview({ asset }) {
   const url = asset.url?.startsWith('http') ? asset.url : `${import.meta.env.VITE_KSJ_ASSET_URL || 'http://localhost:4174'}${asset.url || ''}`
