@@ -1,15 +1,21 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Layout } from '../layouts/Shell.jsx'
 import { api } from '../services/api.js'
 import { getAccountFromPath } from '../services/auth.js'
-import { getClientWebsite } from '../services/platform.js'
+import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
 
 export function PublishPipelinePage({ client = false }) {
   const account = getAccountFromPath()
-  const website = getClientWebsite()
+  const { websites } = useWebsites()
+  const website = findClientWebsite(websites, account)
   const [requests, setRequests] = useState([])
   const [history, setHistory] = useState([])
   const [notice, setNotice] = useState('Ready')
+
+  const visibleRequests = useMemo(() => {
+    if (!client) return requests
+    return requests.filter(request => account?.websiteIds?.includes(request.websiteId))
+  }, [account, client, requests])
 
   async function load() {
     try {
@@ -30,6 +36,11 @@ export function PublishPipelinePage({ client = false }) {
   }, [])
 
   async function createRequest() {
+    if (!website?.id) {
+      setNotice('No website assigned')
+      return
+    }
+
     try {
       const request = await api.createPublishRequest({
         websiteId: website.id,
@@ -95,10 +106,10 @@ export function PublishPipelinePage({ client = false }) {
         <div className="card publishPanel">
           <div className="panelHead">
             <h2>{client ? 'My Requests' : 'Update Requests'}</h2>
-            <button onClick={createRequest}>New Request</button>
+            <button onClick={createRequest} disabled={!website?.id && client}>New Request</button>
           </div>
-          {requests.length ? (
-            requests.map(request => (
+          {visibleRequests.length ? (
+            visibleRequests.map(request => (
               <article className="publishRow" key={request.id}>
                 <div>
                   <b>{request.title || 'Website update'}</b>
