@@ -20,9 +20,11 @@ export function ClientWebsitePage() {
   const accountId = account?.id
   const websiteId = website?.id
   const websiteOwner = website?.owner
+  const canManageMedia = account?.role === 'owner' || account?.canManageMedia
   const [content, setContent] = useState({ pages: [] })
   const [assets, setAssets] = useState([])
   const [contentStatus, setContentStatus] = useState('Loading content')
+  const [mediaStatus, setMediaStatus] = useState('Media preview disabled')
   const pages = content.pages || []
 
   useEffect(() => {
@@ -32,17 +34,37 @@ export function ClientWebsitePage() {
 
     async function loadWebsiteData() {
       try {
-        const [contentRecord, assetRecords] = await Promise.all([
-          api.getContent(websiteId),
-          api.assets(assetOwnerId({ id: websiteId, owner: websiteOwner }, accountId), websiteId),
-        ])
-
+        const contentRecord = await api.getContent(websiteId)
         if (cancelled) return
+
         setContent({ ...contentRecord, pages: contentRecord.pages || [] })
-        setAssets(assetRecords)
         setContentStatus('API synced')
       } catch (error) {
         if (!cancelled) setContentStatus(error.message || 'API unavailable')
+      }
+
+      if (!canManageMedia) {
+        if (!cancelled) {
+          setAssets([])
+          setMediaStatus('Media access not enabled')
+        }
+        return
+      }
+
+      try {
+        const assetRecords = await api.assets(
+          assetOwnerId({ id: websiteId, owner: websiteOwner }, accountId),
+          websiteId,
+        )
+        if (!cancelled) {
+          setAssets(assetRecords)
+          setMediaStatus('Media synced')
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setAssets([])
+          setMediaStatus(error.message || 'Media unavailable')
+        }
       }
     }
 
@@ -51,7 +73,7 @@ export function ClientWebsitePage() {
     return () => {
       cancelled = true
     }
-  }, [accountId, websiteId, websiteOwner])
+  }, [accountId, canManageMedia, websiteId, websiteOwner])
 
   return (
     <Layout client title="My Website">
@@ -140,7 +162,7 @@ export function ClientWebsitePage() {
               </article>
             ))}
           </div>
-          {!assets.length && <p className="emptyState">No media loaded from KSJ Digital yet.</p>}
+          {!assets.length && <p className="emptyState">{mediaStatus}</p>}
         </div>
       </section>
     </Layout>
