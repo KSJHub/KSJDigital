@@ -50,50 +50,135 @@ export function FormBuilderPage({ client = false }) {
   const [notice, setNotice] = useState('Loading')
   const selected = forms.find(form => form.id === selectedId) || forms[0]
 
-  useEffect(() => {
+  async function loadForms(nextId = selectedId, message = 'Ready') {
     if (!websiteId) return
-    const next = getForms(websiteId)
-    setForms(next)
-    setSelectedId(next[0]?.id || '')
-    setNotice('Ready')
+
+    try {
+      const next = await getForms(websiteId)
+      setForms(next)
+      setSelectedId(next.find(form => form.id === nextId)?.id || next[0]?.id || '')
+      setNotice(message)
+    } catch (error) {
+      setForms([])
+      setSelectedId('')
+      setNotice(error.message || 'Forms unavailable')
+    }
+  }
+
+  useEffect(() => {
+    loadForms('', 'Ready')
   }, [websiteId])
 
-  function refresh(nextId = selectedId, message = 'Saved') {
+  async function addForm() {
     if (!websiteId) return
-    const next = getForms(websiteId)
-    setForms(next)
-    setSelectedId(next.find(form => form.id === nextId)?.id || next[0]?.id || '')
-    setNotice(message)
+    setNotice('Creating form')
+
+    try {
+      const result = await createForm(websiteId)
+      setForms(result.forms)
+      setSelectedId(result.form.id)
+      setNotice('Form created')
+    } catch (error) {
+      setNotice(error.message || 'Create failed')
+    }
   }
 
-  function addForm() {
-    if (!websiteId) return
-    const form = createForm(websiteId)
-    refresh(form.id, 'Form created')
-  }
-
-  function saveForm(changes) {
+  async function saveForm(changes) {
     if (!websiteId || !selected?.id) return
-    updateForm(websiteId, selected.id, changes)
-    refresh(selected.id, 'Form saved')
+    setNotice('Saving form')
+
+    try {
+      const next = await updateForm(websiteId, selected.id, changes)
+      setForms(next)
+      setSelectedId(selected.id)
+      setNotice('Form saved')
+    } catch (error) {
+      setNotice(error.message || 'Save failed')
+    }
   }
 
-  function removeForm() {
+  async function removeForm() {
     if (!websiteId || !selected?.id) return
-    deleteForm(websiteId, selected.id)
-    refresh(undefined, 'Form deleted')
+    setNotice('Deleting form')
+
+    try {
+      const next = await deleteForm(websiteId, selected.id)
+      setForms(next)
+      setSelectedId(next[0]?.id || '')
+      setNotice('Form deleted')
+    } catch (error) {
+      setNotice(error.message || 'Delete failed')
+    }
   }
 
-  function addNewField(type) {
+  async function addNewField(type) {
     if (!websiteId || !selected?.id) return
-    addField(websiteId, selected.id, type)
-    refresh(selected.id, `${type} field added`)
+    setNotice('Adding field')
+
+    try {
+      const next = await addField(websiteId, selected.id, type)
+      setForms(next)
+      setSelectedId(selected.id)
+      setNotice(`${type} field added`)
+    } catch (error) {
+      setNotice(error.message || 'Add field failed')
+    }
   }
 
-  function editField(fieldId, changes) {
+  async function editField(fieldId, changes) {
     if (!websiteId || !selected?.id) return
-    updateField(websiteId, selected.id, fieldId, changes)
-    refresh(selected.id, 'Field updated')
+    setNotice('Saving field')
+
+    try {
+      const next = await updateField(websiteId, selected.id, fieldId, changes)
+      setForms(next)
+      setSelectedId(selected.id)
+      setNotice('Field updated')
+    } catch (error) {
+      setNotice(error.message || 'Field save failed')
+    }
+  }
+
+  async function removeField(fieldId) {
+    if (!websiteId || !selected?.id) return
+    setNotice('Removing field')
+
+    try {
+      const next = await deleteField(websiteId, selected.id, fieldId)
+      setForms(next)
+      setSelectedId(selected.id)
+      setNotice('Field removed')
+    } catch (error) {
+      setNotice(error.message || 'Remove failed')
+    }
+  }
+
+  async function shiftField(fieldId, direction) {
+    if (!websiteId || !selected?.id) return
+    setNotice('Moving field')
+
+    try {
+      const next = await moveField(websiteId, selected.id, fieldId, direction)
+      setForms(next)
+      setSelectedId(selected.id)
+      setNotice('Moved')
+    } catch (error) {
+      setNotice(error.message || 'Move failed')
+    }
+  }
+
+  async function addTestSubmission() {
+    if (!websiteId || !selected?.id) return
+    setNotice('Adding test submission')
+
+    try {
+      const next = await submitTestForm(websiteId, selected.id)
+      setForms(next)
+      setSelectedId(selected.id)
+      setNotice('Test submission added')
+    } catch (error) {
+      setNotice(error.message || 'Test failed')
+    }
   }
 
   return (
@@ -190,30 +275,9 @@ export function FormBuilderPage({ client = false }) {
                   <div className="panelHead">
                     <h3>{field.type}</h3>
                     <div>
-                      <button
-                        onClick={() => {
-                          moveField(websiteId, selected.id, field.id, 'up')
-                          refresh(selected.id, 'Moved')
-                        }}
-                      >
-                        ↑
-                      </button>
-                      <button
-                        onClick={() => {
-                          moveField(websiteId, selected.id, field.id, 'down')
-                          refresh(selected.id, 'Moved')
-                        }}
-                      >
-                        ↓
-                      </button>
-                      <button
-                        onClick={() => {
-                          deleteField(websiteId, selected.id, field.id)
-                          refresh(selected.id, 'Field removed')
-                        }}
-                      >
-                        Remove
-                      </button>
+                      <button onClick={() => shiftField(field.id, 'up')}>↑</button>
+                      <button onClick={() => shiftField(field.id, 'down')}>↓</button>
+                      <button onClick={() => removeField(field.id)}>Remove</button>
                     </div>
                   </div>
                   <label>
@@ -249,13 +313,7 @@ export function FormBuilderPage({ client = false }) {
         <aside className="card formPreview">
           <div className="panelHead">
             <h2>Preview</h2>
-            <button
-              disabled={!websiteId || !selected?.id}
-              onClick={() => {
-                submitTestForm(websiteId, selected.id)
-                refresh(selected.id, 'Test submission added')
-              }}
-            >
+            <button disabled={!websiteId || !selected?.id} onClick={addTestSubmission}>
               Test
             </button>
           </div>
