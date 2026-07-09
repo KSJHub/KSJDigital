@@ -92,7 +92,6 @@ export function OwnerClientsPage() {
 
     try {
       const result = await api.deleteClient(selected.id)
-      localStorage.setItem('ksjDigitalClients', JSON.stringify(result.clients))
       window.dispatchEvent(new CustomEvent('ksj-clients-updated', { detail: result.clients }))
       const next = result.clients[0]
       setSelectedId(next?.id || '')
@@ -194,16 +193,16 @@ export function OwnerClientsPage() {
           </div>
 
           <div className="accountActions">
-            <button onClick={save}>Save Account</button>
+            <button onClick={save} disabled={!selected?.id}>Save Account</button>
             <button onClick={prepareEmail}>Prepare Email</button>
-            <button onClick={remove}>Delete Account</button>
+            <button onClick={remove} disabled={!selected?.id}>Delete Account</button>
           </div>
         </section>
 
         <aside className="card accountWebsites">
           <div className="panelHead">
             <h2>Website Access</h2>
-            <button onClick={save}>Apply</button>
+            <button onClick={save} disabled={!selected?.id}>Apply</button>
           </div>
           {websites.map(site => (
             <label key={site.id}>
