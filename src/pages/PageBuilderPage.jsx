@@ -53,6 +53,7 @@ export function PageBuilderPage({ client = false }) {
   const { websites } = useWebsites()
   const website = findClientWebsite(websites, account)
   const websiteId = website?.id
+  const canEdit = account?.role === 'owner' || account?.canEdit
   const [content, setContent] = useState({ pages: [] })
   const [selectedId, setSelectedId] = useState('')
   const [device, setDevice] = useState('Desktop')
@@ -78,7 +79,7 @@ export function PageBuilderPage({ client = false }) {
         const next = { ...data, pages: orderPages(nextPages) }
         setContent(next)
         setSelectedId(next.pages[0]?.id || '')
-        setNotice('Ready')
+        setNotice(canEdit ? 'Ready' : 'Preview only')
       } catch (error) {
         if (!cancelled) setNotice(error.message)
       }
@@ -89,11 +90,16 @@ export function PageBuilderPage({ client = false }) {
     return () => {
       cancelled = true
     }
-  }, [websiteId])
+  }, [canEdit, websiteId])
 
   async function saveContent(nextContent, nextSelectedId = selectedId, message = 'Saved') {
     if (!websiteId) {
       setNotice('No website assigned')
+      return
+    }
+
+    if (!canEdit) {
+      setNotice('Edit permission required')
       return
     }
 
@@ -112,7 +118,7 @@ export function PageBuilderPage({ client = false }) {
   }
 
   function updateSelected(changes) {
-    if (!selected) return
+    if (!selected || !canEdit) return
 
     const nextPages = pages.map(page =>
       page.id === selected.id
@@ -127,6 +133,7 @@ export function PageBuilderPage({ client = false }) {
   }
 
   function addPage() {
+    if (!canEdit) return
     const page = {
       id: `new-page-${Date.now()}`,
       title: 'New Page',
@@ -148,7 +155,7 @@ export function PageBuilderPage({ client = false }) {
   }
 
   function duplicateSelected() {
-    if (!selected) return
+    if (!selected || !canEdit) return
 
     const page = {
       ...selected,
@@ -163,13 +170,14 @@ export function PageBuilderPage({ client = false }) {
   }
 
   function removeSelected() {
-    if (!selected) return
+    if (!selected || !canEdit) return
     if (selected.locked) return setNotice('Homepage is protected')
     const nextPages = pages.filter(page => page.id !== selected.id)
     saveContent({ ...content, pages: nextPages }, nextPages[0]?.id, 'Page deleted')
   }
 
   function movePage(pageId, direction) {
+    if (!canEdit) return
     const index = pages.findIndex(page => page.id === pageId)
     const nextIndex = direction === 'up' ? index - 1 : index + 1
 
@@ -182,7 +190,7 @@ export function PageBuilderPage({ client = false }) {
   }
 
   function addNewBlock(type) {
-    if (!selected) return
+    if (!selected || !canEdit) return
 
     const block = {
       id: `${type.toLowerCase()}-${Date.now()}`,
@@ -198,7 +206,7 @@ export function PageBuilderPage({ client = false }) {
   }
 
   function editBlock(blockId, changes) {
-    if (!selected) return
+    if (!selected || !canEdit) return
 
     const nextPages = pages.map(page =>
       page.id === selected.id
@@ -214,7 +222,7 @@ export function PageBuilderPage({ client = false }) {
   }
 
   function removeBlock(blockId) {
-    if (!selected) return
+    if (!selected || !canEdit) return
 
     const nextPages = pages.map(page =>
       page.id === selected.id
@@ -236,13 +244,13 @@ export function PageBuilderPage({ client = false }) {
       </section>
       <section className="builderGrid">
         <aside className="card builderPages">
-          <div className="panelHead"><h2>Pages</h2><button onClick={addPage} disabled={!websiteId}>Create</button></div>
-          {pages.map(page => <article className={page.id === selectedId ? 'active' : ''} key={page.id} onClick={() => setSelectedId(page.id)}><div><b>{page.title}</b><small>{page.slug}</small></div><span>{page.status}</span><div className="builderPageActions"><button onClick={event => { event.stopPropagation(); movePage(page.id, 'up') }}>↑</button><button onClick={event => { event.stopPropagation(); movePage(page.id, 'down') }}>↓</button></div></article>)}
+          <div className="panelHead"><h2>Pages</h2>{canEdit && <button onClick={addPage} disabled={!websiteId}>Create</button>}</div>
+          {pages.map(page => <article className={page.id === selectedId ? 'active' : ''} key={page.id} onClick={() => setSelectedId(page.id)}><div><b>{page.title}</b><small>{page.slug}</small></div><span>{page.status}</span>{canEdit && <div className="builderPageActions"><button onClick={event => { event.stopPropagation(); movePage(page.id, 'up') }}>↑</button><button onClick={event => { event.stopPropagation(); movePage(page.id, 'down') }}>↓</button></div>}</article>)}
           {!pages.length && <p className="emptyState">No pages loaded from KSJ Digital yet.</p>}
         </aside>
         <section className="card builderEditor">
-          <div className="panelHead"><h2>Edit Page</h2><button disabled={!selected} onClick={() => updateSelected({ status: selected.status === 'Published' ? 'Draft' : 'Published' })}>{selected?.status || 'No page'}</button></div>
-          {selected && <><div className="builderFields"><label>Page Title<input value={selected.title} onChange={event => updateSelected({ title: event.target.value })} /></label><label>Slug<input value={selected.slug} disabled /></label></div><div className="builderActions"><button onClick={duplicateSelected}>Duplicate</button><button onClick={removeSelected}>Delete</button></div><div className="blockAddBar">{blockTypes.map(type => <button key={type} onClick={() => addNewBlock(type)}>{type}</button>)}</div>{selected.blocks?.map(block => <article className="blockEditor" key={block.id}><div className="panelHead"><h3>{block.type}</h3><button onClick={() => removeBlock(block.id)}>Remove</button></div><label>Title<input value={block.title || ''} onChange={event => editBlock(block.id, { title: event.target.value })} /></label><label>Text<textarea value={block.text || ''} onChange={event => editBlock(block.id, { text: event.target.value })} /></label>{block.type !== 'Text' && <label>Button / Label<input value={block.button || ''} onChange={event => editBlock(block.id, { button: event.target.value })} /></label>}</article>)}</>}
+          <div className="panelHead"><h2>{canEdit ? 'Edit Page' : 'Preview Page'}</h2>{canEdit && <button disabled={!selected} onClick={() => updateSelected({ status: selected.status === 'Published' ? 'Draft' : 'Published' })}>{selected?.status || 'No page'}</button>}</div>
+          {selected && <><div className="builderFields"><label>Page Title<input value={selected.title} disabled={!canEdit} onChange={event => updateSelected({ title: event.target.value })} /></label><label>Slug<input value={selected.slug} disabled /></label></div>{canEdit && <><div className="builderActions"><button onClick={duplicateSelected}>Duplicate</button><button onClick={removeSelected}>Delete</button></div><div className="blockAddBar">{blockTypes.map(type => <button key={type} onClick={() => addNewBlock(type)}>{type}</button>)}</div></>}{selected.blocks?.map(block => <article className="blockEditor" key={block.id}><div className="panelHead"><h3>{block.type}</h3>{canEdit && <button onClick={() => removeBlock(block.id)}>Remove</button>}</div><label>Title<input value={block.title || ''} disabled={!canEdit} onChange={event => editBlock(block.id, { title: event.target.value })} /></label><label>Text<textarea value={block.text || ''} disabled={!canEdit} onChange={event => editBlock(block.id, { text: event.target.value })} /></label>{block.type !== 'Text' && <label>Button / Label<input value={block.button || ''} disabled={!canEdit} onChange={event => editBlock(block.id, { button: event.target.value })} /></label>}</article>)}</>}
         </section>
         <aside className="card builderPreview">
           <div className="panelHead"><h2>Live Preview</h2><select value={device} onChange={event => setDevice(event.target.value)}><option>Desktop</option><option>Tablet</option><option>Mobile</option></select></div>
