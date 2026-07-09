@@ -58,7 +58,13 @@ export function DashboardPage({ client = false }) {
             </button>
           </div>
           {visibleWebsites.map((site, index) => (
-            <WebsiteCard key={site.id || site.name} site={site} active={index === 0} client={client} />
+            <WebsiteCard
+              key={site.id || site.name}
+              site={site}
+              active={index === 0}
+              client={client}
+              account={account}
+            />
           ))}
         </section>
         <Preview />
@@ -66,12 +72,12 @@ export function DashboardPage({ client = false }) {
 
       <div className="bottom four">
         <ActivityPanel />
-        <PublishPanel />
-        <TicketPanel />
+        <PublishPanel client={client} account={account} />
+        <TicketPanel client={client} account={account} />
         <StatusPanel />
       </div>
 
-      <QuickActions client={client} />
+      <QuickActions client={client} account={account} />
     </Layout>
   )
 }
