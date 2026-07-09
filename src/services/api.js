@@ -3,6 +3,7 @@ const API_BASE = import.meta.env.VITE_KSJ_API_URL || 'http://localhost:4174/api'
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
+    credentials: 'include',
     headers: {
       ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
       ...(options.headers || {}),
@@ -15,6 +16,9 @@ async function request(path, options = {}) {
 
 export const api = {
   health: () => request('/health'),
+  login: payload => request('/login', { method: 'POST', body: JSON.stringify(payload) }),
+  logout: () => request('/logout', { method: 'POST', body: JSON.stringify({}) }),
+  me: () => request('/me'),
   getWebsites: () => request('/websites'),
   createWebsite: payload => request('/websites', { method: 'POST', body: JSON.stringify(payload) }),
   updateWebsite: (id, payload) =>
