@@ -1,5 +1,11 @@
+import { paths, readJson, writeJson } from './storage.js'
+
 function text(value) {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function list(value) {
+  return Array.isArray(value) ? value.map(text).filter(Boolean) : []
 }
 
 function validateProduct(product, index) {
@@ -13,16 +19,20 @@ function validateProduct(product, index) {
   }
   if (!text(product?.image?.url)) errors.push(`${label}: product image is required`)
   if (!text(product?.shippingNote)) errors.push(`${label}: shipping or delivery note is required`)
+  if (product?.inventory?.trackStock && Number(product.inventory.quantity) < 0) {
+    errors.push(`${label}: stock quantity cannot be negative`)
+  }
 
   if (product?.checkout?.enabled === true) {
     if (product?.availability !== 'available') {
       errors.push(`${label}: checkout requires Available status`)
     }
+    if (product?.inventory?.trackStock && Number(product.inventory.quantity) <= 0) {
+      errors.push(`${label}: checkout requires stock greater than zero`)
+    }
 
     const provider = text(product?.checkout?.provider).toLowerCase()
-    if (!provider) {
-      errors.push(`${label}: checkout provider is required`)
-    }
+    if (!provider) errors.push(`${label}: checkout provider is required`)
 
     if (!['stripe', 'paypal'].includes(provider)) {
       const checkoutUrl = text(product?.checkout?.url)
@@ -31,9 +41,7 @@ function validateProduct(product, index) {
       } else {
         try {
           const url = new URL(checkoutUrl)
-          if (url.protocol !== 'https:') {
-            errors.push(`${label}: checkout URL must use HTTPS`)
-          }
+          if (url.protocol !== 'https:') errors.push(`${label}: checkout URL must use HTTPS`)
         } catch {
           errors.push(`${label}: checkout URL is invalid`)
         }
@@ -42,6 +50,53 @@ function validateProduct(product, index) {
   }
 
   return errors
+}
+
+export function resolveProductSelection(product, quantity = 1, variant = {}) {
+  const safeQuantity = Math.max(1, Math.min(10, Number(quantity) || 1))
+  const sizes = list(product?.variants?.sizes)
+  const colours = list(product?.variants?.colours)
+  const size = text(variant?.size)
+  const colour = text(variant?.colour)
+
+  if (sizes.length && !size) throw new Error('Please choose a size')
+  if (sizes.length && !sizes.includes(size)) throw new Error('Selected size is unavailable')
+  if (colours.length && !colour) throw new Error('Please choose a colour')
+  if (colours.length && !colours.includes(colour)) throw new Error('Selected colour is unavailable')
+  if (product?.inventory?.trackStock && Number(product.inventory.quantity) < safeQuantity) {
+    throw new Error('Requested quantity is not available')
+  }
+
+  return { quantity: safeQuantity, variant: { size, colour } }
+}
+
+export async function decrementProductStock(websiteId, productId, quantity) {
+  const content = await readJson(paths.content(websiteId), {})
+  const products = Array.isArray(content.merch?.products) ? content.merch.products : []
+  const product = products.find(item => item.id === productId)
+  if (!product?.inventory?.trackStock) return null
+
+  const current = Number(product.inventory.quantity || 0)
+  const nextQuantity = Math.max(0, current - Math.max(1, Number(quantity || 1)))
+  const nextAvailability = nextQuantity === 0 ? 'sold-out' : product.availability
+  const nextProducts = products.map(item =>
+    item.id === productId
+      ? {
+          ...item,
+          inventory: { ...item.inventory, quantity: nextQuantity },
+          availability: nextAvailability,
+          status: nextQuantity === 0 ? 'Sold Out' : item.status,
+          checkout:
+            nextQuantity === 0 ? { ...item.checkout, enabled: false } : item.checkout,
+        }
+      : item,
+  )
+
+  await writeJson(paths.content(websiteId), {
+    ...content,
+    merch: { ...content.merch, products: nextProducts },
+  })
+  return nextQuantity
 }
 
 export function validateMerchContent(content = {}) {
