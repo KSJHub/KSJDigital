@@ -60,5 +60,7 @@ export const paths = {
   orders: () => path.join(DATA_DIR, 'orders.json'),
   orderEvents: () => path.join(DATA_DIR, 'order-events.json'),
   notificationLog: () => path.join(DATA_DIR, 'order-notifications.json'),
+  commerceSettings: websiteId =>
+    path.join(DATA_DIR, 'commerce-settings', `${safeName(websiteId)}.json`),
   manifest: ownerId => path.join(DATA_DIR, 'asset-manifests', `${safeName(ownerId)}.json`),
 }
