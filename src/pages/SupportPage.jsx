@@ -5,10 +5,17 @@ import { api } from '../services/api.js'
 
 export function SupportPage({ client = false }) {
   const account = getAccountFromPath()
+  const canViewSupport = account?.role === 'owner' || account?.canViewSupport
   const [tickets, setTickets] = useState([])
-  const [status, setStatus] = useState('Loading')
+  const [status, setStatus] = useState(canViewSupport ? 'Loading' : 'Support permission required')
 
   useEffect(() => {
+    if (!canViewSupport) {
+      setTickets([])
+      setStatus('Support permission required')
+      return
+    }
+
     api
       .getTickets()
       .then(records => {
@@ -22,9 +29,14 @@ export function SupportPage({ client = false }) {
         setTickets([])
         setStatus(error.message || 'Support API unavailable')
       })
-  }, [account, client])
+  }, [account?.websiteIds, canViewSupport, client])
 
   async function createTicket() {
+    if (!canViewSupport) {
+      setStatus('Support permission required')
+      return
+    }
+
     try {
       const ticket = await api.createTicket({
         websiteId: account?.websiteId || 'unassigned',
@@ -38,6 +50,21 @@ export function SupportPage({ client = false }) {
     } catch (error) {
       setStatus(error.message || 'Create failed')
     }
+  }
+
+  if (!canViewSupport) {
+    return (
+      <Layout client={client} title="Support">
+        <section className="supportHero card">
+          <div>
+            <span>Support</span>
+            <h2>Support access restricted</h2>
+            <p>Your account does not currently have permission to access website support.</p>
+          </div>
+          <button>{status}</button>
+        </section>
+      </Layout>
+    )
   }
 
   return (
