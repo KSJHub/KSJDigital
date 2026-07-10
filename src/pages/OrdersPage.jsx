@@ -16,7 +16,8 @@ function addressLines(address) {
 
 export function OrdersPage({ client = false }) {
   const account = getAccountFromPath()
-  const canEdit = account?.role === 'owner' || account?.canEdit
+  const isOwner = account?.role === 'owner'
+  const canEdit = isOwner || account?.canEdit
   const [orders, setOrders] = useState([])
   const [selectedId, setSelectedId] = useState('')
   const [search, setSearch] = useState('')
@@ -29,7 +30,7 @@ export function OrdersPage({ client = false }) {
     try {
       const records = await api.getOrders()
       setOrders(records)
-      setSelectedId(current => current || records[0]?.id || '')
+      setSelectedId(current => records.some(order => order.id === current) ? current : records[0]?.id || '')
       setNotice(message)
     } catch (error) {
       setNotice(error.message || 'Orders unavailable')
@@ -50,10 +51,11 @@ export function OrdersPage({ client = false }) {
     })
   }, [orders, providerFilter, search, statusFilter])
 
-  const paidOrders = orders.filter(order => order.paymentStatus === 'Paid')
-  const revenue = paidOrders.reduce((total, order) => total + Number(order.total || 0), 0)
+  const livePaidOrders = orders.filter(order => order.paymentStatus === 'Paid' && !order.isTestOrder)
+  const revenue = livePaidOrders.reduce((total, order) => total + Number(order.total || 0), 0)
   const awaiting = orders.filter(order => ['New', 'Processing', 'Awaiting Stock'].includes(order.fulfilmentStatus)).length
   const dispatched = orders.filter(order => order.fulfilmentStatus === 'Dispatched').length
+  const testOrders = orders.filter(order => order.isTestOrder).length
 
   async function updateStatus(status, extra = {}) {
     if (!selected || !canEdit) return
@@ -64,6 +66,18 @@ export function OrdersPage({ client = false }) {
       setNotice(`Order marked ${status}`)
     } catch (error) {
       setNotice(error.message || 'Update failed')
+    }
+  }
+
+  async function purgeTests() {
+    if (!isOwner || !testOrders) return
+    if (!window.confirm(`Delete ${testOrders} test order${testOrders === 1 ? '' : 's'} and their test logs? Live orders will not be touched.`)) return
+    setNotice('Removing test orders')
+    try {
+      const result = await api.purgeTestOrders()
+      await loadOrders(`${result.removed} test order${result.removed === 1 ? '' : 's'} removed`)
+    } catch (error) {
+      setNotice(error.message || 'Test cleanup failed')
     }
   }
 
@@ -81,9 +95,9 @@ export function OrdersPage({ client = false }) {
       <div className="stats">
         {[
           ['Orders', orders.length, 'Stored orders'],
-          ['Revenue', money(revenue), 'Paid total'],
+          ['Revenue', money(revenue), 'Live paid total'],
           ['Awaiting', awaiting, 'Needs action'],
-          ['Dispatched', dispatched, 'In delivery'],
+          ['Test Orders', testOrders, 'Safe to purge'],
         ].map(item => <div className="card stat" key={item[0]}><div><span>{item[0]}</span><strong>{item[1]}</strong><small>{item[2]}</small></div><i /></div>)}
       </div>
 
@@ -96,7 +110,7 @@ export function OrdersPage({ client = false }) {
           </div>
           {visibleOrders.map(order => (
             <article className={order.id === selected?.id ? 'simplePageRow active' : 'simplePageRow'} key={order.id} onClick={() => setSelectedId(order.id)}>
-              <div><b>{order.orderNumber}</b><small>{order.customer?.name} · {order.customer?.email}</small></div>
+              <div><b>{order.orderNumber}</b><small>{order.isTestOrder ? 'TEST · ' : ''}{order.customer?.name} · {order.customer?.email}</small></div>
               <span>{order.provider}</span>
               <span>{money(order.total, order.currency)}</span>
               <span>{order.fulfilmentStatus}</span>
@@ -108,23 +122,25 @@ export function OrdersPage({ client = false }) {
         <aside className="card managerPanel nextSteps">
           <h2>Order Actions</h2>
           {statuses.map(status => <button key={status} disabled={!selected || !canEdit || selected.fulfilmentStatus === status} onClick={() => updateStatus(status)}>{status}</button>)}
+          {isOwner && <button disabled={!testOrders} onClick={purgeTests}>Delete Test Orders ({testOrders})</button>}
         </aside>
       </section>
 
       {selected && (
         <section className="simpleWebsiteGrid">
           <div className="card managerPanel">
-            <div className="panelHead"><h2>{selected.orderNumber}</h2><span>{selected.paymentStatus} · {selected.fulfilmentStatus}</span></div>
+            <div className="panelHead"><h2>{selected.orderNumber}</h2><span>{selected.isTestOrder ? 'TEST · ' : ''}{selected.paymentStatus} · {selected.fulfilmentStatus}</span></div>
             <h3>Customer</h3>
             <p>{selected.customer?.name}<br />{selected.customer?.email}<br />{selected.customer?.phone || 'No phone supplied'}</p>
             <h3>Delivery Address</h3>
             <p>{addressLines(selected.shippingAddress).map(line => <span key={line}>{line}<br /></span>)}</p>
             <h3>Items</h3>
-            {selected.items?.map(item => <article className="simplePageRow" key={`${item.productId}-${item.variant?.size}-${item.variant?.colour}`}><div><b>{item.quantity} × {item.name}</b><small>{item.variant?.size && `Size: ${item.variant.size}`} {item.variant?.colour && `· Colour: ${item.variant.colour}`}</small></div><span>{money(item.total, selected.currency)}</span></article>)}
+            {selected.items?.map(item => <article className="simplePageRow" key={`${item.productId}-${item.variant?.size}-${item.variant?.colour}`}><div><b>{item.quantity} × {item.name}</b><small>{item.orderTag || item.sku || 'ITEM'} {item.variant?.size && `· Size: ${item.variant.size}`} {item.variant?.colour && `· Colour: ${item.variant.colour}`}</small></div><span>{money(item.total, selected.currency)}</span></article>)}
           </div>
 
           <div className="card managerPanel publishBox">
             <h2>Payment & Totals</h2>
+            <p>Environment: {selected.environment || (selected.isTestOrder ? 'test' : 'live')}</p>
             <p>Provider: {selected.provider}</p>
             <p>Provider order: {selected.providerOrderId}</p>
             <p>Transaction: {selected.providerTransactionId || 'Not supplied'}</p>
