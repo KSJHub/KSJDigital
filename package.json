@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"vite\" \"node server/index.js\"",
+    "dev": "concurrently \"vite\" \"node server/start.js\"",
     "frontend": "vite",
-    "server": "node server/index.js",
+    "server": "node server/start.js",
     "build": "vite build",
     "lint": "eslint .",
     "check": "npm run lint && npm run build",
