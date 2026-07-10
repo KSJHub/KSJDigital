@@ -66,6 +66,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({}),
     }),
+  getOrders: () => request('/orders'),
+  getOrder: id => request(`/orders/${id}`),
+  updateOrderStatus: (id, payload) =>
+    request(`/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify(payload) }),
   getTickets: () => request('/support/tickets'),
   createTicket: payload => request('/support/tickets', { method: 'POST', body: JSON.stringify(payload) }),
   updateTicket: (id, payload) =>
