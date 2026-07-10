@@ -57,5 +57,8 @@ export const paths = {
   tickets: () => path.join(DATA_DIR, 'support-tickets.json'),
   requests: () => path.join(DATA_DIR, 'publish-requests.json'),
   history: () => path.join(DATA_DIR, 'publish-history.json'),
+  orders: () => path.join(DATA_DIR, 'orders.json'),
+  orderEvents: () => path.join(DATA_DIR, 'order-events.json'),
+  notificationLog: () => path.join(DATA_DIR, 'order-notifications.json'),
   manifest: ownerId => path.join(DATA_DIR, 'asset-manifests', `${safeName(ownerId)}.json`),
 }
