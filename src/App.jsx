@@ -22,6 +22,15 @@ function route() {
   return location.pathname.replace(/\/$/, '') || '/'
 }
 
+function canAccessClientRoute(account, type) {
+  if (!account || account.role === 'owner') return true
+  if (['editor', 'engine', 'forms'].includes(type)) return !!account.canEdit
+  if (['media', 'branding'].includes(type)) return !!account.canManageMedia
+  if (type === 'publish') return !!account.canRequestUpdates
+  if (type === 'support') return !!account.canViewSupport
+  return true
+}
+
 function Workspace({ client = false, type }) {
   if (!client && type === 'websites') return <OwnerWebsitesPage />
   if (!client && type === 'clients') return <OwnerClientsPage />
@@ -72,11 +81,16 @@ export default function App() {
   if (path === '/login' || path === '/') return <LoginPage />
   if (!sessionChecked) return <LoginPage />
   if (!account) return <LoginPage />
-  if (path.startsWith('/owner') && !canAccessOwner(account))
+  if (path.startsWith('/owner') && !canAccessOwner(account)) {
     return <AccessDenied account={account} />
+  }
   if (path === '/owner') return <DashboardPage />
   if (path === '/client') return <DashboardPage client />
   if (path.startsWith('/owner/')) return <Workspace type={path.split('/')[2]} />
-  if (path.startsWith('/client/')) return <Workspace client type={path.split('/')[2]} />
+  if (path.startsWith('/client/')) {
+    const type = path.split('/')[2]
+    if (!canAccessClientRoute(account, type)) return <AccessDenied account={account} />
+    return <Workspace client type={type} />
+  }
   return <LoginPage />
 }
