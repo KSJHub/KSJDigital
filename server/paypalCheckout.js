@@ -1,4 +1,5 @@
 import express from 'express'
+import { getCommerceSettings } from './commerceSettingsRouter.js'
 import { createPaidOrder } from './orderService.js'
 import { sendOrderNotifications } from './orderNotificationService.js'
 import { paths, readJson, safeName } from './storage.js'
@@ -67,13 +68,15 @@ function getProduct(merch, productId) {
   return product
 }
 
-function notificationSettings(content = {}) {
+async function checkoutSettings(websiteId, content = {}) {
+  const commerce = await getCommerceSettings(websiteId)
   return {
-    orderEmail: content.merch?.notifications?.orderEmail,
-    supportEmail: content.contact?.supportEmail,
-    replyTo: content.contact?.supportEmail,
-    brandName: content.brand?.name,
-    discordWebhookUrl: content.merch?.notifications?.discordWebhookUrl,
+    ...commerce,
+    paypalReturnUrl: commerce.paypalReturnUrl || process.env.PAYPAL_RETURN_URL,
+    cancelUrl: commerce.cancelUrl || process.env.PAYPAL_CANCEL_URL,
+    supportEmail: commerce.supportEmail || content.contact?.supportEmail || '',
+    replyTo: commerce.replyTo || commerce.supportEmail || content.contact?.supportEmail || '',
+    brandName: content.brand?.name || websiteId,
     manageUrl: process.env.ORDER_MANAGE_URL || 'https://ksjdigital.co.uk/owner/orders',
   }
 }
@@ -82,12 +85,14 @@ export async function createPayPalOrder({ websiteId, productId, quantity = 1, va
   const safeWebsiteId = safeName(websiteId)
   const { content, merch } = await getStore(safeWebsiteId)
   const product = getProduct(merch, productId)
+  const settings = await checkoutSettings(safeWebsiteId, content)
+  if (!settings.paypalEnabled) throw new Error('PayPal checkout is disabled for this website')
+  if (!settings.paypalReturnUrl || !settings.cancelUrl) {
+    throw new Error('PayPal return and cancel URLs are not configured')
+  }
+
   const safeQuantity = Math.max(1, Math.min(10, Number(quantity) || 1))
   const total = (Number(product.priceGBP) * safeQuantity).toFixed(2)
-  const returnUrl = content.merch?.payments?.paypalReturnUrl || process.env.PAYPAL_RETURN_URL
-  const cancelUrl = content.merch?.payments?.cancelUrl || process.env.PAYPAL_CANCEL_URL
-  if (!returnUrl || !cancelUrl) throw new Error('PayPal return and cancel URLs are not configured')
-
   const order = await paypalRequest('/v2/checkout/orders', {
     method: 'POST',
     headers: { 'PayPal-Request-Id': crypto.randomUUID() },
@@ -128,11 +133,11 @@ export async function createPayPalOrder({ websiteId, productId, quantity = 1, va
       payment_source: {
         paypal: {
           experience_context: {
-            brand_name: process.env.PAYPAL_BRAND_NAME || content.brand?.name || 'TwoToneTaj Merch',
+            brand_name: process.env.PAYPAL_BRAND_NAME || settings.brandName || 'TwoToneTaj Merch',
             shipping_preference: product.fulfilment === 'digital' ? 'NO_SHIPPING' : 'GET_FROM_FILE',
             user_action: 'PAY_NOW',
-            return_url: returnUrl,
-            cancel_url: cancelUrl,
+            return_url: settings.paypalReturnUrl,
+            cancel_url: settings.cancelUrl,
           },
         },
       },
@@ -168,6 +173,7 @@ export async function capturePayPalOrder(orderId) {
   const custom = JSON.parse(unit?.custom_id || '{}')
   const websiteId = safeName(custom.websiteId)
   const { content, merch } = await getStore(websiteId)
+  const settings = await checkoutSettings(websiteId, content)
   const product = getProduct(merch, custom.productId)
   const payment = unit?.payments?.captures?.[0]
   const payer = capture.payer || {}
@@ -212,7 +218,7 @@ export async function capturePayPalOrder(orderId) {
     paidAt: payment?.create_time || capture.create_time || new Date().toISOString(),
   })
 
-  if (created) await sendOrderNotifications(order, notificationSettings(content))
+  if (created) await sendOrderNotifications(order, settings)
   return { order, created, completed: true }
 }
 
