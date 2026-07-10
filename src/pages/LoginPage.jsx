@@ -4,8 +4,22 @@ import { signIn } from '../services/auth.js'
 
 const REMEMBER_KEY = 'ksjDigitalRememberLogin'
 const DEV_BYPASS = import.meta.env.DEV && import.meta.env.VITE_KSJ_DEV_BYPASS_AUTH === 'true'
-const DEV_OWNER_EMAIL = 'ksj@ksjdigital.co.uk'
-const DEV_OWNER_ACCESS = 'owner-access'
+const DEV_ACCOUNTS = [
+  {
+    id: 'owner',
+    title: 'Morgan — KSJ Owner',
+    description: 'Full platform access across every managed website.',
+    email: 'ksj@ksjdigital.co.uk',
+    accessCode: 'owner-access',
+  },
+  {
+    id: 'twotonetaj',
+    title: 'Taj — TwoToneTaj Client',
+    description: 'Client-only access to the assigned TwoToneTaj website.',
+    email: 'taj@twotonetaj.com',
+    accessCode: 'client-access',
+  },
+]
 
 function getRememberedLogin() {
   try {
@@ -27,7 +41,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [remember, setRemember] = useState(remembered.remember)
   const [error, setError] = useState('')
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [activeDevAccount, setActiveDevAccount] = useState('')
 
   useEffect(() => {
     if (remember) {
@@ -35,23 +49,25 @@ export function LoginPage() {
     }
   }, [email, remember])
 
-  async function completeSignIn(loginEmail, loginPassword) {
+  async function completeSignIn(loginEmail, loginPassword, accountId = '') {
     setError('')
-    setIsSubmitting(true)
+    setActiveDevAccount(accountId || 'standard')
     const result = await signIn(loginEmail, loginPassword)
-    setIsSubmitting(false)
+    setActiveDevAccount('')
 
     if (result.error) {
       setError(result.error)
-      return
+      return false
     }
 
     location.href = result.account.home
+    return true
   }
 
   async function submit(event) {
     event.preventDefault()
-    await completeSignIn(email, password)
+    const signedIn = await completeSignIn(email, password)
+    if (!signedIn) return
 
     if (remember) {
       localStorage.setItem(REMEMBER_KEY, JSON.stringify({ email, remember: true }))
@@ -69,23 +85,33 @@ export function LoginPage() {
         <h1>KSJ DIGITAL</h1>
         <p>
           {DEV_BYPASS
-            ? 'Password entry is temporarily bypassed for local testing.'
+            ? 'Choose a real development account to test its portal and permissions.'
             : 'Sign in to manage your website.'}
         </p>
 
         {DEV_BYPASS ? (
           <>
-            <button
-              className="loginSubmit"
-              type="button"
-              disabled={isSubmitting}
-              onClick={() => completeSignIn(DEV_OWNER_EMAIL, DEV_OWNER_ACCESS)}
-            >
-              {isSubmitting ? 'Opening Portal...' : 'Enter Owner Portal'}
-            </button>
+            <div className="loginFields">
+              {DEV_ACCOUNTS.map(account => (
+                <button
+                  className="loginSubmit"
+                  type="button"
+                  key={account.id}
+                  disabled={Boolean(activeDevAccount)}
+                  onClick={() => completeSignIn(account.email, account.accessCode, account.id)}
+                >
+                  <b>
+                    {activeDevAccount === account.id ? 'Opening Portal...' : account.title}
+                  </b>
+                  <small>{account.description}</small>
+                </button>
+              ))}
+            </div>
             <div className="loginHint">
               <b>Development mode only</b>
-              <span>Normal password authentication remains active in production.</span>
+              <span>
+                Each button creates a normal server session using that account's real permissions.
+              </span>
             </div>
           </>
         ) : (
@@ -129,8 +155,8 @@ export function LoginPage() {
                 Forgot password?
               </button>
             </div>
-            <button className="loginSubmit" type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Signing In...' : 'Sign In'}
+            <button className="loginSubmit" type="submit" disabled={Boolean(activeDevAccount)}>
+              {activeDevAccount ? 'Signing In...' : 'Sign In'}
             </button>
           </>
         )}
