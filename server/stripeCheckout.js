@@ -207,6 +207,20 @@ export async function processStripeCheckoutCompleted(event) {
 export function createStripeRouter() {
   const router = express.Router()
 
+  router.get('/start', async (req, res) => {
+    try {
+      const session = await createStripeCheckoutSession({
+        websiteId: req.query.websiteId,
+        productId: req.query.productId,
+        quantity: req.query.quantity,
+        variant: { size: req.query.size, colour: req.query.colour },
+      })
+      res.redirect(303, session.url)
+    } catch (error) {
+      res.status(400).send(`Unable to start Stripe checkout: ${error.message}`)
+    }
+  })
+
   router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     try {
       const event = verifyStripeWebhook(req.body, req.headers['stripe-signature'])
