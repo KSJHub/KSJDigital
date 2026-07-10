@@ -7,6 +7,22 @@ import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
 const ASSET_BASE = import.meta.env.VITE_KSJ_ASSET_URL || 'http://localhost:4174'
 const MANAGED_PROVIDERS = ['stripe', 'paypal']
 
+function productDefaults(product = {}) {
+  return {
+    ...product,
+    orderTag: product.orderTag || '',
+    variants: {
+      sizes: Array.isArray(product.variants?.sizes) ? product.variants.sizes : [],
+      colours: Array.isArray(product.variants?.colours) ? product.variants.colours : [],
+    },
+    inventory: {
+      trackStock: product.inventory?.trackStock === true,
+      quantity: Math.max(0, Number(product.inventory?.quantity || 0)),
+      lowStockThreshold: Math.max(0, Number(product.inventory?.lowStockThreshold || 2)),
+    },
+  }
+}
+
 const starterProducts = [
   ['product_hoodie_001', 'TwoToneTaj Signature Hoodie', 'Apparel', 'Hoodie', 34.99, true],
   ['product_tshirt_001', 'TwoToneTaj Logo T-Shirt', 'Apparel', 'T-Shirt', 19.99, false],
@@ -16,30 +32,31 @@ const starterProducts = [
   ['product_tote_001', 'TwoToneTaj Tote Bag', 'Accessories', 'Tote Bag', 14.99, false],
   ['product_stickers_001', 'TwoToneTaj Sticker Pack', 'Accessories', 'Sticker Pack', 4.99, false],
   ['product_wallpaper_001', 'TwoToneTaj Wallpaper Pack', 'Digital', 'Digital Download', 4.99, false],
-].map(([id, name, category, type, priceGBP, featured], index) => ({
-  id,
-  name,
-  category,
-  type,
-  orderTag: '',
-  description: `${name} from the official TwoToneTaj merch collection.`,
-  tags: featured ? ['Featured', 'Coming Soon'] : ['Coming Soon'],
-  priceGBP,
-  image: { id: `media-${id}`, title: `${name} product image`, url: '', alt: name },
-  fallbackImage: category.toLowerCase(),
-  status: 'Coming Soon',
-  availability: 'prelaunch',
-  fulfilment: category === 'Digital' ? 'digital' : 'physical',
-  shippingNote:
-    category === 'Digital'
-      ? 'Digital delivery details are shown by the checkout provider.'
-      : 'Shipping cost and delivery estimate are shown by the checkout provider.',
-  checkout: { enabled: false, provider: '', url: '', label: 'Buy Now' },
-  featured,
-  limited: false,
-  showInCarousel: index < 5 || id === 'product_stickers_001',
-  createdAt: '2026-06-07',
-}))
+].map(([id, name, category, type, priceGBP, featured], index) =>
+  productDefaults({
+    id,
+    name,
+    category,
+    type,
+    description: `${name} from the official TwoToneTaj merch collection.`,
+    tags: featured ? ['Featured', 'Coming Soon'] : ['Coming Soon'],
+    priceGBP,
+    image: { id: `media-${id}`, title: `${name} product image`, url: '', alt: name },
+    fallbackImage: category.toLowerCase(),
+    status: 'Coming Soon',
+    availability: 'prelaunch',
+    fulfilment: category === 'Digital' ? 'digital' : 'physical',
+    shippingNote:
+      category === 'Digital'
+        ? 'Digital delivery details are shown by the checkout provider.'
+        : 'Shipping cost and delivery estimate are shown by the checkout provider.',
+    checkout: { enabled: false, provider: '', url: '', label: 'Buy Now' },
+    featured,
+    limited: false,
+    showInCarousel: index < 5 || id === 'product_stickers_001',
+    createdAt: '2026-06-07',
+  }),
+)
 
 const defaultMerch = {
   title: 'Official TwoToneTaj Merch',
@@ -50,21 +67,21 @@ const defaultMerch = {
 }
 
 function normaliseMerch(content = {}) {
+  const products = content.merch?.products?.length ? content.merch.products : starterProducts
   return {
     ...defaultMerch,
     ...(content.merch || {}),
-    products: content.merch?.products?.length ? content.merch.products : starterProducts,
+    products: products.map(productDefaults),
   }
 }
 
 function newProduct() {
   const id = `product-${Date.now()}`
-  return {
+  return productDefaults({
     id,
     name: 'New Product',
     category: 'Apparel',
     type: 'Product',
-    orderTag: '',
     description: 'Add the product description.',
     tags: ['Coming Soon'],
     priceGBP: 0,
@@ -79,7 +96,7 @@ function newProduct() {
     limited: false,
     showInCarousel: false,
     createdAt: new Date().toISOString().slice(0, 10),
-  }
+  })
 }
 
 function ownerId(website, account) {
@@ -108,6 +125,10 @@ function automaticOrderTag(product = {}) {
   return compactOrderTag(idToken || product.category || product.name || 'ITEM') || 'ITEM'
 }
 
+function listFromText(value = '') {
+  return [...new Set(value.split(',').map(item => item.trim()).filter(Boolean))]
+}
+
 function isManagedProvider(provider = '') {
   return MANAGED_PROVIDERS.includes(provider.trim().toLowerCase())
 }
@@ -120,8 +141,14 @@ function productErrors(product) {
   if (Number(product.priceGBP) <= 0) errors.push('Price must be greater than £0')
   if (!product.image?.url?.trim()) errors.push('Product image is required')
   if (!product.shippingNote?.trim()) errors.push('Shipping or delivery note is required')
+  if (product.inventory?.trackStock && Number(product.inventory.quantity) < 0) {
+    errors.push('Stock quantity cannot be negative')
+  }
   if (product.checkout?.enabled) {
     if (product.availability !== 'available') errors.push('Checkout requires Available status')
+    if (product.inventory?.trackStock && Number(product.inventory.quantity) <= 0) {
+      errors.push('Checkout requires stock greater than zero')
+    }
     if (!product.checkout?.provider?.trim()) errors.push('Checkout provider is required')
     if (!isManagedProvider(product.checkout?.provider)) {
       if (!product.checkout?.url?.trim()) errors.push('Checkout URL is required for custom providers')
@@ -227,6 +254,8 @@ export function MerchManagerPage({ client = false }) {
             ...changes,
             image: changes.image ? { ...product.image, ...changes.image } : product.image,
             checkout: changes.checkout ? { ...product.checkout, ...changes.checkout } : product.checkout,
+            variants: changes.variants ? { ...product.variants, ...changes.variants } : product.variants,
+            inventory: changes.inventory ? { ...product.inventory, ...changes.inventory } : product.inventory,
           }
         : product,
     )
@@ -290,7 +319,7 @@ export function MerchManagerPage({ client = false }) {
         <div>
           <span>Merch Manager</span>
           <h2>{website?.name || 'Assigned Website'} Store</h2>
-          <p>Manage the storefront catalogue, product images, availability and secure checkout providers.</p>
+          <p>Manage the catalogue, variants, inventory, product images and secure checkout providers.</p>
         </div>
         <button>{notice}</button>
       </section>
@@ -303,6 +332,7 @@ export function MerchManagerPage({ client = false }) {
           </div>
           {merch.products.map(product => {
             const ready = productErrors(product).length === 0
+            const stock = product.inventory?.trackStock ? `${product.inventory.quantity} stock` : 'Unlimited'
             return (
               <button
                 className={product.id === selectedId ? 'active' : ''}
@@ -311,7 +341,7 @@ export function MerchManagerPage({ client = false }) {
               >
                 <b>{product.name}</b>
                 <small>
-                  {automaticOrderTag(product)} · {product.category} · £{Number(product.priceGBP || 0).toFixed(2)} · {ready ? 'Ready' : 'Needs work'}
+                  {automaticOrderTag(product)} · {stock} · £{Number(product.priceGBP || 0).toFixed(2)} · {ready ? 'Ready' : 'Needs work'}
                 </small>
               </button>
             )
@@ -346,9 +376,15 @@ export function MerchManagerPage({ client = false }) {
                 <label>Type<input value={selected.type} disabled={!canEdit} onChange={event => updateProduct({ type: event.target.value })} /></label>
                 <label>Category<select value={selected.category} disabled={!canEdit} onChange={event => updateProduct({ category: event.target.value })}><option>Apparel</option><option>Accessories</option><option>Digital</option></select></label>
                 <label>Custom Order Tag<input maxLength="8" value={selected.orderTag || ''} disabled={!canEdit} onChange={event => updateProduct({ orderTag: compactOrderTag(event.target.value) })} placeholder={selectedOrderTag} /></label>
-                <section className="card publishBox"><h3>Order code preview</h3><p>{selectedOrderTag} — leave Custom Order Tag blank to derive this automatically from SKU, type, product ID, category or name.</p></section>
+                <section className="card publishBox"><h3>Order code preview</h3><p>{selectedOrderTag} — leave the custom field blank to derive it automatically.</p></section>
                 <label>Price GBP<input type="number" min="0" step="0.01" value={selected.priceGBP} disabled={!canEdit} onChange={event => updateProduct({ priceGBP: Number(event.target.value) })} /></label>
                 <label>Description<textarea value={selected.description} disabled={!canEdit} onChange={event => updateProduct({ description: event.target.value })} /></label>
+                <label>Sizes (comma separated)<input value={selected.variants?.sizes?.join(', ') || ''} disabled={!canEdit} onChange={event => updateProduct({ variants: { sizes: listFromText(event.target.value) } })} placeholder="S, M, L, XL" /></label>
+                <label>Colours (comma separated)<input value={selected.variants?.colours?.join(', ') || ''} disabled={!canEdit} onChange={event => updateProduct({ variants: { colours: listFromText(event.target.value) } })} placeholder="Black, White, Red" /></label>
+                <label className="formCheck"><input type="checkbox" checked={selected.inventory?.trackStock || false} disabled={!canEdit} onChange={event => updateProduct({ inventory: { trackStock: event.target.checked } })} /> Track stock</label>
+                <label>Stock Quantity<input type="number" min="0" step="1" value={selected.inventory?.quantity || 0} disabled={!canEdit || !selected.inventory?.trackStock} onChange={event => updateProduct({ inventory: { quantity: Math.max(0, Number(event.target.value)) } })} /></label>
+                <label>Low Stock Warning<input type="number" min="0" step="1" value={selected.inventory?.lowStockThreshold || 0} disabled={!canEdit || !selected.inventory?.trackStock} onChange={event => updateProduct({ inventory: { lowStockThreshold: Math.max(0, Number(event.target.value)) } })} /></label>
+                {selected.inventory?.trackStock && selected.inventory.quantity <= selected.inventory.lowStockThreshold && <section className="card publishBox"><h3>Low stock</h3><p>{selected.inventory.quantity} unit(s) remain.</p></section>}
                 {canManageMedia && (
                   <>
                     <label>Upload Product Image<input type="file" accept="image/*" disabled={!canEdit} onChange={event => uploadProductImage(event.target.files?.[0])} /></label>
@@ -386,8 +422,8 @@ export function MerchManagerPage({ client = false }) {
               <h3>{selected.name}</h3>
               <p>{selected.description}</p>
               <strong>£{Number(selected.priceGBP || 0).toFixed(2)}</strong>
-              <small>{selected.status} · Order tag {selectedOrderTag}</small>
-              <button disabled={!selected.checkout?.enabled || selected.availability !== 'available'}>{selected.checkout?.label || 'Buy Now'}</button>
+              <small>{selected.status} · {selected.inventory?.trackStock ? `${selected.inventory.quantity} in stock` : 'Stock not tracked'} · Order tag {selectedOrderTag}</small>
+              <button disabled={!selected.checkout?.enabled || selected.availability !== 'available' || (selected.inventory?.trackStock && selected.inventory.quantity <= 0)}>{selected.checkout?.label || 'Buy Now'}</button>
             </article>
           ) : (
             <p>No product selected.</p>
