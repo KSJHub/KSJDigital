@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Layout } from '../layouts/Shell.jsx'
 import { api } from '../services/api.js'
 import { getAccountFromPath } from '../services/auth.js'
 import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
+
+const ASSET_BASE = import.meta.env.VITE_KSJ_ASSET_URL || 'http://localhost:4174'
 
 const starterProducts = [
   ['product_hoodie_001', 'TwoToneTaj Signature Hoodie', 'Apparel', 'Hoodie', 34.99, true],
@@ -77,17 +79,33 @@ function newProduct() {
   }
 }
 
+function ownerId(website, account) {
+  return website?.owner || account?.id || website?.id || 'unassigned'
+}
+
+function assetUrl(asset) {
+  if (!asset?.url) return ''
+  return asset.url.startsWith('http') ? asset.url : `${ASSET_BASE}${asset.url}`
+}
+
 export function MerchManagerPage({ client = false }) {
   const account = getAccountFromPath()
   const { websites } = useWebsites()
   const website = findClientWebsite(websites, account)
   const websiteId = website?.id
+  const owner = ownerId(website, account)
   const canEdit = account?.role === 'owner' || account?.canEdit
+  const canManageMedia = account?.role === 'owner' || account?.canManageMedia
   const [content, setContent] = useState({ pages: [] })
   const [merch, setMerch] = useState(defaultMerch)
   const [selectedId, setSelectedId] = useState(starterProducts[0].id)
+  const [mediaAssets, setMediaAssets] = useState([])
   const [notice, setNotice] = useState('Loading')
   const selected = merch.products.find(product => product.id === selectedId) || merch.products[0]
+  const imageAssets = useMemo(
+    () => mediaAssets.filter(asset => asset.type?.startsWith('image/')),
+    [mediaAssets],
+  )
 
   useEffect(() => {
     if (!websiteId) {
@@ -95,17 +113,41 @@ export function MerchManagerPage({ client = false }) {
       return
     }
 
-    api
-      .getContent(websiteId)
-      .then(data => {
+    let cancelled = false
+
+    async function load() {
+      try {
+        const data = await api.getContent(websiteId)
+        if (cancelled) return
+
         const nextMerch = normaliseMerch(data)
         setContent(data)
         setMerch(nextMerch)
         setSelectedId(nextMerch.products[0]?.id || '')
         setNotice(canEdit ? 'Ready' : 'Preview only')
-      })
-      .catch(error => setNotice(error.message || 'Merch unavailable'))
-  }, [canEdit, websiteId])
+      } catch (error) {
+        if (!cancelled) setNotice(error.message || 'Merch unavailable')
+      }
+
+      if (!canManageMedia) {
+        if (!cancelled) setMediaAssets([])
+        return
+      }
+
+      try {
+        const assets = await api.assets(owner, websiteId)
+        if (!cancelled) setMediaAssets(assets)
+      } catch {
+        if (!cancelled) setMediaAssets([])
+      }
+    }
+
+    load()
+
+    return () => {
+      cancelled = true
+    }
+  }, [canEdit, canManageMedia, owner, websiteId])
 
   async function save(nextMerch, message = 'Merch saved') {
     if (!canEdit) return setNotice('Edit permission required')
@@ -143,6 +185,20 @@ export function MerchManagerPage({ client = false }) {
         : product,
     )
     save({ ...merch, products }, 'Product saved')
+  }
+
+  function selectAsset(assetId) {
+    const asset = imageAssets.find(item => item.id === assetId)
+    if (!asset) return
+
+    updateProduct({
+      image: {
+        id: asset.id,
+        title: asset.name,
+        url: assetUrl(asset),
+        alt: selected?.name || asset.name,
+      },
+    })
   }
 
   function addProduct() {
@@ -207,6 +263,17 @@ export function MerchManagerPage({ client = false }) {
                 <label>Category<select value={selected.category} disabled={!canEdit} onChange={event => updateProduct({ category: event.target.value })}><option>Apparel</option><option>Accessories</option><option>Digital</option></select></label>
                 <label>Price GBP<input type="number" step="0.01" value={selected.priceGBP} disabled={!canEdit} onChange={event => updateProduct({ priceGBP: Number(event.target.value) })} /></label>
                 <label>Description<textarea value={selected.description} disabled={!canEdit} onChange={event => updateProduct({ description: event.target.value })} /></label>
+                {canManageMedia && (
+                  <label>
+                    Media Library Image
+                    <select value={selected.image?.id || ''} disabled={!canEdit} onChange={event => selectAsset(event.target.value)}>
+                      <option value="">Choose uploaded image</option>
+                      {imageAssets.map(asset => (
+                        <option key={asset.id} value={asset.id}>{asset.name} · {asset.slotId}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <label>Image URL<input value={selected.image?.url || ''} disabled={!canEdit} onChange={event => updateProduct({ image: { url: event.target.value, alt: selected.name } })} /></label>
                 <label>Availability<select value={selected.availability} disabled={!canEdit} onChange={event => updateProduct({ availability: event.target.value, status: event.target.value === 'available' ? 'Available' : event.target.value === 'sold-out' ? 'Sold Out' : 'Coming Soon' })}><option value="prelaunch">Coming Soon</option><option value="available">Available</option><option value="sold-out">Sold Out</option><option value="paused">Paused</option></select></label>
                 <label>Shipping / Delivery Note<textarea value={selected.shippingNote} disabled={!canEdit} onChange={event => updateProduct({ shippingNote: event.target.value })} /></label>
