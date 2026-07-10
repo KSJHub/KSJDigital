@@ -13,6 +13,7 @@ import { PageBuilderPage } from './pages/PageBuilderPage.jsx'
 import { SiteEnginePage } from './pages/SiteEnginePage.jsx'
 import { MediaLibraryPage } from './pages/MediaLibraryPage.jsx'
 import { FormBuilderPage } from './pages/FormBuilderPage.jsx'
+import { MerchManagerPage } from './pages/MerchManagerPage.jsx'
 import { OperationsPage } from './pages/OperationsPage.jsx'
 import { ReleaseCentrePage } from './pages/ReleaseCentrePage.jsx'
 import { SettingsPage } from './pages/SettingsPage.jsx'
@@ -24,7 +25,7 @@ function route() {
 
 function canAccessClientRoute(account, type) {
   if (!account || account.role === 'owner') return true
-  if (['editor', 'engine', 'forms'].includes(type)) return !!account.canEdit
+  if (['editor', 'engine', 'forms', 'merch'].includes(type)) return !!account.canEdit
   if (['media', 'branding'].includes(type)) return !!account.canManageMedia
   if (type === 'publish') return !!account.canRequestUpdates
   if (type === 'support') return !!account.canViewSupport
@@ -37,6 +38,7 @@ function Workspace({ client = false, type }) {
   if (!client && type === 'branding') return <BrandCentrePage />
   if (!client && type === 'engine') return <SiteEnginePage />
   if (!client && type === 'forms') return <FormBuilderPage />
+  if (!client && type === 'merch') return <MerchManagerPage />
   if (!client && type === 'operations') return <OperationsPage />
   if (!client && type === 'launch') return <ReleaseCentrePage />
   if (!client && type === 'publish-requests') return <PublishPipelinePage />
@@ -46,6 +48,7 @@ function Workspace({ client = false, type }) {
   if (client && type === 'branding') return <BrandCentrePage client />
   if (client && type === 'engine') return <SiteEnginePage client />
   if (client && type === 'forms') return <FormBuilderPage client />
+  if (client && type === 'merch') return <MerchManagerPage client />
   if (client && type === 'operations') return <OperationsPage client />
   if (client && type === 'publish') return <PublishPipelinePage client />
   if (client && type === 'website') return <ClientWebsitePage />
