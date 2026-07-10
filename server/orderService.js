@@ -18,33 +18,75 @@ function roundMoney(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100
 }
 
-function normaliseItems(items = []) {
-  return items.map(item => ({
-    productId: clean(item.productId),
-    name: clean(item.name),
-    image: clean(item.image),
-    sku: clean(item.sku),
-    quantity: Math.max(1, Number(item.quantity || 1)),
-    unitPrice: roundMoney(item.unitPrice),
-    total: roundMoney(Number(item.quantity || 1) * Number(item.unitPrice || 0)),
-    variant: {
-      size: clean(item.variant?.size),
-      colour: clean(item.variant?.colour),
-      ...(item.variant || {}),
-    },
-    fulfilment: item.fulfilment === 'digital' ? 'digital' : 'physical',
-  }))
+function compactCode(value = '', fallback = 'ITEM') {
+  const normalised = String(value)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, 8)
+  return normalised || fallback
 }
 
-function orderPrefix(websiteId) {
+function productIdTag(productId = '') {
+  const tokens = String(productId)
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .filter(token => !['product', 'item', 'merch'].includes(token.toLowerCase()))
+    .filter(token => !/^\d+$/.test(token))
+  return compactCode(tokens[0] || '', '')
+}
+
+export function deriveOrderTag(item = {}) {
+  return compactCode(
+    item.orderTag ||
+      item.customTag ||
+      item.sku ||
+      item.type ||
+      productIdTag(item.productId) ||
+      item.category ||
+      item.name,
+    'ITEM',
+  )
+}
+
+function normaliseItems(items = []) {
+  return items.map(item => {
+    const orderTag = deriveOrderTag(item)
+    return {
+      productId: clean(item.productId),
+      name: clean(item.name),
+      image: clean(item.image),
+      category: clean(item.category),
+      type: clean(item.type),
+      orderTag,
+      sku: clean(item.sku) || orderTag,
+      quantity: Math.max(1, Number(item.quantity || 1)),
+      unitPrice: roundMoney(item.unitPrice),
+      total: roundMoney(Number(item.quantity || 1) * Number(item.unitPrice || 0)),
+      variant: {
+        size: clean(item.variant?.size),
+        colour: clean(item.variant?.colour),
+        ...(item.variant || {}),
+      },
+      fulfilment: item.fulfilment === 'digital' ? 'digital' : 'physical',
+    }
+  })
+}
+
+function websiteCode(websiteId) {
   const safe = safeName(websiteId).replace(/[^a-z0-9]/g, '').toUpperCase()
   return (safe || 'KSJ').slice(0, 3)
 }
 
-async function nextOrderNumber(websiteId, createdAt = new Date()) {
+function orderItemCode(items = []) {
+  const tags = [...new Set(items.map(item => item.orderTag || deriveOrderTag(item)))]
+  return tags.length === 1 ? tags[0] : 'MIX'
+}
+
+async function nextOrderNumber(websiteId, items, environment, createdAt = new Date()) {
   const orders = await readJson(paths.orders(), [])
   const year = createdAt.getUTCFullYear()
-  const prefix = `${orderPrefix(websiteId)}-${year}-`
+  const environmentPrefix = environment === 'test' ? 'TEST-' : ''
+  const prefix = `${environmentPrefix}${websiteCode(websiteId)}-${orderItemCode(items)}-${year}-`
   const highest = orders.reduce((max, order) => {
     if (!order.orderNumber?.startsWith(prefix)) return max
     const sequence = Number(order.orderNumber.slice(prefix.length))
@@ -87,9 +129,12 @@ export async function createPaidOrder(input = {}) {
 
   const createdAt = new Date(input.paidAt || Date.now())
   const items = normaliseItems(input.items)
+  const environment = input.environment === 'test' ? 'test' : 'live'
   const order = {
     id: crypto.randomUUID(),
-    orderNumber: await nextOrderNumber(input.websiteId, createdAt),
+    orderNumber: await nextOrderNumber(input.websiteId, items, environment, createdAt),
+    environment,
+    isTestOrder: environment === 'test',
     websiteId: safeName(input.websiteId),
     clientName: clean(input.clientName),
     provider: clean(input.provider).toLowerCase(),
@@ -142,6 +187,26 @@ export async function listOrders(websiteIds = null) {
 export async function getOrder(orderId) {
   const orders = await readJson(paths.orders(), [])
   return orders.find(order => order.id === orderId || order.orderNumber === orderId) || null
+}
+
+export async function purgeTestOrders(websiteId = '') {
+  const safeWebsiteId = websiteId ? safeName(websiteId) : ''
+  const orders = await readJson(paths.orders(), [])
+  const removed = orders.filter(
+    order => order.isTestOrder && (!safeWebsiteId || order.websiteId === safeWebsiteId),
+  )
+  const removedIds = new Set(removed.map(order => order.id))
+  const keptOrders = orders.filter(order => !removedIds.has(order.id))
+  const events = await readJson(paths.orderEvents(), [])
+  const notifications = await readJson(paths.notificationLog(), [])
+
+  await Promise.all([
+    writeJson(paths.orders(), keptOrders),
+    writeJson(paths.orderEvents(), events.filter(event => !removedIds.has(event.orderId))),
+    writeJson(paths.notificationLog(), notifications.filter(log => !removedIds.has(log.orderId))),
+  ])
+
+  return { removed: removed.length, websiteId: safeWebsiteId || 'all' }
 }
 
 export async function updateOrderStatus(orderId, status, details = {}) {
