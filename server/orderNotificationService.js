@@ -86,50 +86,6 @@ export async function sendOrderNotifications(order, settings = {}) {
   }
 }
 
-export async function testCommerceNotification(channel, settings = {}) {
-  if (channel === 'email') {
-    return sendResendEmail(
-      {
-        to: settings.orderEmail,
-        replyTo: settings.replyTo || settings.supportEmail || '',
-        subject: `${settings.brandName || 'KSJ Digital'} Commerce Email Test`,
-        text: [
-          'This is a KSJ Digital commerce notification test.',
-          '',
-          'The order email connection is working correctly.',
-          'No order was created and no payment was taken.',
-        ].join('\n'),
-      },
-      settings,
-    )
-  }
-
-  if (channel === 'discord') {
-    return sendDiscordWebhook(
-      {
-        username: `${settings.brandName || 'KSJ Digital'} Orders`,
-        allowed_mentions: { parse: [] },
-        embeds: [
-          {
-            title: '✅ KSJ Digital Commerce Test',
-            description: 'The private Discord order notification connection is working correctly.',
-            color: 0x22c55e,
-            fields: [
-              { name: 'Website', value: settings.brandName || 'Configured website', inline: true },
-              { name: 'Type', value: 'Test only', inline: true },
-            ],
-            footer: { text: 'No order was created and no customer data was used.' },
-            timestamp: new Date().toISOString(),
-          },
-        ],
-      },
-      settings.discordWebhookUrl,
-    )
-  }
-
-  throw new Error('Unknown notification test channel')
-}
-
 export async function retryOrderNotification(order, channel, settings = {}) {
   if (channel === 'buyerEmail') {
     return deliver(order, channel, () => sendResendEmail(buildBuyerOrderEmail(order, settings), settings))
