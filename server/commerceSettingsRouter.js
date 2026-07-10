@@ -72,7 +72,7 @@ function validate(settings) {
   return errors.filter(Boolean)
 }
 
-async function getSettings(websiteId) {
+export async function getCommerceSettings(websiteId) {
   return sanitise(await readJson(paths.commerceSettings(safeName(websiteId)), {}))
 }
 
@@ -96,7 +96,7 @@ export function createCommerceSettingsRouter() {
     if (!canAccessWebsite(req.session, req.params.websiteId)) {
       return res.status(403).json({ error: 'Website access denied' })
     }
-    res.json(await getSettings(req.params.websiteId))
+    res.json(await getCommerceSettings(req.params.websiteId))
   })
 
   router.put('/:websiteId', async (req, res) => {
