@@ -73,6 +73,11 @@ export const api = {
   getOrder: id => request(`/orders/${id}`),
   updateOrderStatus: (id, payload) =>
     request(`/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  purgeTestOrders: (websiteId = '') =>
+    request('/orders/test-data', {
+      method: 'DELETE',
+      body: JSON.stringify({ websiteId }),
+    }),
   getTickets: () => request('/support/tickets'),
   createTicket: payload => request('/support/tickets', { method: 'POST', body: JSON.stringify(payload) }),
   updateTicket: (id, payload) =>
