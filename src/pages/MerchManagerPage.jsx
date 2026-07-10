@@ -5,6 +5,7 @@ import { getAccountFromPath } from '../services/auth.js'
 import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
 
 const ASSET_BASE = import.meta.env.VITE_KSJ_ASSET_URL || 'http://localhost:4174'
+const MANAGED_PROVIDERS = ['stripe', 'paypal']
 
 const starterProducts = [
   ['product_hoodie_001', 'TwoToneTaj Signature Hoodie', 'Apparel', 'Hoodie', 34.99, true],
@@ -88,6 +89,10 @@ function assetUrl(asset) {
   return asset.url.startsWith('http') ? asset.url : `${ASSET_BASE}${asset.url}`
 }
 
+function isManagedProvider(provider = '') {
+  return MANAGED_PROVIDERS.includes(provider.trim().toLowerCase())
+}
+
 function productErrors(product) {
   if (!product) return ['No product selected']
   const errors = []
@@ -98,9 +103,11 @@ function productErrors(product) {
   if (!product.shippingNote?.trim()) errors.push('Shipping or delivery note is required')
   if (product.checkout?.enabled) {
     if (product.availability !== 'available') errors.push('Checkout requires Available status')
-    if (!product.checkout?.url?.trim()) errors.push('Checkout URL is required')
-    if (!/^https:\/\//i.test(product.checkout?.url || '')) errors.push('Checkout URL must use HTTPS')
     if (!product.checkout?.provider?.trim()) errors.push('Checkout provider is required')
+    if (!isManagedProvider(product.checkout?.provider)) {
+      if (!product.checkout?.url?.trim()) errors.push('Checkout URL is required for custom providers')
+      if (!/^https:\/\//i.test(product.checkout?.url || '')) errors.push('Checkout URL must use HTTPS')
+    }
   }
   return errors
 }
@@ -120,6 +127,7 @@ export function MerchManagerPage({ client = false }) {
   const [notice, setNotice] = useState('Loading')
   const selected = merch.products.find(product => product.id === selectedId) || merch.products[0]
   const errors = productErrors(selected)
+  const managedProvider = isManagedProvider(selected?.checkout?.provider)
   const imageAssets = useMemo(
     () => mediaAssets.filter(asset => asset.type?.startsWith('image/')),
     [mediaAssets],
@@ -205,6 +213,15 @@ export function MerchManagerPage({ client = false }) {
     save({ ...merch, products }, 'Product saved')
   }
 
+  function updateProvider(provider) {
+    updateProduct({
+      checkout: {
+        provider,
+        url: isManagedProvider(provider) ? '' : selected.checkout?.url || '',
+      },
+    })
+  }
+
   function selectAsset(assetId) {
     const asset = imageAssets.find(item => item.id === assetId)
     if (!asset) return
@@ -253,7 +270,7 @@ export function MerchManagerPage({ client = false }) {
         <div>
           <span>Merch Manager</span>
           <h2>{website?.name || 'Assigned Website'} Store</h2>
-          <p>Manage the storefront catalogue, product images, availability and secure checkout links.</p>
+          <p>Manage the storefront catalogue, product images, availability and secure checkout providers.</p>
         </div>
         <button>{notice}</button>
       </section>
@@ -319,8 +336,15 @@ export function MerchManagerPage({ client = false }) {
                 <label>Image URL<input value={selected.image?.url || ''} disabled={!canEdit} onChange={event => updateProduct({ image: { url: event.target.value, alt: selected.name } })} /></label>
                 <label>Availability<select value={selected.availability} disabled={!canEdit} onChange={event => updateProduct({ availability: event.target.value, status: event.target.value === 'available' ? 'Available' : event.target.value === 'sold-out' ? 'Sold Out' : 'Coming Soon' })}><option value="prelaunch">Coming Soon</option><option value="available">Available</option><option value="sold-out">Sold Out</option><option value="paused">Paused</option></select></label>
                 <label>Shipping / Delivery Note<textarea value={selected.shippingNote} disabled={!canEdit} onChange={event => updateProduct({ shippingNote: event.target.value })} /></label>
-                <label>Checkout Provider<input value={selected.checkout?.provider || ''} disabled={!canEdit} onChange={event => updateProduct({ checkout: { provider: event.target.value } })} /></label>
-                <label>Checkout URL<input type="url" value={selected.checkout?.url || ''} disabled={!canEdit} onChange={event => updateProduct({ checkout: { url: event.target.value } })} /></label>
+                <label>Checkout Provider<select value={selected.checkout?.provider || ''} disabled={!canEdit} onChange={event => updateProvider(event.target.value)}><option value="">Choose provider</option><option value="Stripe">Stripe</option><option value="PayPal">PayPal</option><option value="Custom">Custom checkout link</option></select></label>
+                {managedProvider ? (
+                  <section className="card publishBox">
+                    <h3>{selected.checkout.provider} managed checkout</h3>
+                    <p>KSJ Digital generates the secure checkout URL automatically. No payment link needs to be pasted here.</p>
+                  </section>
+                ) : (
+                  <label>Custom Checkout URL<input type="url" value={selected.checkout?.url || ''} disabled={!canEdit} onChange={event => updateProduct({ checkout: { url: event.target.value } })} /></label>
+                )}
                 <label className="formCheck"><input type="checkbox" checked={selected.checkout?.enabled || false} disabled={!canEdit} onChange={event => updateProduct({ checkout: { enabled: event.target.checked } })} /> Checkout enabled</label>
                 <label className="formCheck"><input type="checkbox" checked={selected.featured || false} disabled={!canEdit} onChange={event => updateProduct({ featured: event.target.checked })} /> Featured</label>
                 <label className="formCheck"><input type="checkbox" checked={selected.limited || false} disabled={!canEdit} onChange={event => updateProduct({ limited: event.target.checked })} /> Limited drop</label>
