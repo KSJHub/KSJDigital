@@ -116,6 +116,18 @@ async function nextOrderNumber(websiteId, items, environment, createdAt = new Da
   return `${prefix}${String(highest + 1).padStart(6, '0')}`
 }
 
+function resolveEnvironment(input = {}) {
+  if (input.environment === 'test' || input.environment === 'live') return input.environment
+  const provider = clean(input.provider).toLowerCase()
+  if (provider === 'stripe') {
+    return process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_') ? 'test' : 'live'
+  }
+  if (provider === 'paypal') {
+    return process.env.PAYPAL_ENVIRONMENT === 'live' ? 'live' : 'test'
+  }
+  return 'live'
+}
+
 function validateOrderInput(input = {}) {
   const errors = []
   if (!clean(input.websiteId)) errors.push('Website ID is required')
@@ -150,7 +162,7 @@ export async function createPaidOrder(input = {}) {
   const createdAt = new Date(input.paidAt || Date.now())
   const enrichedItems = await enrichItemsFromCatalogue(input.websiteId, input.items)
   const items = normaliseItems(enrichedItems)
-  const environment = input.environment === 'test' ? 'test' : 'live'
+  const environment = resolveEnvironment(input)
   const order = {
     id: crypto.randomUUID(),
     orderNumber: await nextOrderNumber(input.websiteId, items, environment, createdAt),
