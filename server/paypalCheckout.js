@@ -1,5 +1,6 @@
 import express from 'express'
 import { getCommerceSettings } from './commerceSettingsRouter.js'
+import { decrementProductStock, resolveProductSelection } from './merchValidation.js'
 import { createPaidOrder } from './orderService.js'
 import { sendOrderNotifications } from './orderNotificationService.js'
 import { paths, readJson, safeName } from './storage.js'
@@ -85,14 +86,14 @@ export async function createPayPalOrder({ websiteId, productId, quantity = 1, va
   const safeWebsiteId = safeName(websiteId)
   const { content, merch } = await getStore(safeWebsiteId)
   const product = getProduct(merch, productId)
+  const selection = resolveProductSelection(product, quantity, variant)
   const settings = await checkoutSettings(safeWebsiteId, content)
   if (!settings.paypalEnabled) throw new Error('PayPal checkout is disabled for this website')
   if (!settings.paypalReturnUrl || !settings.cancelUrl) {
     throw new Error('PayPal return and cancel URLs are not configured')
   }
 
-  const safeQuantity = Math.max(1, Math.min(10, Number(quantity) || 1))
-  const total = (Number(product.priceGBP) * safeQuantity).toFixed(2)
+  const total = (Number(product.priceGBP) * selection.quantity).toFixed(2)
   const order = await paypalRequest('/v2/checkout/orders', {
     method: 'POST',
     headers: { 'PayPal-Request-Id': crypto.randomUUID() },
@@ -104,9 +105,9 @@ export async function createPayPalOrder({ websiteId, productId, quantity = 1, va
           custom_id: JSON.stringify({
             websiteId: safeWebsiteId,
             productId: product.id,
-            quantity: safeQuantity,
-            size: variant.size || '',
-            colour: variant.colour || '',
+            quantity: selection.quantity,
+            size: selection.variant.size,
+            colour: selection.variant.colour,
           }),
           description: product.name,
           amount: {
@@ -120,7 +121,7 @@ export async function createPayPalOrder({ websiteId, productId, quantity = 1, va
             {
               name: product.name,
               description: product.description,
-              quantity: String(safeQuantity),
+              quantity: String(selection.quantity),
               category: product.fulfilment === 'digital' ? 'DIGITAL_GOODS' : 'PHYSICAL_GOODS',
               unit_amount: {
                 currency_code: 'GBP',
@@ -175,11 +176,14 @@ export async function capturePayPalOrder(orderId) {
   const { content, merch } = await getStore(websiteId)
   const settings = await checkoutSettings(websiteId, content)
   const product = getProduct(merch, custom.productId)
+  const selection = resolveProductSelection(product, custom.quantity, {
+    size: custom.size,
+    colour: custom.colour,
+  })
   const payment = unit?.payments?.captures?.[0]
   const payer = capture.payer || {}
   const shipping = unit?.shipping || {}
   const amount = payment?.amount || unit?.amount || {}
-  const quantity = Math.max(1, Number(custom.quantity || 1))
 
   const { order, created } = await createPaidOrder({
     websiteId,
@@ -189,7 +193,7 @@ export async function capturePayPalOrder(orderId) {
     providerTransactionId: payment?.id || '',
     paymentMethod: 'PayPal',
     currency: amount.currency_code || 'GBP',
-    subtotal: Number(product.priceGBP) * quantity,
+    subtotal: Number(product.priceGBP) * selection.quantity,
     shipping: 0,
     tax: 0,
     discount: 0,
@@ -206,19 +210,19 @@ export async function capturePayPalOrder(orderId) {
         productId: product.id,
         name: product.name,
         image: product.image?.url || '',
-        quantity,
+        quantity: selection.quantity,
         unitPrice: Number(product.priceGBP),
         fulfilment: product.fulfilment,
-        variant: {
-          size: custom.size || '',
-          colour: custom.colour || '',
-        },
+        variant: selection.variant,
       },
     ],
     paidAt: payment?.create_time || capture.create_time || new Date().toISOString(),
   })
 
-  if (created) await sendOrderNotifications(order, settings)
+  if (created) {
+    await decrementProductStock(websiteId, product.id, selection.quantity)
+    await sendOrderNotifications(order, settings)
+  }
   return { order, created, completed: true }
 }
 
