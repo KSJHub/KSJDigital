@@ -80,10 +80,13 @@ function notificationSettings(content = {}) {
 
 export async function createPayPalOrder({ websiteId, productId, quantity = 1, variant = {} }) {
   const safeWebsiteId = safeName(websiteId)
-  const { merch } = await getStore(safeWebsiteId)
+  const { content, merch } = await getStore(safeWebsiteId)
   const product = getProduct(merch, productId)
   const safeQuantity = Math.max(1, Math.min(10, Number(quantity) || 1))
   const total = (Number(product.priceGBP) * safeQuantity).toFixed(2)
+  const returnUrl = content.merch?.payments?.paypalReturnUrl || process.env.PAYPAL_RETURN_URL
+  const cancelUrl = content.merch?.payments?.cancelUrl || process.env.PAYPAL_CANCEL_URL
+  if (!returnUrl || !cancelUrl) throw new Error('PayPal return and cancel URLs are not configured')
 
   const order = await paypalRequest('/v2/checkout/orders', {
     method: 'POST',
@@ -122,15 +125,25 @@ export async function createPayPalOrder({ websiteId, productId, quantity = 1, va
           ],
         },
       ],
-      application_context: {
-        brand_name: process.env.PAYPAL_BRAND_NAME || 'TwoToneTaj Merch',
-        shipping_preference: product.fulfilment === 'digital' ? 'NO_SHIPPING' : 'GET_FROM_FILE',
-        user_action: 'PAY_NOW',
+      payment_source: {
+        paypal: {
+          experience_context: {
+            brand_name: process.env.PAYPAL_BRAND_NAME || content.brand?.name || 'TwoToneTaj Merch',
+            shipping_preference: product.fulfilment === 'digital' ? 'NO_SHIPPING' : 'GET_FROM_FILE',
+            user_action: 'PAY_NOW',
+            return_url: returnUrl,
+            cancel_url: cancelUrl,
+          },
+        },
       },
     }),
   })
 
-  return { id: order.id, status: order.status }
+  return {
+    id: order.id,
+    status: order.status,
+    approvalUrl: order.links?.find(link => link.rel === 'payer-action' || link.rel === 'approve')?.href || '',
+  }
 }
 
 function addressFromPayPal(address = {}) {
@@ -222,6 +235,21 @@ export async function verifyPayPalWebhook(headers, body) {
 
 export function createPayPalRouter() {
   const router = express.Router()
+
+  router.get('/start', async (req, res) => {
+    try {
+      const order = await createPayPalOrder({
+        websiteId: req.query.websiteId,
+        productId: req.query.productId,
+        quantity: req.query.quantity,
+        variant: { size: req.query.size, colour: req.query.colour },
+      })
+      if (!order.approvalUrl) throw new Error('PayPal approval URL was not returned')
+      res.redirect(303, order.approvalUrl)
+    } catch (error) {
+      res.status(400).send(`Unable to start PayPal checkout: ${error.message}`)
+    }
+  })
 
   router.post('/orders', async (req, res) => {
     try {
