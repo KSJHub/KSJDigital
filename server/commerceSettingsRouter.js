@@ -1,5 +1,4 @@
 import express from 'express'
-import { testCommerceNotification } from './orderNotificationService.js'
 import { paths, readJson, safeName, writeJson } from './storage.js'
 
 const DEFAULTS = {
@@ -110,26 +109,6 @@ export function createCommerceSettingsRouter() {
 
     try {
       res.json(await saveSettings(req.params.websiteId, req.body || {}))
-    } catch (error) {
-      res.status(400).json({ error: error.message })
-    }
-  })
-
-  router.post('/:websiteId/test/:channel', async (req, res) => {
-    if (!canAccessWebsite(req.session, req.params.websiteId)) {
-      return res.status(403).json({ error: 'Website access denied' })
-    }
-    if (req.session.role !== 'owner' && !req.session.canEdit) {
-      return res.status(403).json({ error: 'Edit permission required' })
-    }
-
-    try {
-      const settings = await getCommerceSettings(req.params.websiteId)
-      await testCommerceNotification(req.params.channel, {
-        ...settings,
-        brandName: req.body?.brandName || req.params.websiteId,
-      })
-      res.json({ ok: true, channel: req.params.channel })
     } catch (error) {
       res.status(400).json({ error: error.message })
     }
