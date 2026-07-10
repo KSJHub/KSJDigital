@@ -18,21 +18,25 @@ function validateProduct(product, index) {
     if (product?.availability !== 'available') {
       errors.push(`${label}: checkout requires Available status`)
     }
-    if (!text(product?.checkout?.provider)) {
+
+    const provider = text(product?.checkout?.provider).toLowerCase()
+    if (!provider) {
       errors.push(`${label}: checkout provider is required`)
     }
 
-    const checkoutUrl = text(product?.checkout?.url)
-    if (!checkoutUrl) {
-      errors.push(`${label}: checkout URL is required`)
-    } else {
-      try {
-        const url = new URL(checkoutUrl)
-        if (url.protocol !== 'https:') {
-          errors.push(`${label}: checkout URL must use HTTPS`)
+    if (!['stripe', 'paypal'].includes(provider)) {
+      const checkoutUrl = text(product?.checkout?.url)
+      if (!checkoutUrl) {
+        errors.push(`${label}: checkout URL is required`)
+      } else {
+        try {
+          const url = new URL(checkoutUrl)
+          if (url.protocol !== 'https:') {
+            errors.push(`${label}: checkout URL must use HTTPS`)
+          }
+        } catch {
+          errors.push(`${label}: checkout URL is invalid`)
         }
-      } catch {
-        errors.push(`${label}: checkout URL is invalid`)
       }
     }
   }
