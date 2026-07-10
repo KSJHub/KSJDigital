@@ -48,6 +48,26 @@ export function deriveOrderTag(item = {}) {
   )
 }
 
+async function enrichItemsFromCatalogue(websiteId, items = []) {
+  const content = await readJson(paths.content(safeName(websiteId)), {})
+  const products = Array.isArray(content.merch?.products) ? content.merch.products : []
+
+  return items.map(item => {
+    const product = products.find(candidate => candidate.id === item.productId)
+    if (!product) return item
+
+    return {
+      ...product,
+      ...item,
+      image: item.image || product.image?.url || '',
+      orderTag: item.orderTag || product.orderTag || product.customTag || '',
+      sku: item.sku || product.sku || '',
+      category: item.category || product.category || '',
+      type: item.type || product.type || '',
+    }
+  })
+}
+
 function normaliseItems(items = []) {
   return items.map(item => {
     const orderTag = deriveOrderTag(item)
@@ -128,7 +148,8 @@ export async function createPaidOrder(input = {}) {
   if (existing) return { order: existing, created: false }
 
   const createdAt = new Date(input.paidAt || Date.now())
-  const items = normaliseItems(input.items)
+  const enrichedItems = await enrichItemsFromCatalogue(input.websiteId, input.items)
+  const items = normaliseItems(enrichedItems)
   const environment = input.environment === 'test' ? 'test' : 'live'
   const order = {
     id: crypto.randomUUID(),
