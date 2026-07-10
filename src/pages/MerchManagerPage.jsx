@@ -21,6 +21,7 @@ const starterProducts = [
   name,
   category,
   type,
+  orderTag: '',
   description: `${name} from the official TwoToneTaj merch collection.`,
   tags: featured ? ['Featured', 'Coming Soon'] : ['Coming Soon'],
   priceGBP,
@@ -63,6 +64,7 @@ function newProduct() {
     name: 'New Product',
     category: 'Apparel',
     type: 'Product',
+    orderTag: '',
     description: 'Add the product description.',
     tags: ['Coming Soon'],
     priceGBP: 0,
@@ -87,6 +89,23 @@ function ownerId(website, account) {
 function assetUrl(asset) {
   if (!asset?.url) return ''
   return asset.url.startsWith('http') ? asset.url : `${ASSET_BASE}${asset.url}`
+}
+
+function compactOrderTag(value = '') {
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)
+}
+
+function automaticOrderTag(product = {}) {
+  if (product.orderTag?.trim()) return compactOrderTag(product.orderTag)
+  if (product.sku?.trim()) return compactOrderTag(product.sku)
+  if (product.type?.trim()) return compactOrderTag(product.type)
+
+  const idToken = String(product.id || '')
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .find(token => !['product', 'item', 'merch'].includes(token.toLowerCase()) && !/^\d+$/.test(token))
+
+  return compactOrderTag(idToken || product.category || product.name || 'ITEM') || 'ITEM'
 }
 
 function isManagedProvider(provider = '') {
@@ -128,6 +147,7 @@ export function MerchManagerPage({ client = false }) {
   const selected = merch.products.find(product => product.id === selectedId) || merch.products[0]
   const errors = productErrors(selected)
   const managedProvider = isManagedProvider(selected?.checkout?.provider)
+  const selectedOrderTag = automaticOrderTag(selected)
   const imageAssets = useMemo(
     () => mediaAssets.filter(asset => asset.type?.startsWith('image/')),
     [mediaAssets],
@@ -291,7 +311,7 @@ export function MerchManagerPage({ client = false }) {
               >
                 <b>{product.name}</b>
                 <small>
-                  {product.category} · £{Number(product.priceGBP || 0).toFixed(2)} · {ready ? 'Ready' : 'Needs work'}
+                  {automaticOrderTag(product)} · {product.category} · £{Number(product.priceGBP || 0).toFixed(2)} · {ready ? 'Ready' : 'Needs work'}
                 </small>
               </button>
             )
@@ -325,6 +345,8 @@ export function MerchManagerPage({ client = false }) {
                 <label>Name<input value={selected.name} disabled={!canEdit} onChange={event => updateProduct({ name: event.target.value })} /></label>
                 <label>Type<input value={selected.type} disabled={!canEdit} onChange={event => updateProduct({ type: event.target.value })} /></label>
                 <label>Category<select value={selected.category} disabled={!canEdit} onChange={event => updateProduct({ category: event.target.value })}><option>Apparel</option><option>Accessories</option><option>Digital</option></select></label>
+                <label>Custom Order Tag<input maxLength="8" value={selected.orderTag || ''} disabled={!canEdit} onChange={event => updateProduct({ orderTag: compactOrderTag(event.target.value) })} placeholder={selectedOrderTag} /></label>
+                <section className="card publishBox"><h3>Order code preview</h3><p>{selectedOrderTag} — leave Custom Order Tag blank to derive this automatically from SKU, type, product ID, category or name.</p></section>
                 <label>Price GBP<input type="number" min="0" step="0.01" value={selected.priceGBP} disabled={!canEdit} onChange={event => updateProduct({ priceGBP: Number(event.target.value) })} /></label>
                 <label>Description<textarea value={selected.description} disabled={!canEdit} onChange={event => updateProduct({ description: event.target.value })} /></label>
                 {canManageMedia && (
@@ -364,7 +386,7 @@ export function MerchManagerPage({ client = false }) {
               <h3>{selected.name}</h3>
               <p>{selected.description}</p>
               <strong>£{Number(selected.priceGBP || 0).toFixed(2)}</strong>
-              <small>{selected.status}</small>
+              <small>{selected.status} · Order tag {selectedOrderTag}</small>
               <button disabled={!selected.checkout?.enabled || selected.availability !== 'available'}>{selected.checkout?.label || 'Buy Now'}</button>
             </article>
           ) : (
