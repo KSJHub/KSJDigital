@@ -8,6 +8,7 @@ import { OwnerWebsitesPage } from './pages/OwnerWebsitesPage.jsx'
 import { OwnerClientsPage } from './pages/OwnerClientsPage.jsx'
 import { ClientWebsitePage } from './pages/ClientWebsitePage.jsx'
 import { BrandCentrePage } from './pages/BrandCentrePage.jsx'
+import { CommerceSettingsPage } from './pages/CommerceSettingsPage.jsx'
 import { PublishPipelinePage } from './pages/PublishPipelinePage.jsx'
 import { PageBuilderPage } from './pages/PageBuilderPage.jsx'
 import { SiteEnginePage } from './pages/SiteEnginePage.jsx'
@@ -26,7 +27,7 @@ function route() {
 
 function canAccessClientRoute(account, type) {
   if (!account || account.role === 'owner') return true
-  if (['editor', 'engine', 'forms', 'merch', 'orders'].includes(type)) return !!account.canEdit
+  if (['editor', 'engine', 'forms', 'merch', 'orders', 'commerce'].includes(type)) return !!account.canEdit
   if (['media', 'branding'].includes(type)) return !!account.canManageMedia
   if (type === 'publish') return !!account.canRequestUpdates
   if (type === 'support') return !!account.canViewSupport
@@ -41,6 +42,7 @@ function Workspace({ client = false, type }) {
   if (!client && type === 'forms') return <FormBuilderPage />
   if (!client && type === 'merch') return <MerchManagerPage />
   if (!client && type === 'orders') return <OrdersPage />
+  if (!client && type === 'commerce') return <CommerceSettingsPage />
   if (!client && type === 'operations') return <OperationsPage />
   if (!client && type === 'launch') return <ReleaseCentrePage />
   if (!client && type === 'publish-requests') return <PublishPipelinePage />
@@ -52,6 +54,7 @@ function Workspace({ client = false, type }) {
   if (client && type === 'forms') return <FormBuilderPage client />
   if (client && type === 'merch') return <MerchManagerPage client />
   if (client && type === 'orders') return <OrdersPage client />
+  if (client && type === 'commerce') return <CommerceSettingsPage client />
   if (client && type === 'operations') return <OperationsPage client />
   if (client && type === 'publish') return <PublishPipelinePage client />
   if (client && type === 'website') return <ClientWebsitePage />
