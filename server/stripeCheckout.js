@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import express from 'express'
 import { getCommerceSettings } from './commerceSettingsRouter.js'
+import { decrementProductStock, resolveProductSelection } from './merchValidation.js'
 import { createPaidOrder } from './orderService.js'
 import { sendOrderNotifications } from './orderNotificationService.js'
 import { paths, readJson, safeName } from './storage.js'
@@ -104,6 +105,7 @@ export async function createStripeCheckoutSession({ websiteId, productId, quanti
   const safeWebsiteId = safeName(websiteId)
   const { content, merch } = await getStore(safeWebsiteId)
   const product = getProduct(merch, productId)
+  const selection = resolveProductSelection(product, quantity, variant)
   const settings = await checkoutSettings(safeWebsiteId, content)
   if (!settings.stripeEnabled) throw new Error('Stripe checkout is disabled for this website')
   if (!settings.successUrl || !settings.cancelUrl) throw new Error('Stripe success and cancel URLs are not configured')
@@ -116,16 +118,16 @@ export async function createStripeCheckoutSession({ websiteId, productId, quanti
     ['customer_creation', 'always'],
     ['billing_address_collection', 'auto'],
     ['shipping_address_collection[allowed_countries][0]', 'GB'],
-    ['line_items[0][quantity]', Math.max(1, Math.min(10, Number(quantity) || 1))],
+    ['line_items[0][quantity]', selection.quantity],
     ['line_items[0][price_data][currency]', 'gbp'],
     ['line_items[0][price_data][unit_amount]', amount],
     ['line_items[0][price_data][product_data][name]', product.name],
     ['line_items[0][price_data][product_data][description]', product.description],
     ['metadata[websiteId]', safeWebsiteId],
     ['metadata[productId]', product.id],
-    ['metadata[quantity]', Math.max(1, Math.min(10, Number(quantity) || 1))],
-    ['metadata[size]', variant.size || ''],
-    ['metadata[colour]', variant.colour || ''],
+    ['metadata[quantity]', selection.quantity],
+    ['metadata[size]', selection.variant.size],
+    ['metadata[colour]', selection.variant.colour],
   ])
 
   return { id: session.id, url: session.url }
@@ -161,7 +163,10 @@ export async function processStripeCheckoutCompleted(event) {
   const { content, merch } = await getStore(websiteId)
   const product = getProduct(merch, session.metadata?.productId)
   const settings = await checkoutSettings(websiteId, content)
-  const quantity = Math.max(1, Number(session.metadata?.quantity || 1))
+  const selection = resolveProductSelection(product, session.metadata?.quantity, {
+    size: session.metadata?.size,
+    colour: session.metadata?.colour,
+  })
   const customerDetails = session.customer_details || {}
   const shippingDetails = session.shipping_details || session.collected_information?.shipping_details || {}
 
@@ -191,19 +196,19 @@ export async function processStripeCheckoutCompleted(event) {
         productId: product.id,
         name: product.name,
         image: product.image?.url || '',
-        quantity,
+        quantity: selection.quantity,
         unitPrice: Number(product.priceGBP),
         fulfilment: product.fulfilment,
-        variant: {
-          size: session.metadata?.size || '',
-          colour: session.metadata?.colour || '',
-        },
+        variant: selection.variant,
       },
     ],
     paidAt: new Date((session.created || Math.floor(Date.now() / 1000)) * 1000).toISOString(),
   })
 
-  if (created) await sendOrderNotifications(order, settings)
+  if (created) {
+    await decrementProductStock(websiteId, product.id, selection.quantity)
+    await sendOrderNotifications(order, settings)
+  }
   return { order, created }
 }
 
