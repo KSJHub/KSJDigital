@@ -39,6 +39,9 @@ export const api = {
   getContent: websiteId => request(`/content/${websiteId}`),
   saveContent: (websiteId, content) =>
     request(`/content/${websiteId}`, { method: 'PUT', body: JSON.stringify(content) }),
+  getCommerceSettings: websiteId => request(`/commerce-settings/${websiteId}`),
+  saveCommerceSettings: (websiteId, settings) =>
+    request(`/commerce-settings/${websiteId}`, { method: 'PUT', body: JSON.stringify(settings) }),
   getForms: websiteId => request(`/forms/${websiteId}`),
   saveForms: (websiteId, forms) =>
     request(`/forms/${websiteId}`, { method: 'PUT', body: JSON.stringify({ forms }) }),
