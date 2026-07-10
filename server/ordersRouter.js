@@ -1,5 +1,5 @@
 import express from 'express'
-import { getOrder, listOrders, updateOrderStatus } from './orderService.js'
+import { getOrder, listOrders, purgeTestOrders, updateOrderStatus } from './orderService.js'
 
 function canAccessOrder(session, order) {
   if (!session || !order) return false
@@ -13,6 +13,13 @@ export function createOrdersRouter() {
   router.get('/', async (req, res) => {
     const websiteIds = req.session?.role === 'owner' ? null : req.session?.websiteIds || []
     res.json(await listOrders(websiteIds))
+  })
+
+  router.delete('/test-data', async (req, res) => {
+    if (req.session?.role !== 'owner') {
+      return res.status(403).json({ error: 'Owner access required' })
+    }
+    res.json(await purgeTestOrders(req.body?.websiteId || ''))
   })
 
   router.get('/:id', async (req, res) => {
