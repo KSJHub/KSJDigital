@@ -8,14 +8,15 @@ export function PublishPipelinePage({ client = false }) {
   const account = getAccountFromPath()
   const { websites } = useWebsites()
   const website = findClientWebsite(websites, account)
+  const canRequestUpdates = account?.role === 'owner' || account?.canRequestUpdates
   const [requests, setRequests] = useState([])
   const [history, setHistory] = useState([])
-  const [notice, setNotice] = useState('Ready')
+  const [notice, setNotice] = useState(client && !canRequestUpdates ? 'Request permission required' : 'Ready')
 
   const visibleRequests = useMemo(() => {
     if (!client) return requests
     return requests.filter(request => account?.websiteIds?.includes(request.websiteId))
-  }, [account, client, requests])
+  }, [account?.websiteIds, client, requests])
 
   async function load() {
     try {
@@ -25,7 +26,7 @@ export function PublishPipelinePage({ client = false }) {
       ])
       setRequests(nextRequests)
       setHistory(nextHistory)
-      setNotice('Connected')
+      setNotice(client && !canRequestUpdates ? 'Read-only access' : 'Connected')
     } catch (error) {
       setNotice(`API offline: ${error.message}`)
     }
@@ -33,9 +34,14 @@ export function PublishPipelinePage({ client = false }) {
 
   useEffect(() => {
     load()
-  }, [])
+  }, [canRequestUpdates, client])
 
   async function createRequest() {
+    if (!canRequestUpdates) {
+      setNotice('Publish request permission required')
+      return
+    }
+
     if (!website?.id) {
       setNotice('No website assigned')
       return
@@ -50,7 +56,7 @@ export function PublishPipelinePage({ client = false }) {
         createdBy: account?.name,
         contentPath: `server-data/content/${website.id}.json`,
       })
-      setRequests([request, ...requests])
+      setRequests(current => [request, ...current])
       setNotice('Update request created')
     } catch (error) {
       setNotice(error.message)
@@ -85,11 +91,13 @@ export function PublishPipelinePage({ client = false }) {
           <h2>{client ? 'Request Website Update' : 'Review & Publish'}</h2>
           <p>
             {client
-              ? 'Create a real update request for KSJ Digital review.'
+              ? canRequestUpdates
+                ? 'Create a real update request for KSJ Digital review.'
+                : 'View your website update requests and deployment history.'
               : 'Review client changes, approve them, and prepare deployment history.'}
           </p>
         </div>
-        <button onClick={client ? createRequest : load}>{notice}</button>
+        <button onClick={client && canRequestUpdates ? createRequest : load}>{notice}</button>
       </section>
       <section className="publishFlow card">
         <h2>Workflow</h2>
@@ -106,7 +114,9 @@ export function PublishPipelinePage({ client = false }) {
         <div className="card publishPanel">
           <div className="panelHead">
             <h2>{client ? 'My Requests' : 'Update Requests'}</h2>
-            <button onClick={createRequest} disabled={!website?.id && client}>New Request</button>
+            {client && canRequestUpdates && (
+              <button onClick={createRequest} disabled={!website?.id}>New Request</button>
+            )}
           </div>
           {visibleRequests.length ? (
             visibleRequests.map(request => (
