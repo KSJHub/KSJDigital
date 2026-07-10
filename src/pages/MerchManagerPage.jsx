@@ -16,10 +16,7 @@ const starterProducts = [
   ['product_stickers_001', 'TwoToneTaj Sticker Pack', 'Accessories', 'Sticker Pack', 4.99, false],
   ['product_wallpaper_001', 'TwoToneTaj Wallpaper Pack', 'Digital', 'Digital Download', 4.99, false],
 ].map(([id, name, category, type, priceGBP, featured], index) => ({
-  id,
-  name,
-  category,
-  type,
+  id, name, category, type,
   description: `${name} from the official TwoToneTaj merch collection.`,
   tags: featured ? ['Featured', 'Coming Soon'] : ['Coming Soon'],
   priceGBP,
@@ -28,10 +25,9 @@ const starterProducts = [
   status: 'Coming Soon',
   availability: 'prelaunch',
   fulfilment: category === 'Digital' ? 'digital' : 'physical',
-  shippingNote:
-    category === 'Digital'
-      ? 'Digital delivery details are shown by the checkout provider.'
-      : 'Shipping cost and delivery estimate are shown by the checkout provider.',
+  shippingNote: category === 'Digital'
+    ? 'Digital delivery details are shown by the checkout provider.'
+    : 'Shipping cost and delivery estimate are shown by the checkout provider.',
   checkout: { enabled: false, provider: '', url: '', label: 'Buy Now' },
   featured,
   limited: false,
@@ -42,8 +38,7 @@ const starterProducts = [
 const defaultMerch = {
   title: 'Official TwoToneTaj Merch',
   eyebrow: 'Official TajSquad Gear',
-  subtitle:
-    'Official creator apparel, accessories and digital drops for the TajSquad. Products open a secure external checkout when available.',
+  subtitle: 'Official creator apparel, accessories and digital drops for the TajSquad. Products open a secure external checkout when available.',
   products: starterProducts,
 }
 
@@ -102,62 +97,43 @@ export function MerchManagerPage({ client = false }) {
   const [mediaAssets, setMediaAssets] = useState([])
   const [notice, setNotice] = useState('Loading')
   const selected = merch.products.find(product => product.id === selectedId) || merch.products[0]
-  const imageAssets = useMemo(
-    () => mediaAssets.filter(asset => asset.type?.startsWith('image/')),
-    [mediaAssets],
-  )
+  const imageAssets = useMemo(() => mediaAssets.filter(asset => asset.type?.startsWith('image/')), [mediaAssets])
+
+  async function loadAssets() {
+    if (!canManageMedia || !websiteId) return setMediaAssets([])
+    try {
+      setMediaAssets(await api.assets(owner, websiteId))
+    } catch {
+      setMediaAssets([])
+    }
+  }
 
   useEffect(() => {
-    if (!websiteId) {
-      setNotice('Waiting for assigned website')
-      return
-    }
-
+    if (!websiteId) return setNotice('Waiting for assigned website')
     let cancelled = false
 
-    async function load() {
-      try {
-        const data = await api.getContent(websiteId)
+    api.getContent(websiteId)
+      .then(data => {
         if (cancelled) return
-
         const nextMerch = normaliseMerch(data)
         setContent(data)
         setMerch(nextMerch)
         setSelectedId(nextMerch.products[0]?.id || '')
         setNotice(canEdit ? 'Ready' : 'Preview only')
-      } catch (error) {
-        if (!cancelled) setNotice(error.message || 'Merch unavailable')
-      }
+      })
+      .catch(error => !cancelled && setNotice(error.message || 'Merch unavailable'))
 
-      if (!canManageMedia) {
-        if (!cancelled) setMediaAssets([])
-        return
-      }
-
-      try {
-        const assets = await api.assets(owner, websiteId)
-        if (!cancelled) setMediaAssets(assets)
-      } catch {
-        if (!cancelled) setMediaAssets([])
-      }
-    }
-
-    load()
-
-    return () => {
-      cancelled = true
-    }
+    loadAssets()
+    return () => { cancelled = true }
   }, [canEdit, canManageMedia, owner, websiteId])
 
   async function save(nextMerch, message = 'Merch saved') {
     if (!canEdit) return setNotice('Edit permission required')
     if (!websiteId) return setNotice('No website assigned')
-
     const nextContent = { ...content, merch: nextMerch }
     setMerch(nextMerch)
     setContent(nextContent)
     setNotice('Saving')
-
     try {
       const saved = await api.saveContent(websiteId, nextContent)
       setContent(saved)
@@ -168,37 +144,37 @@ export function MerchManagerPage({ client = false }) {
     }
   }
 
-  function updateStore(changes) {
-    save({ ...merch, ...changes }, 'Store details saved')
-  }
+  function updateStore(changes) { save({ ...merch, ...changes }, 'Store details saved') }
 
   function updateProduct(changes) {
     if (!selected) return
-    const products = merch.products.map(product =>
-      product.id === selected.id
-        ? {
-            ...product,
-            ...changes,
-            image: changes.image ? { ...product.image, ...changes.image } : product.image,
-            checkout: changes.checkout ? { ...product.checkout, ...changes.checkout } : product.checkout,
-          }
-        : product,
-    )
+    const products = merch.products.map(product => product.id === selected.id ? {
+      ...product,
+      ...changes,
+      image: changes.image ? { ...product.image, ...changes.image } : product.image,
+      checkout: changes.checkout ? { ...product.checkout, ...changes.checkout } : product.checkout,
+    } : product)
     save({ ...merch, products }, 'Product saved')
   }
 
   function selectAsset(assetId) {
     const asset = imageAssets.find(item => item.id === assetId)
     if (!asset) return
+    updateProduct({ image: { id: asset.id, title: asset.name, url: assetUrl(asset), alt: selected?.name || asset.name } })
+  }
 
-    updateProduct({
-      image: {
-        id: asset.id,
-        title: asset.name,
-        url: assetUrl(asset),
-        alt: selected?.name || asset.name,
-      },
-    })
+  async function uploadProductImage(file) {
+    if (!file || !selected || !canManageMedia || !canEdit || !websiteId) return
+    setNotice('Uploading product image')
+    try {
+      const asset = await api.uploadAsset(owner, websiteId, `merch-${selected.id}`, file)
+      await loadAssets()
+      const nextImage = { id: asset.id, title: asset.name, url: assetUrl(asset), alt: selected.name }
+      const products = merch.products.map(product => product.id === selected.id ? { ...product, image: nextImage } : product)
+      await save({ ...merch, products }, 'Product image uploaded')
+    } catch (error) {
+      setNotice(error.message || 'Image upload failed')
+    }
   }
 
   function addProduct() {
@@ -217,91 +193,48 @@ export function MerchManagerPage({ client = false }) {
   return (
     <Layout client={client} title="Merch">
       <section className="moduleHero card">
-        <div>
-          <span>Merch Manager</span>
-          <h2>{website?.name || 'Assigned Website'} Store</h2>
-          <p>Manage the existing storefront catalogue, availability, product images and secure checkout links.</p>
-        </div>
+        <div><span>Merch Manager</span><h2>{website?.name || 'Assigned Website'} Store</h2><p>Manage the existing storefront catalogue, availability, product images and secure checkout links.</p></div>
         <button>{notice}</button>
       </section>
-
       <section className="formsGrid">
         <aside className="card formList">
-          <div className="panelHead">
-            <h2>Products</h2>
-            {canEdit && <button onClick={addProduct}>Add</button>}
-          </div>
-          {merch.products.map(product => (
-            <button
-              className={product.id === selectedId ? 'active' : ''}
-              key={product.id}
-              onClick={() => setSelectedId(product.id)}
-            >
-              <b>{product.name}</b>
-              <small>{product.category} · £{Number(product.priceGBP || 0).toFixed(2)}</small>
-            </button>
-          ))}
+          <div className="panelHead"><h2>Products</h2>{canEdit && <button onClick={addProduct}>Add</button>}</div>
+          {merch.products.map(product => <button className={product.id === selectedId ? 'active' : ''} key={product.id} onClick={() => setSelectedId(product.id)}><b>{product.name}</b><small>{product.category} · £{Number(product.priceGBP || 0).toFixed(2)}</small></button>)}
         </aside>
-
         <section className="card formEditor">
-          <div className="panelHead">
-            <h2>Store Details</h2>
-            <span>{merch.products.length} products</span>
-          </div>
+          <div className="panelHead"><h2>Store Details</h2><span>{merch.products.length} products</span></div>
           <div className="formSettings">
             <label>Store Title<input value={merch.title} disabled={!canEdit} onChange={event => updateStore({ title: event.target.value })} /></label>
             <label>Eyebrow<input value={merch.eyebrow} disabled={!canEdit} onChange={event => updateStore({ eyebrow: event.target.value })} /></label>
             <label>Subtitle<textarea value={merch.subtitle} disabled={!canEdit} onChange={event => updateStore({ subtitle: event.target.value })} /></label>
           </div>
-
-          {selected && (
-            <>
-              <div className="panelHead"><h2>Product Details</h2>{canEdit && <button onClick={deleteProduct}>Delete</button>}</div>
-              <div className="formSettings">
-                <label>Name<input value={selected.name} disabled={!canEdit} onChange={event => updateProduct({ name: event.target.value })} /></label>
-                <label>Type<input value={selected.type} disabled={!canEdit} onChange={event => updateProduct({ type: event.target.value })} /></label>
-                <label>Category<select value={selected.category} disabled={!canEdit} onChange={event => updateProduct({ category: event.target.value })}><option>Apparel</option><option>Accessories</option><option>Digital</option></select></label>
-                <label>Price GBP<input type="number" step="0.01" value={selected.priceGBP} disabled={!canEdit} onChange={event => updateProduct({ priceGBP: Number(event.target.value) })} /></label>
-                <label>Description<textarea value={selected.description} disabled={!canEdit} onChange={event => updateProduct({ description: event.target.value })} /></label>
-                {canManageMedia && (
-                  <label>
-                    Media Library Image
-                    <select value={selected.image?.id || ''} disabled={!canEdit} onChange={event => selectAsset(event.target.value)}>
-                      <option value="">Choose uploaded image</option>
-                      {imageAssets.map(asset => (
-                        <option key={asset.id} value={asset.id}>{asset.name} · {asset.slotId}</option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-                <label>Image URL<input value={selected.image?.url || ''} disabled={!canEdit} onChange={event => updateProduct({ image: { url: event.target.value, alt: selected.name } })} /></label>
-                <label>Availability<select value={selected.availability} disabled={!canEdit} onChange={event => updateProduct({ availability: event.target.value, status: event.target.value === 'available' ? 'Available' : event.target.value === 'sold-out' ? 'Sold Out' : 'Coming Soon' })}><option value="prelaunch">Coming Soon</option><option value="available">Available</option><option value="sold-out">Sold Out</option><option value="paused">Paused</option></select></label>
-                <label>Shipping / Delivery Note<textarea value={selected.shippingNote} disabled={!canEdit} onChange={event => updateProduct({ shippingNote: event.target.value })} /></label>
-                <label>Checkout Provider<input value={selected.checkout?.provider || ''} disabled={!canEdit} onChange={event => updateProduct({ checkout: { provider: event.target.value } })} /></label>
-                <label>Checkout URL<input value={selected.checkout?.url || ''} disabled={!canEdit} onChange={event => updateProduct({ checkout: { url: event.target.value } })} /></label>
-                <label className="formCheck"><input type="checkbox" checked={selected.checkout?.enabled || false} disabled={!canEdit} onChange={event => updateProduct({ checkout: { enabled: event.target.checked } })} /> Checkout enabled</label>
-                <label className="formCheck"><input type="checkbox" checked={selected.featured || false} disabled={!canEdit} onChange={event => updateProduct({ featured: event.target.checked })} /> Featured</label>
-                <label className="formCheck"><input type="checkbox" checked={selected.limited || false} disabled={!canEdit} onChange={event => updateProduct({ limited: event.target.checked })} /> Limited drop</label>
-                <label className="formCheck"><input type="checkbox" checked={selected.showInCarousel || false} disabled={!canEdit} onChange={event => updateProduct({ showInCarousel: event.target.checked })} /> Featured carousel</label>
-              </div>
-            </>
-          )}
+          {selected && <>
+            <div className="panelHead"><h2>Product Details</h2>{canEdit && <button onClick={deleteProduct}>Delete</button>}</div>
+            <div className="formSettings">
+              <label>Name<input value={selected.name} disabled={!canEdit} onChange={event => updateProduct({ name: event.target.value })} /></label>
+              <label>Type<input value={selected.type} disabled={!canEdit} onChange={event => updateProduct({ type: event.target.value })} /></label>
+              <label>Category<select value={selected.category} disabled={!canEdit} onChange={event => updateProduct({ category: event.target.value })}><option>Apparel</option><option>Accessories</option><option>Digital</option></select></label>
+              <label>Price GBP<input type="number" step="0.01" value={selected.priceGBP} disabled={!canEdit} onChange={event => updateProduct({ priceGBP: Number(event.target.value) })} /></label>
+              <label>Description<textarea value={selected.description} disabled={!canEdit} onChange={event => updateProduct({ description: event.target.value })} /></label>
+              {canManageMedia && <>
+                <label>Upload Product Image<input type="file" accept="image/*" disabled={!canEdit} onChange={event => uploadProductImage(event.target.files?.[0])} /></label>
+                <label>Media Library Image<select value={selected.image?.id || ''} disabled={!canEdit} onChange={event => selectAsset(event.target.value)}><option value="">Choose uploaded image</option>{imageAssets.map(asset => <option key={asset.id} value={asset.id}>{asset.name} · {asset.slotId}</option>)}</select></label>
+              </>}
+              <label>Image URL<input value={selected.image?.url || ''} disabled={!canEdit} onChange={event => updateProduct({ image: { url: event.target.value, alt: selected.name } })} /></label>
+              <label>Availability<select value={selected.availability} disabled={!canEdit} onChange={event => updateProduct({ availability: event.target.value, status: event.target.value === 'available' ? 'Available' : event.target.value === 'sold-out' ? 'Sold Out' : 'Coming Soon' })}><option value="prelaunch">Coming Soon</option><option value="available">Available</option><option value="sold-out">Sold Out</option><option value="paused">Paused</option></select></label>
+              <label>Shipping / Delivery Note<textarea value={selected.shippingNote} disabled={!canEdit} onChange={event => updateProduct({ shippingNote: event.target.value })} /></label>
+              <label>Checkout Provider<input value={selected.checkout?.provider || ''} disabled={!canEdit} onChange={event => updateProduct({ checkout: { provider: event.target.value } })} /></label>
+              <label>Checkout URL<input value={selected.checkout?.url || ''} disabled={!canEdit} onChange={event => updateProduct({ checkout: { url: event.target.value } })} /></label>
+              <label className="formCheck"><input type="checkbox" checked={selected.checkout?.enabled || false} disabled={!canEdit} onChange={event => updateProduct({ checkout: { enabled: event.target.checked } })} /> Checkout enabled</label>
+              <label className="formCheck"><input type="checkbox" checked={selected.featured || false} disabled={!canEdit} onChange={event => updateProduct({ featured: event.target.checked })} /> Featured</label>
+              <label className="formCheck"><input type="checkbox" checked={selected.limited || false} disabled={!canEdit} onChange={event => updateProduct({ limited: event.target.checked })} /> Limited drop</label>
+              <label className="formCheck"><input type="checkbox" checked={selected.showInCarousel || false} disabled={!canEdit} onChange={event => updateProduct({ showInCarousel: event.target.checked })} /> Featured carousel</label>
+            </div>
+          </>}
         </section>
-
         <aside className="card formPreview">
           <h2>Store Preview</h2>
-          {selected ? (
-            <article className="brandSlot">
-              <div className="brandPreview">
-                {selected.image?.url ? <img src={selected.image.url} alt={selected.image.alt || selected.name} /> : <div className="assetEmpty">Image coming soon</div>}
-              </div>
-              <h3>{selected.name}</h3>
-              <p>{selected.description}</p>
-              <strong>£{Number(selected.priceGBP || 0).toFixed(2)}</strong>
-              <small>{selected.status}</small>
-              <button disabled={!selected.checkout?.enabled || selected.availability !== 'available'}>{selected.checkout?.label || 'Buy Now'}</button>
-            </article>
-          ) : <p>No product selected.</p>}
+          {selected ? <article className="brandSlot"><div className="brandPreview">{selected.image?.url ? <img src={selected.image.url} alt={selected.image.alt || selected.name} /> : <div className="assetEmpty">Image coming soon</div>}</div><h3>{selected.name}</h3><p>{selected.description}</p><strong>£{Number(selected.priceGBP || 0).toFixed(2)}</strong><small>{selected.status}</small><button disabled={!selected.checkout?.enabled || selected.availability !== 'available'}>{selected.checkout?.label || 'Buy Now'}</button></article> : <p>No product selected.</p>}
         </aside>
       </section>
     </Layout>
