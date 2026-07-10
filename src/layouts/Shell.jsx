@@ -9,6 +9,15 @@ function go(path) {
   location.href = path
 }
 
+function clientItemAllowed(account, path) {
+  if (!account || account.role === 'owner') return true
+  if (path === '/client/editor' || path === '/client/engine' || path === '/client/forms') return !!account.canEdit
+  if (path === '/client/media' || path === '/client/branding') return !!account.canManageMedia
+  if (path === '/client/publish') return !!account.canRequestUpdates
+  if (path === '/client/support') return !!account.canViewSupport
+  return true
+}
+
 export function Logo() {
   return (
     <div className="logo brandLogo">
@@ -17,8 +26,8 @@ export function Logo() {
   )
 }
 
-export function Sidebar({ client = false }) {
-  const items = client
+export function Sidebar({ client = false, account = null }) {
+  const items = (client
     ? [
         ['/client', 'Dashboard'],
         ['/client/website', 'My Website'],
@@ -44,6 +53,7 @@ export function Sidebar({ client = false }) {
         ['/owner/support', 'Support'],
         ['/owner/settings', 'Settings'],
       ]
+  ).filter(([path]) => !client || clientItemAllowed(account, path))
 
   const current = route()
 
@@ -105,7 +115,7 @@ export function Layout({ client = false, title, children }) {
 
   return (
     <div className="shell">
-      <Sidebar client={client} />
+      <Sidebar client={client} account={account} />
       <main>
         <Header client={client} title={title} account={account} />
         <PermissionBanner client={client} account={account} />
