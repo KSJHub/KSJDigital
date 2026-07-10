@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import express from 'express'
+import { getCommerceSettings } from './commerceSettingsRouter.js'
 import { createPaidOrder } from './orderService.js'
 import { sendOrderNotifications } from './orderNotificationService.js'
 import { paths, readJson, safeName } from './storage.js'
@@ -86,15 +87,15 @@ function getProduct(merch, productId) {
   return product
 }
 
-function checkoutSettings(content = {}) {
+async function checkoutSettings(websiteId, content = {}) {
+  const commerce = await getCommerceSettings(websiteId)
   return {
-    successUrl: content.merch?.payments?.successUrl || process.env.STRIPE_SUCCESS_URL,
-    cancelUrl: content.merch?.payments?.cancelUrl || process.env.STRIPE_CANCEL_URL,
-    orderEmail: content.merch?.notifications?.orderEmail,
-    supportEmail: content.contact?.supportEmail,
-    replyTo: content.contact?.supportEmail,
-    brandName: content.brand?.name,
-    discordWebhookUrl: content.merch?.notifications?.discordWebhookUrl,
+    ...commerce,
+    successUrl: commerce.successUrl || process.env.STRIPE_SUCCESS_URL,
+    cancelUrl: commerce.cancelUrl || process.env.STRIPE_CANCEL_URL,
+    supportEmail: commerce.supportEmail || content.contact?.supportEmail || '',
+    replyTo: commerce.replyTo || commerce.supportEmail || content.contact?.supportEmail || '',
+    brandName: content.brand?.name || websiteId,
     manageUrl: process.env.ORDER_MANAGE_URL || 'https://ksjdigital.co.uk/owner/orders',
   }
 }
@@ -103,7 +104,8 @@ export async function createStripeCheckoutSession({ websiteId, productId, quanti
   const safeWebsiteId = safeName(websiteId)
   const { content, merch } = await getStore(safeWebsiteId)
   const product = getProduct(merch, productId)
-  const settings = checkoutSettings(content)
+  const settings = await checkoutSettings(safeWebsiteId, content)
+  if (!settings.stripeEnabled) throw new Error('Stripe checkout is disabled for this website')
   if (!settings.successUrl || !settings.cancelUrl) throw new Error('Stripe success and cancel URLs are not configured')
 
   const amount = Math.round(Number(product.priceGBP) * 100)
@@ -158,6 +160,7 @@ export async function processStripeCheckoutCompleted(event) {
   const websiteId = safeName(session.metadata?.websiteId)
   const { content, merch } = await getStore(websiteId)
   const product = getProduct(merch, session.metadata?.productId)
+  const settings = await checkoutSettings(websiteId, content)
   const quantity = Math.max(1, Number(session.metadata?.quantity || 1))
   const customerDetails = session.customer_details || {}
   const shippingDetails = session.shipping_details || session.collected_information?.shipping_details || {}
@@ -200,7 +203,7 @@ export async function processStripeCheckoutCompleted(event) {
     paidAt: new Date((session.created || Math.floor(Date.now() / 1000)) * 1000).toISOString(),
   })
 
-  if (created) await sendOrderNotifications(order, checkoutSettings(content))
+  if (created) await sendOrderNotifications(order, settings)
   return { order, created }
 }
 
