@@ -7,8 +7,38 @@ import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
 const ASSET_BASE = import.meta.env.VITE_KSJ_ASSET_URL || 'http://localhost:4174'
 const MANAGED_PROVIDERS = ['stripe', 'paypal']
 
+function variantKey(size = '', colour = '') {
+  return `${String(size).trim().toLowerCase()}::${String(colour).trim().toLowerCase()}`
+}
+
+function buildVariantMatrix(product = {}) {
+  const sizes = Array.isArray(product.variants?.sizes) ? product.variants.sizes : []
+  const colours = Array.isArray(product.variants?.colours) ? product.variants.colours : []
+  const existing = Array.isArray(product.inventory?.variants) ? product.inventory.variants : []
+  const sizeOptions = sizes.length ? sizes : ['']
+  const colourOptions = colours.length ? colours : ['']
+
+  if (!sizes.length && !colours.length) return []
+
+  return sizeOptions.flatMap(size =>
+    colourOptions.map(colour => {
+      const match = existing.find(item => variantKey(item.size, item.colour) === variantKey(size, colour))
+      return {
+        size,
+        colour,
+        quantity: Math.max(0, Number(match?.quantity || 0)),
+        lowStockThreshold: Math.max(0, Number(match?.lowStockThreshold ?? product.inventory?.lowStockThreshold ?? 2)),
+      }
+    }),
+  )
+}
+
+function totalVariantStock(records = []) {
+  return records.reduce((total, item) => total + Math.max(0, Number(item.quantity || 0)), 0)
+}
+
 function productDefaults(product = {}) {
-  return {
+  const base = {
     ...product,
     orderTag: product.orderTag || '',
     variants: {
@@ -24,6 +54,15 @@ function productDefaults(product = {}) {
     fulfilmentOptions: {
       madeToOrder: product.fulfilmentOptions?.madeToOrder === true,
       leadTimeMessage: product.fulfilmentOptions?.leadTimeMessage || '',
+    },
+  }
+  const matrix = buildVariantMatrix(base)
+  return {
+    ...base,
+    inventory: {
+      ...base.inventory,
+      variants: matrix,
+      quantity: matrix.length ? totalVariantStock(matrix) : base.inventory.quantity,
     },
   }
 }
@@ -142,6 +181,7 @@ function productErrors(product) {
   if (!product) return ['No product selected']
   const errors = []
   const madeToOrder = product.fulfilmentOptions?.madeToOrder === true
+  const records = buildVariantMatrix(product)
   if (!product.name?.trim()) errors.push('Product name is required')
   if (!product.description?.trim()) errors.push('Description is required')
   if (Number(product.priceGBP) <= 0) errors.push('Price must be greater than £0')
@@ -150,8 +190,8 @@ function productErrors(product) {
   if (madeToOrder && !product.fulfilmentOptions?.leadTimeMessage?.trim()) {
     errors.push('Made-to-order timeframe message is required')
   }
-  if (product.inventory?.trackStock && Number(product.inventory.quantity) < 0) {
-    errors.push('Stock quantity cannot be negative')
+  if (product.inventory?.trackStock && records.some(item => Number(item.quantity) < 0)) {
+    errors.push('Variant stock cannot be negative')
   }
   if (product.checkout?.enabled) {
     if (product.availability !== 'available') errors.push('Checkout requires Available status')
@@ -184,6 +224,7 @@ export function MerchManagerPage({ client = false }) {
   const errors = productErrors(selected)
   const managedProvider = isManagedProvider(selected?.checkout?.provider)
   const selectedOrderTag = automaticOrderTag(selected)
+  const selectedVariantMatrix = buildVariantMatrix(selected)
   const imageAssets = useMemo(
     () => mediaAssets.filter(asset => asset.type?.startsWith('image/')),
     [mediaAssets],
@@ -258,7 +299,7 @@ export function MerchManagerPage({ client = false }) {
 
     const products = merch.products.map(product =>
       product.id === selected.id
-        ? {
+        ? productDefaults({
             ...product,
             ...changes,
             image: changes.image ? { ...product.image, ...changes.image } : product.image,
@@ -268,10 +309,31 @@ export function MerchManagerPage({ client = false }) {
             fulfilmentOptions: changes.fulfilmentOptions
               ? { ...product.fulfilmentOptions, ...changes.fulfilmentOptions }
               : product.fulfilmentOptions,
-          }
+          })
         : product,
     )
     save({ ...merch, products }, 'Product saved')
+  }
+
+  function updateVariantOptions(key, value) {
+    const variants = { ...selected.variants, [key]: listFromText(value) }
+    const matrix = buildVariantMatrix({ ...selected, variants })
+    updateProduct({
+      variants,
+      inventory: { variants: matrix, quantity: totalVariantStock(matrix) },
+    })
+  }
+
+  function updateVariantStock(index, changes) {
+    const records = selectedVariantMatrix.map((record, recordIndex) =>
+      recordIndex === index ? { ...record, ...changes } : record,
+    )
+    updateProduct({
+      inventory: {
+        variants: records,
+        quantity: totalVariantStock(records),
+      },
+    })
   }
 
   function updateProvider(provider) {
@@ -395,8 +457,8 @@ export function MerchManagerPage({ client = false }) {
                 <section className="card publishBox"><h3>Order code preview</h3><p>{selectedOrderTag} — leave the custom field blank to derive it automatically.</p></section>
                 <label>Price GBP<input type="number" min="0" step="0.01" value={selected.priceGBP} disabled={!canEdit} onChange={event => updateProduct({ priceGBP: Number(event.target.value) })} /></label>
                 <label>Description<textarea value={selected.description} disabled={!canEdit} onChange={event => updateProduct({ description: event.target.value })} /></label>
-                <label>Sizes (comma separated)<input value={selected.variants?.sizes?.join(', ') || ''} disabled={!canEdit} onChange={event => updateProduct({ variants: { sizes: listFromText(event.target.value) } })} placeholder="S, M, L, XL" /></label>
-                <label>Colours (comma separated)<input value={selected.variants?.colours?.join(', ') || ''} disabled={!canEdit} onChange={event => updateProduct({ variants: { colours: listFromText(event.target.value) } })} placeholder="Black, White, Red" /></label>
+                <label>Sizes (comma separated)<input value={selected.variants?.sizes?.join(', ') || ''} disabled={!canEdit} onChange={event => updateVariantOptions('sizes', event.target.value)} placeholder="S, M, L, XL" /></label>
+                <label>Colours (comma separated)<input value={selected.variants?.colours?.join(', ') || ''} disabled={!canEdit} onChange={event => updateVariantOptions('colours', event.target.value)} placeholder="Black, White, Red" /></label>
                 <label className="formCheck"><input type="checkbox" checked={selected.fulfilmentOptions?.madeToOrder || false} disabled={!canEdit} onChange={event => updateProduct({ fulfilmentOptions: { madeToOrder: event.target.checked } })} /> Made to order</label>
                 {selected.fulfilmentOptions?.madeToOrder && (
                   <>
@@ -405,8 +467,29 @@ export function MerchManagerPage({ client = false }) {
                   </>
                 )}
                 <label className="formCheck"><input type="checkbox" checked={selected.inventory?.trackStock || false} disabled={!canEdit} onChange={event => updateProduct({ inventory: { trackStock: event.target.checked } })} /> Track ready stock</label>
-                <label>Ready Stock Quantity<input type="number" min="0" step="1" value={selected.inventory?.quantity || 0} disabled={!canEdit || !selected.inventory?.trackStock} onChange={event => updateProduct({ inventory: { quantity: Math.max(0, Number(event.target.value)) } })} /></label>
-                <label>Low Stock Warning<input type="number" min="0" step="1" value={selected.inventory?.lowStockThreshold || 0} disabled={!canEdit || !selected.inventory?.trackStock} onChange={event => updateProduct({ inventory: { lowStockThreshold: Math.max(0, Number(event.target.value)) } })} /></label>
+
+                {selected.inventory?.trackStock && selectedVariantMatrix.length > 0 ? (
+                  <section className="card publishBox">
+                    <h3>Variant Stock Matrix</h3>
+                    <p>Set ready stock and low-stock warning for every size and colour combination.</p>
+                    <div className="formSettings">
+                      {selectedVariantMatrix.map((record, index) => (
+                        <div className="card" key={variantKey(record.size, record.colour)}>
+                          <strong>{[record.size, record.colour].filter(Boolean).join(' / ') || 'Standard'}</strong>
+                          <label>Ready Stock<input type="number" min="0" step="1" value={record.quantity} disabled={!canEdit} onChange={event => updateVariantStock(index, { quantity: Math.max(0, Number(event.target.value)) })} /></label>
+                          <label>Low Stock Warning<input type="number" min="0" step="1" value={record.lowStockThreshold} disabled={!canEdit} onChange={event => updateVariantStock(index, { lowStockThreshold: Math.max(0, Number(event.target.value)) })} /></label>
+                          <small>{record.quantity <= record.lowStockThreshold ? 'Low stock' : 'In stock'}</small>
+                        </div>
+                      ))}
+                    </div>
+                    <p>Total ready stock: {selected.inventory.quantity}</p>
+                  </section>
+                ) : (
+                  <>
+                    <label>Ready Stock Quantity<input type="number" min="0" step="1" value={selected.inventory?.quantity || 0} disabled={!canEdit || !selected.inventory?.trackStock} onChange={event => updateProduct({ inventory: { quantity: Math.max(0, Number(event.target.value)) } })} /></label>
+                    <label>Low Stock Warning<input type="number" min="0" step="1" value={selected.inventory?.lowStockThreshold || 0} disabled={!canEdit || !selected.inventory?.trackStock} onChange={event => updateProduct({ inventory: { lowStockThreshold: Math.max(0, Number(event.target.value)) } })} /></label>
+                  </>
+                )}
                 {selected.inventory?.trackStock && selected.inventory.quantity <= selected.inventory.lowStockThreshold && <section className="card publishBox"><h3>{selected.fulfilmentOptions?.madeToOrder ? 'Ready stock low' : 'Low stock'}</h3><p>{selected.inventory.quantity} ready unit(s) remain.{selected.fulfilmentOptions?.madeToOrder ? ' Checkout continues as made to order when ready stock reaches zero.' : ''}</p></section>}
                 {canManageMedia && (
                   <>
