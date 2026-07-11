@@ -20,6 +20,12 @@ const DEFAULTS = {
   freeShippingThreshold: 50,
   estimatedDeliveryMinDays: 3,
   estimatedDeliveryMaxDays: 5,
+  taxEnabled: false,
+  taxLabel: 'VAT',
+  taxRate: 20,
+  pricesIncludeTax: true,
+  taxShipping: true,
+  taxNumber: '',
 }
 
 function clean(value = '') {
@@ -88,6 +94,12 @@ function sanitise(input = {}) {
     freeShippingThreshold: money(input.freeShippingThreshold, DEFAULTS.freeShippingThreshold),
     estimatedDeliveryMinDays: minimumDays,
     estimatedDeliveryMaxDays: maximumDays,
+    taxEnabled: input.taxEnabled === true,
+    taxLabel: clean(input.taxLabel) || DEFAULTS.taxLabel,
+    taxRate: Math.min(100, money(input.taxRate, DEFAULTS.taxRate)),
+    pricesIncludeTax: input.pricesIncludeTax !== false,
+    taxShipping: input.taxShipping !== false,
+    taxNumber: clean(input.taxNumber).toUpperCase(),
   }
 }
 
@@ -113,6 +125,60 @@ export function calculateShipping(settings = {}, product = {}, quantity = 1) {
     minimumDays: safeSettings.estimatedDeliveryMinDays,
     maximumDays: safeSettings.estimatedDeliveryMaxDays,
     free: qualifiesForFreeShipping || safeSettings.standardShippingRate === 0,
+  }
+}
+
+export function calculateTax(settings = {}, productSubtotal = 0, shippingAmount = 0) {
+  const safeSettings = sanitise(settings)
+  const productGrossOrNet = money(productSubtotal)
+  const shippingGrossOrNet = money(shippingAmount)
+
+  if (!safeSettings.taxEnabled || safeSettings.taxRate <= 0) {
+    return {
+      enabled: false,
+      label: safeSettings.taxLabel,
+      rate: 0,
+      included: false,
+      productNet: productGrossOrNet,
+      shippingNet: shippingGrossOrNet,
+      amount: 0,
+      total: money(productGrossOrNet + shippingGrossOrNet),
+      number: '',
+    }
+  }
+
+  const rate = safeSettings.taxRate / 100
+  const taxableShipping = safeSettings.taxShipping ? shippingGrossOrNet : 0
+  const exemptShipping = safeSettings.taxShipping ? 0 : shippingGrossOrNet
+
+  if (safeSettings.pricesIncludeTax) {
+    const productNet = money(productGrossOrNet / (1 + rate))
+    const shippingNet = money(taxableShipping / (1 + rate))
+    const amount = money(productGrossOrNet + taxableShipping - productNet - shippingNet)
+    return {
+      enabled: true,
+      label: safeSettings.taxLabel,
+      rate: safeSettings.taxRate,
+      included: true,
+      productNet,
+      shippingNet: money(shippingNet + exemptShipping),
+      amount,
+      total: money(productGrossOrNet + shippingGrossOrNet),
+      number: safeSettings.taxNumber,
+    }
+  }
+
+  const amount = money((productGrossOrNet + taxableShipping) * rate)
+  return {
+    enabled: true,
+    label: safeSettings.taxLabel,
+    rate: safeSettings.taxRate,
+    included: false,
+    productNet: productGrossOrNet,
+    shippingNet: shippingGrossOrNet,
+    amount,
+    total: money(productGrossOrNet + shippingGrossOrNet + amount),
+    number: safeSettings.taxNumber,
   }
 }
 
@@ -152,6 +218,8 @@ function validate(settings) {
   if (settings.shippingEnabled && !settings.standardShippingLabel) {
     errors.push('Standard shipping label is required')
   }
+  if (settings.taxEnabled && !settings.taxLabel) errors.push('Tax label is required')
+  if (settings.taxEnabled && settings.taxRate <= 0) errors.push('Tax rate must be greater than zero')
   return errors.filter(Boolean)
 }
 
