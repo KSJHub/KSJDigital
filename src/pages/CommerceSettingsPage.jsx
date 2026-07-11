@@ -29,6 +29,21 @@ const defaults = {
   pricesIncludeTax: true,
   taxShipping: true,
   taxNumber: '',
+  discountCodes: [],
+}
+
+function newDiscount() {
+  return {
+    id: crypto.randomUUID(),
+    code: '',
+    type: 'percent',
+    value: 10,
+    minimumSpend: 0,
+    maxUses: 0,
+    uses: 0,
+    expiresAt: '',
+    active: true,
+  }
 }
 
 export function CommerceSettingsPage({ client = false }) {
@@ -63,6 +78,22 @@ export function CommerceSettingsPage({ client = false }) {
     setSettings(current => ({ ...current, [key]: value }))
   }
 
+  function updateDiscount(id, key, value) {
+    setSettings(current => ({
+      ...current,
+      discountCodes: current.discountCodes.map(item =>
+        item.id === id ? { ...item, [key]: value } : item,
+      ),
+    }))
+  }
+
+  function removeDiscount(id) {
+    setSettings(current => ({
+      ...current,
+      discountCodes: current.discountCodes.filter(item => item.id !== id),
+    }))
+  }
+
   async function save() {
     if (!canEdit) return setNotice('Edit permission required')
     if (!websiteId) return setNotice('No website assigned')
@@ -85,8 +116,8 @@ export function CommerceSettingsPage({ client = false }) {
       <section className="moduleHero card">
         <div>
           <span>Protected Commerce Settings</span>
-          <h2>{selectedWebsite?.name || 'Website'} Payments, Shipping, Tax & Notifications</h2>
-          <p>Configure checkout, delivery, tax and private notifications. Payment secrets remain in the server environment.</p>
+          <h2>{selectedWebsite?.name || 'Website'} Payments, Shipping, Tax & Discounts</h2>
+          <p>Configure checkout, delivery, tax, discount codes and private notifications. Payment secrets remain in the server environment.</p>
         </div>
         <button onClick={save} disabled={!canEdit}>{notice}</button>
       </section>
@@ -135,6 +166,30 @@ export function CommerceSettingsPage({ client = false }) {
             <p>{settings.taxEnabled ? `${settings.taxLabel || 'Tax'} at ${Number(settings.taxRate || 0).toFixed(2)}%. ${settings.pricesIncludeTax ? 'Displayed prices include tax; the invoice extracts the tax portion.' : 'Tax is added during checkout.'}` : 'No tax is calculated or added.'}</p>
             <p>Only enable this after confirming the store's tax-registration position.</p>
           </section>
+        </div>
+
+        <div className="card managerPanel mainWork">
+          <div className="panelHead"><h2>Discount Codes</h2><span>{settings.discountCodes.length} configured</span></div>
+          {settings.discountCodes.map(discount => (
+            <article className="card publishBox" key={discount.id}>
+              <div className="panelHead">
+                <h3>{discount.code || 'New discount code'}</h3>
+                <button type="button" disabled={!canEdit} onClick={() => removeDiscount(discount.id)}>Remove</button>
+              </div>
+              <label className="formCheck"><input type="checkbox" checked={discount.active} disabled={!canEdit} onChange={event => updateDiscount(discount.id, 'active', event.target.checked)} /> Active</label>
+              <div className="formSettings">
+                <label>Code<input value={discount.code} disabled={!canEdit} onChange={event => updateDiscount(discount.id, 'code', event.target.value.toUpperCase())} placeholder="WELCOME10" /></label>
+                <label>Type<select value={discount.type} disabled={!canEdit} onChange={event => updateDiscount(discount.id, 'type', event.target.value)}><option value="percent">Percentage</option><option value="fixed">Fixed amount</option></select></label>
+                <label>{discount.type === 'fixed' ? 'Amount (£)' : 'Discount (%)'}<input type="number" min="0" step="0.01" value={discount.value} disabled={!canEdit} onChange={event => updateDiscount(discount.id, 'value', Number(event.target.value))} /></label>
+                <label>Minimum Spend (£)<input type="number" min="0" step="0.01" value={discount.minimumSpend} disabled={!canEdit} onChange={event => updateDiscount(discount.id, 'minimumSpend', Number(event.target.value))} /></label>
+                <label>Maximum Uses<input type="number" min="0" step="1" value={discount.maxUses} disabled={!canEdit} onChange={event => updateDiscount(discount.id, 'maxUses', Number(event.target.value))} /><small>0 means unlimited.</small></label>
+                <label>Expiry Date<input type="date" value={discount.expiresAt?.slice(0, 10) || ''} disabled={!canEdit} onChange={event => updateDiscount(discount.id, 'expiresAt', event.target.value)} /></label>
+              </div>
+              <p>Used {discount.uses || 0}{discount.maxUses > 0 ? ` of ${discount.maxUses}` : ' times'}. Discounts apply before VAT and shipping thresholds are recalculated from the discounted subtotal.</p>
+            </article>
+          ))}
+          {!settings.discountCodes.length && <p className="emptyState">No discount codes configured.</p>}
+          <button type="button" disabled={!canEdit} onClick={() => update('discountCodes', [...settings.discountCodes, newDiscount()])}>Add Discount Code</button>
         </div>
 
         <div className="card managerPanel">
