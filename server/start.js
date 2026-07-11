@@ -10,6 +10,7 @@ import { createStripeRouter } from './stripeCheckout.js'
 const originalUse = express.application.use
 let useCalls = 0
 let checkoutMounted = false
+let publicOrdersMounted = false
 let protectedCommerceMounted = false
 
 express.application.use = function patchedUse(...args) {
@@ -19,10 +20,14 @@ express.application.use = function patchedUse(...args) {
     checkoutMounted = true
     originalUse.call(this, '/api/checkout/stripe', createStripeRouter())
     originalUse.call(this, '/api/checkout/paypal', createPayPalRouter())
-    originalUse.call(this, '/api/public/orders', createPublicOrdersRouter())
   }
 
   const result = originalUse.apply(this, args)
+
+  if (!publicOrdersMounted && useCalls === 2) {
+    publicOrdersMounted = true
+    originalUse.call(this, '/api/public/orders', createPublicOrdersRouter())
+  }
 
   if (!protectedCommerceMounted && useCalls === 4) {
     protectedCommerceMounted = true
