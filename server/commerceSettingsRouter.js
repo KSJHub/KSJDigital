@@ -13,10 +13,27 @@ const DEFAULTS = {
   discordWebhookUrl: '',
   deliveryMessage: 'Delivery and dispatch details will be confirmed separately.',
   returnsMessage: '',
+  shippingEnabled: true,
+  standardShippingLabel: 'UK Standard Delivery',
+  standardShippingRate: 3.99,
+  freeShippingEnabled: false,
+  freeShippingThreshold: 50,
+  estimatedDeliveryMinDays: 3,
+  estimatedDeliveryMaxDays: 5,
 }
 
 function clean(value = '') {
   return typeof value === 'string' ? value.trim() : value
+}
+
+function money(value, fallback = 0) {
+  const number = Number(value)
+  return Number.isFinite(number) ? Math.max(0, Math.round(number * 100) / 100) : fallback
+}
+
+function wholeNumber(value, fallback) {
+  const number = Number(value)
+  return Number.isFinite(number) ? Math.max(0, Math.round(number)) : fallback
 }
 
 export function normaliseOrderPrefix(value = '') {
@@ -24,9 +41,7 @@ export function normaliseOrderPrefix(value = '') {
 }
 
 function suggestedOrderPrefix(name = '', id = '') {
-  const source = String(name || id)
-    .replace(/[^A-Za-z0-9 ]/g, ' ')
-    .trim()
+  const source = String(name || id).replace(/[^A-Za-z0-9 ]/g, ' ').trim()
   const words = source.split(/\s+/).filter(Boolean)
   if (words.length > 1) {
     return normaliseOrderPrefix(words.map(word => word[0]).join('')).slice(0, 3) || 'WEB'
@@ -47,6 +62,12 @@ function uniquePrefix(base, used) {
 }
 
 function sanitise(input = {}) {
+  const minimumDays = wholeNumber(input.estimatedDeliveryMinDays, DEFAULTS.estimatedDeliveryMinDays)
+  const maximumDays = Math.max(
+    minimumDays,
+    wholeNumber(input.estimatedDeliveryMaxDays, DEFAULTS.estimatedDeliveryMaxDays),
+  )
+
   return {
     ...DEFAULTS,
     stripeEnabled: input.stripeEnabled === true,
@@ -60,6 +81,38 @@ function sanitise(input = {}) {
     discordWebhookUrl: clean(input.discordWebhookUrl),
     deliveryMessage: clean(input.deliveryMessage) || DEFAULTS.deliveryMessage,
     returnsMessage: clean(input.returnsMessage),
+    shippingEnabled: input.shippingEnabled !== false,
+    standardShippingLabel: clean(input.standardShippingLabel) || DEFAULTS.standardShippingLabel,
+    standardShippingRate: money(input.standardShippingRate, DEFAULTS.standardShippingRate),
+    freeShippingEnabled: input.freeShippingEnabled === true,
+    freeShippingThreshold: money(input.freeShippingThreshold, DEFAULTS.freeShippingThreshold),
+    estimatedDeliveryMinDays: minimumDays,
+    estimatedDeliveryMaxDays: maximumDays,
+  }
+}
+
+export function calculateShipping(settings = {}, product = {}, quantity = 1) {
+  const safeSettings = sanitise(settings)
+  const safeQuantity = Math.max(1, Number(quantity) || 1)
+  const subtotal = money(Number(product.priceGBP || 0) * safeQuantity)
+
+  if (product.fulfilment === 'digital') {
+    return { amount: 0, label: 'Digital delivery', minimumDays: 0, maximumDays: 0, free: true }
+  }
+
+  if (!safeSettings.shippingEnabled) {
+    return { amount: 0, label: 'Delivery included', minimumDays: 0, maximumDays: 0, free: true }
+  }
+
+  const qualifiesForFreeShipping =
+    safeSettings.freeShippingEnabled && subtotal >= safeSettings.freeShippingThreshold
+
+  return {
+    amount: qualifiesForFreeShipping ? 0 : safeSettings.standardShippingRate,
+    label: qualifiesForFreeShipping ? 'Free UK Delivery' : safeSettings.standardShippingLabel,
+    minimumDays: safeSettings.estimatedDeliveryMinDays,
+    maximumDays: safeSettings.estimatedDeliveryMaxDays,
+    free: qualifiesForFreeShipping || safeSettings.standardShippingRate === 0,
   }
 }
 
@@ -95,6 +148,9 @@ function validate(settings) {
   }
   if ((settings.stripeEnabled || settings.paypalEnabled) && !settings.orderEmail) {
     errors.push('Order notification email is required')
+  }
+  if (settings.shippingEnabled && !settings.standardShippingLabel) {
+    errors.push('Standard shipping label is required')
   }
   return errors.filter(Boolean)
 }
