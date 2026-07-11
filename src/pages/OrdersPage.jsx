@@ -4,6 +4,8 @@ import { api } from '../services/api.js'
 import { getAccountFromPath } from '../services/auth.js'
 
 const statuses = ['New', 'Processing', 'Awaiting Stock', 'Dispatched', 'Delivered', 'Cancelled', 'Refunded']
+const actionStatuses = statuses.filter(status => status !== 'Dispatched')
+const couriers = ['Royal Mail', 'Evri', 'DPD', 'DHL', 'UPS', 'FedEx', 'Other']
 
 function money(value, currency = 'GBP') {
   return new Intl.NumberFormat('en-GB', { style: 'currency', currency }).format(Number(value || 0))
@@ -24,6 +26,7 @@ export function OrdersPage({ client = false }) {
   const [statusFilter, setStatusFilter] = useState('All')
   const [providerFilter, setProviderFilter] = useState('All')
   const [notice, setNotice] = useState('Loading orders')
+  const [tracking, setTracking] = useState({ courier: '', number: '', url: '' })
   const selected = orders.find(order => order.id === selectedId) || orders[0]
 
   async function loadOrders(message = 'Orders synced') {
@@ -41,6 +44,14 @@ export function OrdersPage({ client = false }) {
     loadOrders()
   }, [])
 
+  useEffect(() => {
+    setTracking({
+      courier: selected?.tracking?.courier || '',
+      number: selected?.tracking?.number || '',
+      url: selected?.tracking?.url || '',
+    })
+  }, [selected?.id, selected?.tracking?.courier, selected?.tracking?.number, selected?.tracking?.url])
+
   const visibleOrders = useMemo(() => {
     const term = search.trim().toLowerCase()
     return orders.filter(order => {
@@ -54,7 +65,6 @@ export function OrdersPage({ client = false }) {
   const livePaidOrders = orders.filter(order => order.paymentStatus === 'Paid' && !order.isTestOrder)
   const revenue = livePaidOrders.reduce((total, order) => total + Number(order.total || 0), 0)
   const awaiting = orders.filter(order => ['New', 'Processing', 'Awaiting Stock'].includes(order.fulfilmentStatus)).length
-  const dispatched = orders.filter(order => order.fulfilmentStatus === 'Dispatched').length
   const testOrders = orders.filter(order => order.isTestOrder).length
 
   async function updateStatus(status, extra = {}) {
@@ -67,6 +77,19 @@ export function OrdersPage({ client = false }) {
     } catch (error) {
       setNotice(error.message || 'Update failed')
     }
+  }
+
+  async function dispatchOrder() {
+    if (!selected || !canEdit) return
+    if (!tracking.courier || !tracking.number.trim()) {
+      setNotice('Courier and tracking number are required')
+      return
+    }
+
+    await updateStatus('Dispatched', {
+      tracking,
+      sendDispatchEmail: selected.fulfilmentStatus === 'Dispatched',
+    })
   }
 
   async function purgeTests() {
@@ -121,7 +144,7 @@ export function OrdersPage({ client = false }) {
 
         <aside className="card managerPanel nextSteps">
           <h2>Order Actions</h2>
-          {statuses.map(status => <button key={status} disabled={!selected || !canEdit || selected.fulfilmentStatus === status} onClick={() => updateStatus(status)}>{status}</button>)}
+          {actionStatuses.map(status => <button key={status} disabled={!selected || !canEdit || selected.fulfilmentStatus === status} onClick={() => updateStatus(status)}>{status}</button>)}
           {isOwner && <button disabled={!testOrders} onClick={purgeTests}>Delete Test Orders ({testOrders})</button>}
         </aside>
       </section>
@@ -135,7 +158,7 @@ export function OrdersPage({ client = false }) {
             <h3>Delivery Address</h3>
             <p>{addressLines(selected.shippingAddress).map(line => <span key={line}>{line}<br /></span>)}</p>
             <h3>Items</h3>
-            {selected.items?.map(item => <article className="simplePageRow" key={`${item.productId}-${item.variant?.size}-${item.variant?.colour}`}><div><b>{item.quantity} × {item.name}</b><small>{item.orderTag || item.sku || 'ITEM'} {item.variant?.size && `· Size: ${item.variant.size}`} {item.variant?.colour && `· Colour: ${item.variant.colour}`}</small></div><span>{money(item.total, selected.currency)}</span></article>)}
+            {selected.items?.map(item => <article className="simplePageRow" key={`${item.productId}-${item.variant?.size}-${item.variant?.colour}`}><div><b>{item.quantity} × {item.name}</b><small>{item.orderTag || item.sku || 'ITEM'} {item.variant?.size && `· Size: ${item.variant.size}`} {item.variant?.colour && `· Colour: ${item.variant.colour}`} {item.madeToOrder && '· Made to order'}</small></div><span>{money(item.total, selected.currency)}</span></article>)}
           </div>
 
           <div className="card managerPanel publishBox">
@@ -153,10 +176,14 @@ export function OrdersPage({ client = false }) {
             <p>Buyer email: {selected.notifications?.buyerEmail}</p>
             <p>Client email: {selected.notifications?.clientEmail}</p>
             <p>Discord: {selected.notifications?.discord}</p>
-            <h2>Tracking</h2>
-            <label>Courier<input disabled={!canEdit} defaultValue={selected.tracking?.courier || ''} id="order-courier" /></label>
-            <label>Tracking Number<input disabled={!canEdit} defaultValue={selected.tracking?.number || ''} id="order-tracking" /></label>
-            {canEdit && <button onClick={() => updateStatus('Dispatched', { tracking: { courier: document.getElementById('order-courier')?.value || '', number: document.getElementById('order-tracking')?.value || '' } })}>Save & Mark Dispatched</button>}
+            <p>Dispatch email: {selected.notifications?.dispatchEmail || 'Not sent'}</p>
+            <h2>Dispatch & Tracking</h2>
+            <label>Courier<select disabled={!canEdit} value={tracking.courier} onChange={event => setTracking(current => ({ ...current, courier: event.target.value }))}><option value="">Choose courier</option>{couriers.map(courier => <option key={courier}>{courier}</option>)}</select></label>
+            <label>Tracking Number<input disabled={!canEdit} value={tracking.number} onChange={event => setTracking(current => ({ ...current, number: event.target.value }))} /></label>
+            <label>Custom Tracking URL<input type="url" disabled={!canEdit} value={tracking.url} onChange={event => setTracking(current => ({ ...current, url: event.target.value }))} placeholder="Generated automatically for supported couriers" /></label>
+            {selected.tracking?.dispatchedAt && <p>Dispatched: {new Date(selected.tracking.dispatchedAt).toLocaleString('en-GB')}</p>}
+            {selected.tracking?.url && <a href={selected.tracking.url} target="_blank" rel="noreferrer">Open tracking page</a>}
+            {canEdit && <button onClick={dispatchOrder}>{selected.fulfilmentStatus === 'Dispatched' ? 'Save & Resend Dispatch Email' : 'Save & Mark Dispatched'}</button>}
           </div>
         </section>
       )}
