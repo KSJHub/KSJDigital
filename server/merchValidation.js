@@ -123,13 +123,13 @@ export function resolveProductSelection(product, quantity = 1, variant = {}) {
   }
 }
 
-export async function decrementProductStock(websiteId, productId, quantity, variant = {}) {
+async function adjustProductStock(websiteId, productId, quantity, variant = {}, direction = -1) {
   const content = await readJson(paths.content(websiteId), {})
   const products = Array.isArray(content.merch?.products) ? content.merch.products : []
   const product = products.find(item => item.id === productId)
   if (!product?.inventory?.trackStock) return null
 
-  const reduction = Math.max(1, Number(quantity || 1))
+  const change = Math.max(1, Number(quantity || 1)) * direction
   const records = variantStock(product)
   let nextInventory
 
@@ -137,7 +137,7 @@ export async function decrementProductStock(websiteId, productId, quantity, vari
     const selectedKey = variantKey(variant.size, variant.colour)
     const nextVariants = records.map(record =>
       variantKey(record.size, record.colour) === selectedKey
-        ? { ...record, quantity: Math.max(0, Number(record.quantity || 0) - reduction) }
+        ? { ...record, quantity: Math.max(0, Number(record.quantity || 0) + change) }
         : record,
     )
     nextInventory = {
@@ -148,21 +148,21 @@ export async function decrementProductStock(websiteId, productId, quantity, vari
   } else {
     nextInventory = {
       ...product.inventory,
-      quantity: Math.max(0, Number(product.inventory.quantity || 0) - reduction),
+      quantity: Math.max(0, Number(product.inventory.quantity || 0) + change),
     }
   }
 
   const soldOut = Number(nextInventory.quantity || 0) <= 0
   const keepAvailable = isMadeToOrder(product)
+  const restored = direction > 0 && Number(nextInventory.quantity || 0) > 0
   const nextProducts = products.map(item =>
     item.id === productId
       ? {
           ...item,
           inventory: nextInventory,
-          availability: soldOut && !keepAvailable ? 'sold-out' : item.availability,
-          status: soldOut && !keepAvailable ? 'Sold Out' : item.status,
-          checkout:
-            soldOut && !keepAvailable ? { ...item.checkout, enabled: false } : item.checkout,
+          availability: restored ? 'available' : soldOut && !keepAvailable ? 'sold-out' : item.availability,
+          status: restored ? 'Available' : soldOut && !keepAvailable ? 'Sold Out' : item.status,
+          checkout: restored ? { ...item.checkout, enabled: true } : soldOut && !keepAvailable ? { ...item.checkout, enabled: false } : item.checkout,
         }
       : item,
   )
@@ -172,6 +172,14 @@ export async function decrementProductStock(websiteId, productId, quantity, vari
     merch: { ...content.merch, products: nextProducts },
   })
   return nextInventory
+}
+
+export async function decrementProductStock(websiteId, productId, quantity, variant = {}) {
+  return adjustProductStock(websiteId, productId, quantity, variant, -1)
+}
+
+export async function restoreProductStock(websiteId, productId, quantity, variant = {}) {
+  return adjustProductStock(websiteId, productId, quantity, variant, 1)
 }
 
 export function validateMerchContent(content = {}) {
