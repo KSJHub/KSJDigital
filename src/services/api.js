@@ -71,6 +71,7 @@ export const api = {
     }),
   getOrders: () => request('/orders'),
   getOrder: id => request(`/orders/${id}`),
+  invoiceUrl: id => `${API_BASE}/orders/${encodeURIComponent(id)}/invoice`,
   updateOrderStatus: (id, payload) =>
     request(`/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify(payload) }),
   purgeTestOrders: (websiteId = '') =>
