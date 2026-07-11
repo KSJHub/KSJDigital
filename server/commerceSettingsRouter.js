@@ -19,6 +19,22 @@ function clean(value = '') {
   return typeof value === 'string' ? value.trim() : value
 }
 
+export function normaliseOrderPrefix(value = '') {
+  return String(value).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)
+}
+
+function suggestedOrderPrefix(name = '', id = '') {
+  const source = String(name || id)
+    .replace(/[^A-Za-z0-9 ]/g, ' ')
+    .trim()
+  const words = source.split(/\s+/).filter(Boolean)
+  if (words.length > 1) {
+    return normaliseOrderPrefix(words.map(word => word[0]).join('')).slice(0, 3) || 'WEB'
+  }
+  const compact = normaliseOrderPrefix(source)
+  return compact.slice(-3) || 'WEB'
+}
+
 function sanitise(input = {}) {
   return {
     ...DEFAULTS,
@@ -87,6 +103,41 @@ function canAccessWebsite(session, websiteId) {
   if (!session || !websiteId) return false
   if (session.role === 'owner') return true
   return (session.websiteIds || []).includes(websiteId)
+}
+
+export function createWebsiteOrderPrefixGuard() {
+  const router = express.Router()
+
+  async function validatePrefix(req, res, next) {
+    const websites = await readJson(paths.websites(), [])
+    const existing = websites.find(site => site.id === req.params.id)
+    const requested = req.body?.orderPrefix
+    const prefix = normaliseOrderPrefix(
+      requested || existing?.orderPrefix || suggestedOrderPrefix(req.body?.name, req.params.id),
+    )
+
+    if (prefix.length < 2) {
+      return res.status(400).json({ error: 'Order prefix must contain 2–6 letters or numbers' })
+    }
+
+    const duplicate = websites.find(
+      site => site.id !== req.params.id && normaliseOrderPrefix(site.orderPrefix) === prefix,
+    )
+    if (duplicate) {
+      return res.status(400).json({ error: `Order prefix ${prefix} is already used by ${duplicate.name}` })
+    }
+
+    req.body = { ...(req.body || {}), orderPrefix: prefix }
+    next()
+  }
+
+  router.post('/', async (req, res, next) => {
+    req.params.id = safeName(req.body?.name || 'new-website')
+    return validatePrefix(req, res, next)
+  })
+  router.patch('/:id', validatePrefix)
+
+  return router
 }
 
 export function createCommerceSettingsRouter() {
