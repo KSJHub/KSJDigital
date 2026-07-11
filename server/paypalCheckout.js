@@ -1,5 +1,11 @@
 import express from 'express'
-import { calculateShipping, calculateTax, getCommerceSettings } from './commerceSettingsRouter.js'
+import {
+  calculateShipping,
+  calculateTax,
+  getCommerceSettings,
+  recordDiscountUse,
+  resolveDiscount,
+} from './commerceSettingsRouter.js'
 import { decrementProductStock, resolveProductSelection } from './merchValidation.js'
 import { createPaidOrder } from './orderService.js'
 import { sendOrderNotifications } from './orderNotificationService.js'
@@ -82,7 +88,7 @@ async function checkoutSettings(websiteId, content = {}) {
   }
 }
 
-export async function createPayPalOrder({ websiteId, productId, quantity = 1, variant = {} }) {
+export async function createPayPalOrder({ websiteId, productId, quantity = 1, variant = {}, discountCode = '' }) {
   const safeWebsiteId = safeName(websiteId)
   const { content, merch } = await getStore(safeWebsiteId)
   const product = getProduct(merch, productId)
@@ -93,17 +99,21 @@ export async function createPayPalOrder({ websiteId, productId, quantity = 1, va
     throw new Error('PayPal return and cancel URLs are not configured')
   }
 
-  const productSubtotal = Number(product.priceGBP) * selection.quantity
-  const shipping = calculateShipping(settings, product, selection.quantity)
-  const tax = calculateTax(settings, productSubtotal, shipping.amount)
+  const originalSubtotal = Number(product.priceGBP) * selection.quantity
+  const discount = resolveDiscount(settings, discountCode, originalSubtotal)
+  const discountedSubtotal = Math.max(0, originalSubtotal - discount.amount)
+  const shippingProduct = { ...product, priceGBP: discountedSubtotal / selection.quantity }
+  const shipping = calculateShipping(settings, shippingProduct, selection.quantity)
+  const tax = calculateTax(settings, discountedSubtotal, shipping.amount)
   const breakdown = {
-    item_total: { currency_code: 'GBP', value: productSubtotal.toFixed(2) },
+    item_total: { currency_code: 'GBP', value: discountedSubtotal.toFixed(2) },
     shipping: { currency_code: 'GBP', value: shipping.amount.toFixed(2) },
   }
   if (tax.enabled && !tax.included && tax.amount > 0) {
     breakdown.tax_total = { currency_code: 'GBP', value: tax.amount.toFixed(2) }
   }
 
+  const hasDiscount = discount.amount > 0
   const order = await paypalRequest('/v2/checkout/orders', {
     method: 'POST',
     headers: { 'PayPal-Request-Id': crypto.randomUUID() },
@@ -119,6 +129,8 @@ export async function createPayPalOrder({ websiteId, productId, quantity = 1, va
             s: selection.variant.size,
             c: selection.variant.colour,
             l: shipping.label,
+            d: discount.code,
+            a: discount.amount,
           }),
           description: product.name,
           amount: {
@@ -128,13 +140,13 @@ export async function createPayPalOrder({ websiteId, productId, quantity = 1, va
           },
           items: [
             {
-              name: product.name,
-              description: product.description,
-              quantity: String(selection.quantity),
+              name: hasDiscount ? `${product.name} × ${selection.quantity}` : product.name,
+              description: hasDiscount ? `${product.description || ''} Discount ${discount.code} applied.`.trim() : product.description,
+              quantity: hasDiscount ? '1' : String(selection.quantity),
               category: product.fulfilment === 'digital' ? 'DIGITAL_GOODS' : 'PHYSICAL_GOODS',
               unit_amount: {
                 currency_code: 'GBP',
-                value: Number(product.priceGBP).toFixed(2),
+                value: (discountedSubtotal / (hasDiscount ? 1 : selection.quantity)).toFixed(2),
               },
             },
           ],
@@ -196,6 +208,8 @@ export async function capturePayPalOrder(orderId) {
   const productGrossOrNet = Number(unit?.amount?.breakdown?.item_total?.value || 0)
   const shippingGrossOrNet = Number(unit?.amount?.breakdown?.shipping?.value || 0)
   const tax = calculateTax(settings, productGrossOrNet, shippingGrossOrNet)
+  const discountCode = custom.d || ''
+  const discountAmount = Number(custom.a || 0)
 
   const { order, created } = await createPaidOrder({
     websiteId,
@@ -212,7 +226,8 @@ export async function capturePayPalOrder(orderId) {
     taxRate: tax.rate,
     taxIncluded: tax.included,
     taxNumber: tax.number,
-    discount: 0,
+    discount: discountAmount,
+    discountCode,
     total: Number(amount.value || 0),
     customer: {
       name: `${payer.name?.given_name || ''} ${payer.name?.surname || ''}`.trim() || shippingAddress.name?.full_name || 'Customer',
@@ -243,6 +258,7 @@ export async function capturePayPalOrder(orderId) {
 
   if (created) {
     await decrementProductStock(websiteId, product.id, selection.quantity, selection.variant)
+    await recordDiscountUse(websiteId, discountCode)
     await sendOrderNotifications(order, settings)
   }
   return { order, created, completed: true }
@@ -275,6 +291,7 @@ export function createPayPalRouter() {
         productId: req.query.productId,
         quantity: req.query.quantity,
         variant: { size: req.query.size, colour: req.query.colour },
+        discountCode: req.query.discountCode,
       })
       if (!order.approvalUrl) throw new Error('PayPal approval URL was not returned')
       res.redirect(303, order.approvalUrl)
