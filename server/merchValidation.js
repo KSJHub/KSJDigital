@@ -127,7 +127,7 @@ export async function decrementProductStock(websiteId, productId, quantity, vari
   const content = await readJson(paths.content(websiteId), {})
   const products = Array.isArray(content.merch?.products) ? content.merch.products : []
   const product = products.find(item => item.id === productId)
-  if (!product?.inventory?.trackStock || isMadeToOrder(product)) return null
+  if (!product?.inventory?.trackStock) return null
 
   const reduction = Math.max(1, Number(quantity || 1))
   const records = variantStock(product)
@@ -153,14 +153,16 @@ export async function decrementProductStock(websiteId, productId, quantity, vari
   }
 
   const soldOut = Number(nextInventory.quantity || 0) <= 0
+  const keepAvailable = isMadeToOrder(product)
   const nextProducts = products.map(item =>
     item.id === productId
       ? {
           ...item,
           inventory: nextInventory,
-          availability: soldOut ? 'sold-out' : item.availability,
-          status: soldOut ? 'Sold Out' : item.status,
-          checkout: soldOut ? { ...item.checkout, enabled: false } : item.checkout,
+          availability: soldOut && !keepAvailable ? 'sold-out' : item.availability,
+          status: soldOut && !keepAvailable ? 'Sold Out' : item.status,
+          checkout:
+            soldOut && !keepAvailable ? { ...item.checkout, enabled: false } : item.checkout,
         }
       : item,
   )
