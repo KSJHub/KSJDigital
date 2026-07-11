@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import express from 'express'
-import { calculateShipping, getCommerceSettings } from './commerceSettingsRouter.js'
+import { calculateShipping, calculateTax, getCommerceSettings } from './commerceSettingsRouter.js'
 import { decrementProductStock, resolveProductSelection } from './merchValidation.js'
 import { createPaidOrder } from './orderService.js'
 import { sendOrderNotifications } from './orderNotificationService.js'
@@ -110,8 +110,9 @@ export async function createStripeCheckoutSession({ websiteId, productId, quanti
   if (!settings.stripeEnabled) throw new Error('Stripe checkout is disabled for this website')
   if (!settings.successUrl || !settings.cancelUrl) throw new Error('Stripe success and cancel URLs are not configured')
 
-  const amount = Math.round(Number(product.priceGBP) * 100)
+  const productSubtotal = Number(product.priceGBP) * selection.quantity
   const shipping = calculateShipping(settings, product, selection.quantity)
+  const tax = calculateTax(settings, productSubtotal, shipping.amount)
   const entries = [
     ['mode', 'payment'],
     ['success_url', `${settings.successUrl}${settings.successUrl.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`],
@@ -120,7 +121,7 @@ export async function createStripeCheckoutSession({ websiteId, productId, quanti
     ['billing_address_collection', 'auto'],
     ['line_items[0][quantity]', selection.quantity],
     ['line_items[0][price_data][currency]', 'gbp'],
-    ['line_items[0][price_data][unit_amount]', amount],
+    ['line_items[0][price_data][unit_amount]', Math.round(Number(product.priceGBP) * 100)],
     ['line_items[0][price_data][product_data][name]', product.name],
     ['line_items[0][price_data][product_data][description]', product.description],
     ['metadata[websiteId]', safeWebsiteId],
@@ -129,7 +130,21 @@ export async function createStripeCheckoutSession({ websiteId, productId, quanti
     ['metadata[size]', selection.variant.size],
     ['metadata[colour]', selection.variant.colour],
     ['metadata[shippingLabel]', shipping.label],
+    ['metadata[productNet]', tax.productNet.toFixed(2)],
+    ['metadata[shippingNet]', tax.shippingNet.toFixed(2)],
+    ['metadata[taxAmount]', tax.amount.toFixed(2)],
+    ['metadata[taxLabel]', tax.label],
+    ['metadata[taxRate]', tax.rate],
+    ['metadata[taxIncluded]', tax.included ? 'true' : 'false'],
+    ['metadata[taxNumber]', tax.number],
   ]
+
+  if (tax.enabled && !tax.included && tax.amount > 0) {
+    entries.push(['line_items[1][quantity]', 1])
+    entries.push(['line_items[1][price_data][currency]', 'gbp'])
+    entries.push(['line_items[1][price_data][unit_amount]', Math.round(tax.amount * 100)])
+    entries.push(['line_items[1][price_data][product_data][name]', `${tax.label} (${tax.rate}%)`])
+  }
 
   if (product.fulfilment !== 'digital') {
     entries.push(['shipping_address_collection[allowed_countries][0]', 'GB'])
@@ -194,9 +209,13 @@ export async function processStripeCheckoutCompleted(event) {
     providerTransactionId: session.payment_intent || '',
     paymentMethod: 'Card / Stripe',
     currency: String(session.currency || 'gbp').toUpperCase(),
-    subtotal: Number(session.amount_subtotal || 0) / 100,
-    shipping: Number(session.total_details?.amount_shipping || 0) / 100,
-    tax: Number(session.total_details?.amount_tax || 0) / 100,
+    subtotal: Number(session.metadata?.productNet || session.amount_subtotal || 0),
+    shipping: Number(session.metadata?.shippingNet || session.total_details?.amount_shipping || 0),
+    tax: Number(session.metadata?.taxAmount || 0),
+    taxLabel: session.metadata?.taxLabel || 'Tax',
+    taxRate: Number(session.metadata?.taxRate || 0),
+    taxIncluded: session.metadata?.taxIncluded === 'true',
+    taxNumber: session.metadata?.taxNumber || '',
     discount: Number(session.total_details?.amount_discount || 0) / 100,
     total: Number(session.amount_total || 0) / 100,
     customer: {
