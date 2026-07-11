@@ -18,6 +18,141 @@ function canAccessOrder(session, order) {
   return (session.websiteIds || []).includes(order.websiteId)
 }
 
+function escapeHtml(value = '') {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
+}
+
+function money(value, currency = 'GBP') {
+  return new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: currency || 'GBP',
+  }).format(Number(value || 0))
+}
+
+function addressHtml(address = {}) {
+  const lines = [
+    address.line1,
+    address.line2,
+    address.city,
+    address.region,
+    address.postalCode,
+    address.country || address.countryCode,
+  ].filter(Boolean)
+  return lines.length ? lines.map(line => escapeHtml(line)).join('<br>') : 'Not supplied'
+}
+
+function invoiceHtml(order, settings = {}) {
+  const items = (order.items || [])
+    .map(item => {
+      const variant = [item.variant?.size, item.variant?.colour].filter(Boolean).join(' / ')
+      const details = [item.orderTag || item.sku, variant, item.madeToOrder ? 'Made to order' : '']
+        .filter(Boolean)
+        .join(' · ')
+      return `<tr>
+        <td><strong>${escapeHtml(item.name)}</strong>${details ? `<small>${escapeHtml(details)}</small>` : ''}</td>
+        <td class="number">${Number(item.quantity || 0)}</td>
+        <td class="number">${escapeHtml(money(item.unitPrice, order.currency))}</td>
+        <td class="number">${escapeHtml(money(item.total, order.currency))}</td>
+      </tr>`
+    })
+    .join('')
+
+  const issued = new Date(order.paidAt || order.createdAt || Date.now())
+  const supportEmail = settings.supportEmail || settings.replyTo || ''
+  const testLabel = order.isTestOrder ? '<span class="test">TEST INVOICE</span>' : ''
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Invoice ${escapeHtml(order.orderNumber)}</title>
+  <style>
+    :root { color-scheme: light; font-family: Arial, sans-serif; color: #111827; }
+    body { margin: 0; background: #f3f4f6; }
+    .toolbar { max-width: 900px; margin: 20px auto 0; display: flex; justify-content: flex-end; gap: 10px; }
+    button { border: 0; border-radius: 8px; padding: 10px 16px; cursor: pointer; background: #111827; color: white; }
+    .invoice { max-width: 820px; margin: 20px auto; background: white; padding: 42px; box-shadow: 0 8px 30px rgba(0,0,0,.08); }
+    header { display: flex; justify-content: space-between; gap: 30px; border-bottom: 2px solid #111827; padding-bottom: 22px; }
+    h1 { margin: 0 0 5px; font-size: 34px; }
+    h2 { margin: 0 0 8px; font-size: 18px; }
+    p { margin: 4px 0; line-height: 1.45; }
+    .muted, small { color: #6b7280; }
+    .test { display: inline-block; margin-top: 8px; padding: 5px 9px; background: #fef3c7; border-radius: 5px; font-weight: 700; }
+    .addresses { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin: 34px 0; }
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; background: #f3f4f6; padding: 12px; font-size: 13px; }
+    td { border-bottom: 1px solid #e5e7eb; padding: 14px 12px; vertical-align: top; }
+    td small { display: block; margin-top: 5px; }
+    .number { text-align: right; white-space: nowrap; }
+    .totals { width: min(360px, 100%); margin: 26px 0 0 auto; }
+    .totals div { display: flex; justify-content: space-between; padding: 7px 0; }
+    .totals .grand { border-top: 2px solid #111827; margin-top: 8px; padding-top: 13px; font-size: 19px; font-weight: 700; }
+    footer { margin-top: 38px; border-top: 1px solid #e5e7eb; padding-top: 20px; font-size: 13px; color: #6b7280; }
+    @media print { body { background: white; } .toolbar { display: none; } .invoice { margin: 0; max-width: none; box-shadow: none; padding: 20px; } }
+    @media (max-width: 650px) { .invoice { margin: 0; padding: 24px; } header, .addresses { display: block; } header > div + div, .addresses > div + div { margin-top: 22px; } }
+  </style>
+</head>
+<body>
+  <div class="toolbar"><button onclick="window.print()">Print / Save as PDF</button></div>
+  <main class="invoice">
+    <header>
+      <div>
+        <h1>INVOICE</h1>
+        <p><strong>${escapeHtml(order.clientName || order.websiteId)}</strong></p>
+        ${supportEmail ? `<p class="muted">${escapeHtml(supportEmail)}</p>` : ''}
+        ${testLabel}
+      </div>
+      <div>
+        <p><strong>Invoice:</strong> ${escapeHtml(order.orderNumber)}</p>
+        <p><strong>Issued:</strong> ${escapeHtml(issued.toLocaleDateString('en-GB'))}</p>
+        <p><strong>Payment:</strong> ${escapeHtml(order.paymentStatus || 'Paid')}</p>
+        <p><strong>Method:</strong> ${escapeHtml(order.paymentMethod || order.provider)}</p>
+      </div>
+    </header>
+
+    <section class="addresses">
+      <div>
+        <h2>Bill To</h2>
+        <p><strong>${escapeHtml(order.customer?.name || 'Customer')}</strong></p>
+        <p>${escapeHtml(order.customer?.email || '')}</p>
+        <p>${addressHtml(order.billingAddress || order.shippingAddress)}</p>
+      </div>
+      <div>
+        <h2>Deliver To</h2>
+        <p><strong>${escapeHtml(order.customer?.name || 'Customer')}</strong></p>
+        <p>${addressHtml(order.shippingAddress)}</p>
+        <p class="muted">${escapeHtml(order.shippingMethod || '')}</p>
+      </div>
+    </section>
+
+    <table>
+      <thead><tr><th>Item</th><th class="number">Qty</th><th class="number">Unit</th><th class="number">Total</th></tr></thead>
+      <tbody>${items}</tbody>
+    </table>
+
+    <section class="totals">
+      <div><span>Subtotal</span><strong>${escapeHtml(money(order.subtotal, order.currency))}</strong></div>
+      <div><span>Shipping</span><strong>${escapeHtml(money(order.shipping, order.currency))}</strong></div>
+      <div><span>Tax / VAT</span><strong>${escapeHtml(money(order.tax, order.currency))}</strong></div>
+      <div><span>Discount</span><strong>-${escapeHtml(money(order.discount, order.currency))}</strong></div>
+      <div class="grand"><span>Total</span><span>${escapeHtml(money(order.total, order.currency))}</span></div>
+    </section>
+
+    <footer>
+      <p>Payment reference: ${escapeHtml(order.providerTransactionId || order.providerOrderId || 'Not supplied')}</p>
+      <p>This invoice was generated from the verified KSJ Digital order record.</p>
+    </footer>
+  </main>
+</body>
+</html>`
+}
+
 function trackingDetails(input = {}, status = '') {
   const courier = String(input.courier || '').trim()
   const number = String(input.number || '').trim()
@@ -56,6 +191,17 @@ export function createOrdersRouter() {
       return res.status(403).json({ error: 'Owner access required' })
     }
     res.json(await purgeTestOrders(req.body?.websiteId || ''))
+  })
+
+  router.get('/:id/invoice', async (req, res) => {
+    const order = await getOrder(req.params.id)
+    if (!order) return res.status(404).send('Order not found')
+    if (!canAccessOrder(req.session, order)) return res.status(403).send('Order access denied')
+
+    const settings = await getCommerceSettings(order.websiteId)
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    res.setHeader('Content-Disposition', `inline; filename="invoice-${order.orderNumber}.html"`)
+    res.send(invoiceHtml(order, settings))
   })
 
   router.get('/:id', async (req, res) => {
