@@ -38,7 +38,8 @@ function trackingDetails(input = {}, status = '') {
     courier,
     number,
     url,
-    dispatchedAt: status === 'Dispatched' ? new Date().toISOString() : input.dispatchedAt || '',
+    dispatchedAt:
+      input.dispatchedAt || (status === 'Dispatched' ? new Date().toISOString() : ''),
   }
 }
 
@@ -75,7 +76,7 @@ export function createOrdersRouter() {
     try {
       const status = req.body?.status
       const tracking = req.body?.tracking
-        ? trackingDetails(req.body.tracking, status)
+        ? trackingDetails({ ...(order.tracking || {}), ...req.body.tracking }, status)
         : order.tracking
       let updated = await updateOrderStatus(req.params.id, status, {
         tracking,
