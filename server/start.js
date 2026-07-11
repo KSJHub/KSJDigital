@@ -3,7 +3,7 @@ import {
   createCommerceSettingsRouter,
   createWebsiteOrderPrefixGuard,
 } from './commerceSettingsRouter.js'
-import { createOrdersRouter } from './ordersRouter.js'
+import { createOrdersRouter, createPublicOrdersRouter } from './ordersRouter.js'
 import { createPayPalRouter } from './paypalCheckout.js'
 import { createStripeRouter } from './stripeCheckout.js'
 
@@ -19,6 +19,7 @@ express.application.use = function patchedUse(...args) {
     checkoutMounted = true
     originalUse.call(this, '/api/checkout/stripe', createStripeRouter())
     originalUse.call(this, '/api/checkout/paypal', createPayPalRouter())
+    originalUse.call(this, '/api/public/orders', createPublicOrdersRouter())
   }
 
   const result = originalUse.apply(this, args)
