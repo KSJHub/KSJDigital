@@ -193,6 +193,7 @@ export async function createPaidOrder(input = {}) {
     taxIncluded: input.taxIncluded === true,
     taxNumber: clean(input.taxNumber).toUpperCase(),
     discount: roundMoney(input.discount),
+    discountCode: clean(input.discountCode).toUpperCase(),
     total: roundMoney(input.total),
     customer: {
       name: clean(input.customer.name),
