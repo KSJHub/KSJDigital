@@ -93,6 +93,32 @@ function dispatchEmail(order, settings = {}) {
   }
 }
 
+function refundEmail(order, settings = {}) {
+  const refund = settings.latestRefund || order.refund?.history?.at(-1) || {}
+  const amount = new Intl.NumberFormat('en-GB', {
+    style: 'currency',
+    currency: order.currency || 'GBP',
+  }).format(Number(refund.amount || 0))
+  const fullRefund = order.refund?.fullyRefunded === true
+  const lines = [
+    `Hi ${order.customer?.name || 'there'},`,
+    '',
+    `${fullRefund ? 'A full refund' : 'A partial refund'} of ${amount} has been issued for order ${order.orderNumber}.`,
+    refund.reason ? `Reason: ${refund.reason}` : '',
+    '',
+    'Your payment provider may take several working days to return the funds to your original payment method.',
+  ]
+  if (settings.supportEmail) lines.push('', `Questions? Contact ${settings.supportEmail}`)
+  lines.push('', `${settings.brandName || order.clientName || 'Store'} support`)
+
+  return {
+    to: order.customer?.email,
+    replyTo: settings.replyTo || settings.supportEmail || '',
+    subject: `${order.orderNumber} refund confirmed`,
+    text: lines.filter(Boolean).join('\n'),
+  }
+}
+
 export async function sendOrderNotifications(order, settings = {}) {
   const buyerMessage = buildBuyerOrderEmail(order, settings)
   const clientMessage = buildClientOrderEmail(order, settings)
@@ -114,6 +140,10 @@ export async function sendDispatchNotification(order, settings = {}) {
   return deliver(order, 'dispatchEmail', () => sendResendEmail(dispatchEmail(order, settings), settings))
 }
 
+export async function sendRefundNotification(order, settings = {}) {
+  return deliver(order, 'refundEmail', () => sendResendEmail(refundEmail(order, settings), settings))
+}
+
 export async function retryOrderNotification(order, channel, settings = {}) {
   if (channel === 'buyerEmail') {
     return deliver(order, channel, () => sendResendEmail(buildBuyerOrderEmail(order, settings), settings))
@@ -126,8 +156,7 @@ export async function retryOrderNotification(order, channel, settings = {}) {
       sendDiscordWebhook(buildDiscordOrderPayload(order, settings), settings.discordWebhookUrl),
     )
   }
-  if (channel === 'dispatchEmail') {
-    return sendDispatchNotification(order, settings)
-  }
+  if (channel === 'dispatchEmail') return sendDispatchNotification(order, settings)
+  if (channel === 'refundEmail') return sendRefundNotification(order, settings)
   throw new Error('Unknown notification channel')
 }
