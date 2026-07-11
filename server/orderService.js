@@ -188,6 +188,10 @@ export async function createPaidOrder(input = {}) {
     subtotal: roundMoney(input.subtotal),
     shipping: roundMoney(input.shipping),
     tax: roundMoney(input.tax),
+    taxLabel: clean(input.taxLabel) || 'Tax',
+    taxRate: Math.max(0, Number(input.taxRate || 0)),
+    taxIncluded: input.taxIncluded === true,
+    taxNumber: clean(input.taxNumber).toUpperCase(),
     discount: roundMoney(input.discount),
     total: roundMoney(input.total),
     customer: {
