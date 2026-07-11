@@ -92,6 +92,11 @@ export function OrdersPage({ client = false }) {
     })
   }
 
+  function openInvoice() {
+    if (!selected) return
+    window.open(api.invoiceUrl(selected.id), '_blank', 'noopener,noreferrer')
+  }
+
   async function purgeTests() {
     if (!isOwner || !testOrders) return
     if (!window.confirm(`Delete ${testOrders} test order${testOrders === 1 ? '' : 's'} and their test logs? Live orders will not be touched.`)) return
@@ -110,7 +115,7 @@ export function OrdersPage({ client = false }) {
         <div>
           <span>Order Management</span>
           <h2>{client ? 'Your Store Orders' : 'All Client Orders'}</h2>
-          <p>Review paid orders, customer delivery details, notification status and fulfilment progress.</p>
+          <p>Review paid orders, customer delivery details, invoices, notification status and fulfilment progress.</p>
         </div>
         <button onClick={() => loadOrders('Orders refreshed')}>{notice}</button>
       </section>
@@ -144,6 +149,7 @@ export function OrdersPage({ client = false }) {
 
         <aside className="card managerPanel nextSteps">
           <h2>Order Actions</h2>
+          <button disabled={!selected} onClick={openInvoice}>Open Invoice</button>
           {actionStatuses.map(status => <button key={status} disabled={!selected || !canEdit || selected.fulfilmentStatus === status} onClick={() => updateStatus(status)}>{status}</button>)}
           {isOwner && <button disabled={!testOrders} onClick={purgeTests}>Delete Test Orders ({testOrders})</button>}
         </aside>
@@ -163,6 +169,7 @@ export function OrdersPage({ client = false }) {
 
           <div className="card managerPanel publishBox">
             <h2>Payment & Totals</h2>
+            <button onClick={openInvoice}>Print / Save Invoice as PDF</button>
             <p>Environment: {selected.environment || (selected.isTestOrder ? 'test' : 'live')}</p>
             <p>Provider: {selected.provider}</p>
             <p>Provider order: {selected.providerOrderId}</p>
