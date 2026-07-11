@@ -190,7 +190,7 @@ export async function processStripeCheckoutCompleted(event) {
     },
     billingAddress: stripeAddress(customerDetails.address),
     shippingAddress: stripeAddress(shippingDetails.address),
-    shippingMethod: 'Standard delivery',
+    shippingMethod: selection.madeToOrder ? 'Made to order' : 'Standard delivery',
     items: [
       {
         productId: product.id,
@@ -199,6 +199,8 @@ export async function processStripeCheckoutCompleted(event) {
         quantity: selection.quantity,
         unitPrice: Number(product.priceGBP),
         fulfilment: product.fulfilment,
+        madeToOrder: selection.madeToOrder,
+        leadTimeMessage: selection.leadTimeMessage,
         variant: selection.variant,
       },
     ],
