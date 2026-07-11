@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import express from 'express'
 import { getCommerceSettings } from './commerceSettingsRouter.js'
 import { sendDispatchNotification } from './orderNotificationService.js'
@@ -11,6 +12,12 @@ const TRACKING_URLS = {
   UPS: number => `https://www.ups.com/track?tracknum=${encodeURIComponent(number)}`,
   FedEx: number => `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(number)}`,
 }
+
+const publicInvoiceTokens = new Map()
+const lookupAttempts = new Map()
+const LOOKUP_WINDOW_MS = 10 * 60 * 1000
+const LOOKUP_LIMIT = 10
+const INVOICE_TOKEN_MS = 15 * 60 * 1000
 
 function canAccessOrder(session, order) {
   if (!session || !order) return false
@@ -176,6 +183,96 @@ function trackingDetails(input = {}, status = '') {
     dispatchedAt:
       input.dispatchedAt || (status === 'Dispatched' ? new Date().toISOString() : ''),
   }
+}
+
+function allowPublicLookup(req) {
+  const key = req.ip || req.socket?.remoteAddress || 'unknown'
+  const now = Date.now()
+  const attempts = (lookupAttempts.get(key) || []).filter(time => now - time < LOOKUP_WINDOW_MS)
+  if (attempts.length >= LOOKUP_LIMIT) return false
+  attempts.push(now)
+  lookupAttempts.set(key, attempts)
+  return true
+}
+
+function safePublicOrder(order, invoiceToken) {
+  return {
+    orderNumber: order.orderNumber,
+    websiteId: order.websiteId,
+    clientName: order.clientName,
+    paymentStatus: order.paymentStatus,
+    fulfilmentStatus: order.fulfilmentStatus,
+    currency: order.currency,
+    total: order.total,
+    shippingMethod: order.shippingMethod,
+    items: (order.items || []).map(item => ({
+      name: item.name,
+      quantity: item.quantity,
+      variant: item.variant,
+      madeToOrder: item.madeToOrder === true,
+      leadTimeMessage: item.leadTimeMessage || '',
+    })),
+    tracking: order.tracking
+      ? {
+          courier: order.tracking.courier || '',
+          number: order.tracking.number || '',
+          url: order.tracking.url || '',
+          dispatchedAt: order.tracking.dispatchedAt || '',
+        }
+      : null,
+    createdAt: order.createdAt,
+    paidAt: order.paidAt,
+    updatedAt: order.updatedAt,
+    invoiceUrl: `/api/public/orders/invoice/${invoiceToken}`,
+  }
+}
+
+export function createPublicOrdersRouter() {
+  const router = express.Router()
+
+  router.post('/lookup', async (req, res) => {
+    if (!allowPublicLookup(req)) {
+      return res.status(429).json({ error: 'Too many attempts. Please try again later.' })
+    }
+
+    const websiteId = String(req.body?.websiteId || '').trim().toLowerCase()
+    const orderNumber = String(req.body?.orderNumber || '').trim().toUpperCase()
+    const email = String(req.body?.email || '').trim().toLowerCase()
+    if (!websiteId || !orderNumber || !email) {
+      return res.status(400).json({ error: 'Order number and email are required.' })
+    }
+
+    const order = await getOrder(orderNumber)
+    const matches =
+      order &&
+      order.websiteId === websiteId &&
+      String(order.customer?.email || '').trim().toLowerCase() === email
+
+    if (!matches) {
+      return res.status(404).json({ error: 'Order details could not be verified.' })
+    }
+
+    const token = crypto.randomBytes(24).toString('hex')
+    publicInvoiceTokens.set(token, { orderId: order.id, expiresAt: Date.now() + INVOICE_TOKEN_MS })
+    res.json(safePublicOrder(order, token))
+  })
+
+  router.get('/invoice/:token', async (req, res) => {
+    const record = publicInvoiceTokens.get(req.params.token)
+    if (!record || record.expiresAt < Date.now()) {
+      publicInvoiceTokens.delete(req.params.token)
+      return res.status(404).send('Invoice link has expired. Please verify the order again.')
+    }
+
+    const order = await getOrder(record.orderId)
+    if (!order) return res.status(404).send('Invoice not found')
+    const settings = await getCommerceSettings(order.websiteId)
+    res.setHeader('Content-Type', 'text/html; charset=utf-8')
+    res.setHeader('Content-Disposition', `inline; filename="invoice-${order.orderNumber}.html"`)
+    res.send(invoiceHtml(order, settings))
+  })
+
+  return router
 }
 
 export function createOrdersRouter() {
