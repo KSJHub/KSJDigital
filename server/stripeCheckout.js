@@ -1,6 +1,12 @@
 import crypto from 'node:crypto'
 import express from 'express'
-import { calculateShipping, calculateTax, getCommerceSettings } from './commerceSettingsRouter.js'
+import {
+  calculateShipping,
+  calculateTax,
+  getCommerceSettings,
+  recordDiscountUse,
+  resolveDiscount,
+} from './commerceSettingsRouter.js'
 import { decrementProductStock, resolveProductSelection } from './merchValidation.js'
 import { createPaidOrder } from './orderService.js'
 import { sendOrderNotifications } from './orderNotificationService.js'
@@ -101,7 +107,7 @@ async function checkoutSettings(websiteId, content = {}) {
   }
 }
 
-export async function createStripeCheckoutSession({ websiteId, productId, quantity = 1, variant = {} }) {
+export async function createStripeCheckoutSession({ websiteId, productId, quantity = 1, variant = {}, discountCode = '' }) {
   const safeWebsiteId = safeName(websiteId)
   const { content, merch } = await getStore(safeWebsiteId)
   const product = getProduct(merch, productId)
@@ -110,26 +116,33 @@ export async function createStripeCheckoutSession({ websiteId, productId, quanti
   if (!settings.stripeEnabled) throw new Error('Stripe checkout is disabled for this website')
   if (!settings.successUrl || !settings.cancelUrl) throw new Error('Stripe success and cancel URLs are not configured')
 
-  const productSubtotal = Number(product.priceGBP) * selection.quantity
-  const shipping = calculateShipping(settings, product, selection.quantity)
-  const tax = calculateTax(settings, productSubtotal, shipping.amount)
+  const originalSubtotal = Number(product.priceGBP) * selection.quantity
+  const discount = resolveDiscount(settings, discountCode, originalSubtotal)
+  const discountedSubtotal = Math.max(0, originalSubtotal - discount.amount)
+  const shippingProduct = { ...product, priceGBP: discountedSubtotal / selection.quantity }
+  const shipping = calculateShipping(settings, shippingProduct, selection.quantity)
+  const tax = calculateTax(settings, discountedSubtotal, shipping.amount)
+  const hasDiscount = discount.amount > 0
   const entries = [
     ['mode', 'payment'],
     ['success_url', `${settings.successUrl}${settings.successUrl.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`],
     ['cancel_url', settings.cancelUrl],
     ['customer_creation', 'always'],
     ['billing_address_collection', 'auto'],
-    ['line_items[0][quantity]', selection.quantity],
+    ['line_items[0][quantity]', hasDiscount ? 1 : selection.quantity],
     ['line_items[0][price_data][currency]', 'gbp'],
-    ['line_items[0][price_data][unit_amount]', Math.round(Number(product.priceGBP) * 100)],
-    ['line_items[0][price_data][product_data][name]', product.name],
-    ['line_items[0][price_data][product_data][description]', product.description],
+    ['line_items[0][price_data][unit_amount]', Math.round(discountedSubtotal * 100 / (hasDiscount ? 1 : selection.quantity))],
+    ['line_items[0][price_data][product_data][name]', hasDiscount ? `${product.name} × ${selection.quantity}` : product.name],
+    ['line_items[0][price_data][product_data][description]', hasDiscount ? `${product.description || ''} Discount ${discount.code} applied.`.trim() : product.description],
     ['metadata[websiteId]', safeWebsiteId],
     ['metadata[productId]', product.id],
     ['metadata[quantity]', selection.quantity],
     ['metadata[size]', selection.variant.size],
     ['metadata[colour]', selection.variant.colour],
     ['metadata[shippingLabel]', shipping.label],
+    ['metadata[originalSubtotal]', originalSubtotal.toFixed(2)],
+    ['metadata[discountCode]', discount.code],
+    ['metadata[discountAmount]', discount.amount.toFixed(2)],
     ['metadata[productNet]', tax.productNet.toFixed(2)],
     ['metadata[shippingNet]', tax.shippingNet.toFixed(2)],
     ['metadata[taxAmount]', tax.amount.toFixed(2)],
@@ -200,6 +213,8 @@ export async function processStripeCheckoutCompleted(event) {
   })
   const customerDetails = session.customer_details || {}
   const shippingDetails = session.shipping_details || session.collected_information?.shipping_details || {}
+  const discountAmount = Number(session.metadata?.discountAmount || 0)
+  const discountCode = session.metadata?.discountCode || ''
 
   const { order, created } = await createPaidOrder({
     websiteId,
@@ -216,7 +231,8 @@ export async function processStripeCheckoutCompleted(event) {
     taxRate: Number(session.metadata?.taxRate || 0),
     taxIncluded: session.metadata?.taxIncluded === 'true',
     taxNumber: session.metadata?.taxNumber || '',
-    discount: Number(session.total_details?.amount_discount || 0) / 100,
+    discount: discountAmount,
+    discountCode,
     total: Number(session.amount_total || 0) / 100,
     customer: {
       name: customerDetails.name || shippingDetails.name || 'Customer',
@@ -248,6 +264,7 @@ export async function processStripeCheckoutCompleted(event) {
 
   if (created) {
     await decrementProductStock(websiteId, product.id, selection.quantity, selection.variant)
+    await recordDiscountUse(websiteId, discountCode)
     await sendOrderNotifications(order, settings)
   }
   return { order, created }
@@ -263,6 +280,7 @@ export function createStripeRouter() {
         productId: req.query.productId,
         quantity: req.query.quantity,
         variant: { size: req.query.size, colour: req.query.colour },
+        discountCode: req.query.discountCode,
       })
       res.redirect(303, session.url)
     } catch (error) {
