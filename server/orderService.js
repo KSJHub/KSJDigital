@@ -64,6 +64,9 @@ async function enrichItemsFromCatalogue(websiteId, items = []) {
       sku: item.sku || product.sku || '',
       category: item.category || product.category || '',
       type: item.type || product.type || '',
+      madeToOrder: item.madeToOrder ?? product.fulfilmentOptions?.madeToOrder === true,
+      leadTimeMessage:
+        item.leadTimeMessage || product.fulfilmentOptions?.leadTimeMessage || '',
     }
   })
 }
@@ -88,6 +91,8 @@ function normaliseItems(items = []) {
         ...(item.variant || {}),
       },
       fulfilment: item.fulfilment === 'digital' ? 'digital' : 'physical',
+      madeToOrder: item.madeToOrder === true,
+      leadTimeMessage: clean(item.leadTimeMessage),
     }
   })
 }
