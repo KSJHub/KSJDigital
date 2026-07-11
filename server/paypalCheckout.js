@@ -1,5 +1,5 @@
 import express from 'express'
-import { calculateShipping, getCommerceSettings } from './commerceSettingsRouter.js'
+import { calculateShipping, calculateTax, getCommerceSettings } from './commerceSettingsRouter.js'
 import { decrementProductStock, resolveProductSelection } from './merchValidation.js'
 import { createPaidOrder } from './orderService.js'
 import { sendOrderNotifications } from './orderNotificationService.js'
@@ -93,9 +93,17 @@ export async function createPayPalOrder({ websiteId, productId, quantity = 1, va
     throw new Error('PayPal return and cancel URLs are not configured')
   }
 
-  const subtotal = Number(product.priceGBP) * selection.quantity
+  const productSubtotal = Number(product.priceGBP) * selection.quantity
   const shipping = calculateShipping(settings, product, selection.quantity)
-  const total = subtotal + shipping.amount
+  const tax = calculateTax(settings, productSubtotal, shipping.amount)
+  const breakdown = {
+    item_total: { currency_code: 'GBP', value: productSubtotal.toFixed(2) },
+    shipping: { currency_code: 'GBP', value: shipping.amount.toFixed(2) },
+  }
+  if (tax.enabled && !tax.included && tax.amount > 0) {
+    breakdown.tax_total = { currency_code: 'GBP', value: tax.amount.toFixed(2) }
+  }
+
   const order = await paypalRequest('/v2/checkout/orders', {
     method: 'POST',
     headers: { 'PayPal-Request-Id': crypto.randomUUID() },
@@ -111,16 +119,19 @@ export async function createPayPalOrder({ websiteId, productId, quantity = 1, va
             size: selection.variant.size,
             colour: selection.variant.colour,
             shippingLabel: shipping.label,
-            shippingAmount: shipping.amount,
+            productNet: tax.productNet,
+            shippingNet: tax.shippingNet,
+            taxAmount: tax.amount,
+            taxLabel: tax.label,
+            taxRate: tax.rate,
+            taxIncluded: tax.included,
+            taxNumber: tax.number,
           }),
           description: product.name,
           amount: {
             currency_code: 'GBP',
-            value: total.toFixed(2),
-            breakdown: {
-              item_total: { currency_code: 'GBP', value: subtotal.toFixed(2) },
-              shipping: { currency_code: 'GBP', value: shipping.amount.toFixed(2) },
-            },
+            value: tax.total.toFixed(2),
+            breakdown,
           },
           items: [
             {
@@ -189,7 +200,6 @@ export async function capturePayPalOrder(orderId) {
   const payer = capture.payer || {}
   const shippingAddress = unit?.shipping || {}
   const amount = payment?.amount || unit?.amount || {}
-  const shippingAmount = Number(unit?.amount?.breakdown?.shipping?.value ?? custom.shippingAmount ?? 0)
 
   const { order, created } = await createPaidOrder({
     websiteId,
@@ -199,9 +209,13 @@ export async function capturePayPalOrder(orderId) {
     providerTransactionId: payment?.id || '',
     paymentMethod: 'PayPal',
     currency: amount.currency_code || 'GBP',
-    subtotal: Number(product.priceGBP) * selection.quantity,
-    shipping: shippingAmount,
-    tax: 0,
+    subtotal: Number(custom.productNet || 0),
+    shipping: Number(custom.shippingNet || 0),
+    tax: Number(custom.taxAmount || 0),
+    taxLabel: custom.taxLabel || 'Tax',
+    taxRate: Number(custom.taxRate || 0),
+    taxIncluded: custom.taxIncluded === true,
+    taxNumber: custom.taxNumber || '',
     discount: 0,
     total: Number(amount.value || 0),
     customer: {
