@@ -11,7 +11,7 @@ function go(path) {
 
 function clientItemAllowed(account, path) {
   if (!account || account.role === 'owner') return true
-  if (path === '/client/editor' || path === '/client/engine' || path === '/client/forms' || path === '/client/merch' || path === '/client/orders' || path === '/client/commerce') return !!account.canEdit
+  if (path === '/client/editor' || path === '/client/engine' || path === '/client/forms' || path === '/client/merch' || path === '/client/inventory' || path === '/client/orders' || path === '/client/commerce') return !!account.canEdit
   if (path === '/client/media' || path === '/client/branding') return !!account.canManageMedia
   if (path === '/client/publish') return !!account.canRequestUpdates
   if (path === '/client/support') return !!account.canViewSupport
@@ -35,6 +35,7 @@ export function Sidebar({ client = false, account = null }) {
         ['/client/engine', 'CMS Engine'],
         ['/client/forms', 'Forms'],
         ['/client/merch', 'Merch'],
+        ['/client/inventory', 'Inventory'],
         ['/client/orders', 'Orders'],
         ['/client/commerce', 'Commerce Settings'],
         ['/client/media', 'Media'],
@@ -51,6 +52,7 @@ export function Sidebar({ client = false, account = null }) {
         ['/owner/engine', 'CMS Engine'],
         ['/owner/forms', 'Forms'],
         ['/owner/merch', 'Merch'],
+        ['/owner/inventory', 'Inventory'],
         ['/owner/orders', 'Orders'],
         ['/owner/commerce', 'Commerce Settings'],
         ['/owner/branding', 'Branding'],
