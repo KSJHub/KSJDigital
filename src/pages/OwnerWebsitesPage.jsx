@@ -3,6 +3,10 @@ import { Layout } from '../layouts/Shell.jsx'
 import { WebsiteCard } from '../components/UI.jsx'
 import { api } from '../services/api.js'
 
+function orderPrefix(value = '') {
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)
+}
+
 export function OwnerWebsitesPage() {
   const [websites, setWebsites] = useState([])
   const [selectedId, setSelectedId] = useState('')
@@ -45,7 +49,12 @@ export function OwnerWebsitesPage() {
   }
 
   async function create() {
-    const payload = { name: 'New Website', domain: 'new-website.co.uk', owner: 'Unassigned' }
+    const payload = {
+      name: 'New Website',
+      domain: 'new-website.co.uk',
+      owner: 'Unassigned',
+      orderPrefix: 'WEB',
+    }
 
     try {
       const created = await api.createWebsite(payload)
@@ -127,6 +136,16 @@ export function OwnerWebsitesPage() {
             <label>
               Domain
               <input value={form.domain || ''} onChange={event => update({ domain: event.target.value })} />
+            </label>
+            <label>
+              Order Prefix
+              <input
+                value={form.orderPrefix || ''}
+                maxLength="6"
+                placeholder="TAJ"
+                onChange={event => update({ orderPrefix: orderPrefix(event.target.value) })}
+              />
+              <small>2–6 unique letters or numbers. Example: TAJ-HOODIE-2026-000001.</small>
             </label>
             <label>
               Owner
@@ -216,10 +235,10 @@ export function OwnerWebsitesPage() {
           </div>
           {form.id && <WebsiteCard site={form} active />}
           <div className="ruleGrid">
+            <span>Order prefix: {form.orderPrefix || 'Not set'}</span>
+            <span>Each website prefix must be unique.</span>
             <span>Website records save into server-data/websites.json.</span>
-            <span>The API is now the owner website source of truth.</span>
-            <span>Deleting removes the server record.</span>
-            <span>No browser business-data fallback is used here.</span>
+            <span>The API is the owner website source of truth.</span>
           </div>
         </aside>
       </section>
