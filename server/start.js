@@ -1,5 +1,8 @@
 import express from 'express'
-import { createCommerceSettingsRouter } from './commerceSettingsRouter.js'
+import {
+  createCommerceSettingsRouter,
+  createWebsiteOrderPrefixGuard,
+} from './commerceSettingsRouter.js'
 import { createOrdersRouter } from './ordersRouter.js'
 import { createPayPalRouter } from './paypalCheckout.js'
 import { createStripeRouter } from './stripeCheckout.js'
@@ -22,6 +25,7 @@ express.application.use = function patchedUse(...args) {
 
   if (!protectedCommerceMounted && useCalls === 4) {
     protectedCommerceMounted = true
+    originalUse.call(this, '/api/websites', createWebsiteOrderPrefixGuard())
     originalUse.call(this, '/api/orders', createOrdersRouter())
     originalUse.call(this, '/api/commerce-settings', createCommerceSettingsRouter())
   }
