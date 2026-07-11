@@ -8,9 +8,31 @@ function list(value) {
   return Array.isArray(value) ? value.map(text).filter(Boolean) : []
 }
 
+function variantKey(size = '', colour = '') {
+  return `${text(size).toLowerCase()}::${text(colour).toLowerCase()}`
+}
+
+function variantStock(product = {}) {
+  return Array.isArray(product.inventory?.variants) ? product.inventory.variants : []
+}
+
+function findVariantStock(product, variant = {}) {
+  const key = variantKey(variant.size, variant.colour)
+  return variantStock(product).find(item => variantKey(item.size, item.colour) === key) || null
+}
+
+function totalTrackedStock(product = {}) {
+  const records = variantStock(product)
+  if (records.length) {
+    return records.reduce((total, item) => total + Math.max(0, Number(item.quantity || 0)), 0)
+  }
+  return Math.max(0, Number(product.inventory?.quantity || 0))
+}
+
 function validateProduct(product, index) {
   const label = text(product?.name) || `Product ${index + 1}`
   const errors = []
+  const records = variantStock(product)
 
   if (!text(product?.name)) errors.push(`${label}: product name is required`)
   if (!text(product?.description)) errors.push(`${label}: description is required`)
@@ -23,11 +45,20 @@ function validateProduct(product, index) {
     errors.push(`${label}: stock quantity cannot be negative`)
   }
 
+  const seenVariants = new Set()
+  records.forEach(record => {
+    const key = variantKey(record.size, record.colour)
+    if (seenVariants.has(key)) errors.push(`${label}: duplicate stock variant ${record.size || 'Standard'} / ${record.colour || 'Standard'}`)
+    seenVariants.add(key)
+    if (Number(record.quantity) < 0) errors.push(`${label}: variant stock cannot be negative`)
+    if (Number(record.lowStockThreshold) < 0) errors.push(`${label}: variant low-stock warning cannot be negative`)
+  })
+
   if (product?.checkout?.enabled === true) {
     if (product?.availability !== 'available') {
       errors.push(`${label}: checkout requires Available status`)
     }
-    if (product?.inventory?.trackStock && Number(product.inventory.quantity) <= 0) {
+    if (product?.inventory?.trackStock && totalTrackedStock(product) <= 0) {
       errors.push(`${label}: checkout requires stock greater than zero`)
     }
 
@@ -63,31 +94,61 @@ export function resolveProductSelection(product, quantity = 1, variant = {}) {
   if (sizes.length && !sizes.includes(size)) throw new Error('Selected size is unavailable')
   if (colours.length && !colour) throw new Error('Please choose a colour')
   if (colours.length && !colours.includes(colour)) throw new Error('Selected colour is unavailable')
-  if (product?.inventory?.trackStock && Number(product.inventory.quantity) < safeQuantity) {
-    throw new Error('Requested quantity is not available')
+
+  if (product?.inventory?.trackStock) {
+    const records = variantStock(product)
+    if (records.length) {
+      const selectedStock = findVariantStock(product, { size, colour })
+      if (!selectedStock) throw new Error('Selected variant is unavailable')
+      if (Number(selectedStock.quantity || 0) < safeQuantity) {
+        throw new Error('Requested quantity is not available for this variant')
+      }
+    } else if (Number(product.inventory.quantity) < safeQuantity) {
+      throw new Error('Requested quantity is not available')
+    }
   }
 
   return { quantity: safeQuantity, variant: { size, colour } }
 }
 
-export async function decrementProductStock(websiteId, productId, quantity) {
+export async function decrementProductStock(websiteId, productId, quantity, variant = {}) {
   const content = await readJson(paths.content(websiteId), {})
   const products = Array.isArray(content.merch?.products) ? content.merch.products : []
   const product = products.find(item => item.id === productId)
   if (!product?.inventory?.trackStock) return null
 
-  const current = Number(product.inventory.quantity || 0)
-  const nextQuantity = Math.max(0, current - Math.max(1, Number(quantity || 1)))
-  const nextAvailability = nextQuantity === 0 ? 'sold-out' : product.availability
+  const reduction = Math.max(1, Number(quantity || 1))
+  const records = variantStock(product)
+  let nextInventory
+
+  if (records.length) {
+    const selectedKey = variantKey(variant.size, variant.colour)
+    const nextVariants = records.map(record =>
+      variantKey(record.size, record.colour) === selectedKey
+        ? { ...record, quantity: Math.max(0, Number(record.quantity || 0) - reduction) }
+        : record,
+    )
+    nextInventory = {
+      ...product.inventory,
+      variants: nextVariants,
+      quantity: nextVariants.reduce((total, record) => total + Number(record.quantity || 0), 0),
+    }
+  } else {
+    nextInventory = {
+      ...product.inventory,
+      quantity: Math.max(0, Number(product.inventory.quantity || 0) - reduction),
+    }
+  }
+
+  const soldOut = Number(nextInventory.quantity || 0) <= 0
   const nextProducts = products.map(item =>
     item.id === productId
       ? {
           ...item,
-          inventory: { ...item.inventory, quantity: nextQuantity },
-          availability: nextAvailability,
-          status: nextQuantity === 0 ? 'Sold Out' : item.status,
-          checkout:
-            nextQuantity === 0 ? { ...item.checkout, enabled: false } : item.checkout,
+          inventory: nextInventory,
+          availability: soldOut ? 'sold-out' : item.availability,
+          status: soldOut ? 'Sold Out' : item.status,
+          checkout: soldOut ? { ...item.checkout, enabled: false } : item.checkout,
         }
       : item,
   )
@@ -96,7 +157,7 @@ export async function decrementProductStock(websiteId, productId, quantity) {
     ...content,
     merch: { ...content.merch, products: nextProducts },
   })
-  return nextQuantity
+  return nextInventory
 }
 
 export function validateMerchContent(content = {}) {
