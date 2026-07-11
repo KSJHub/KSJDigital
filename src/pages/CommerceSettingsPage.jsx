@@ -16,6 +16,13 @@ const defaults = {
   discordWebhookUrl: '',
   deliveryMessage: 'Delivery and dispatch details will be confirmed separately.',
   returnsMessage: '',
+  shippingEnabled: true,
+  standardShippingLabel: 'UK Standard Delivery',
+  standardShippingRate: 3.99,
+  freeShippingEnabled: false,
+  freeShippingThreshold: 50,
+  estimatedDeliveryMinDays: 3,
+  estimatedDeliveryMaxDays: 5,
 }
 
 export function CommerceSettingsPage({ client = false }) {
@@ -63,14 +70,17 @@ export function CommerceSettingsPage({ client = false }) {
   }
 
   const selectedWebsite = websites.find(site => site.id === websiteId)
+  const shippingPreview = settings.freeShippingEnabled
+    ? `£${Number(settings.standardShippingRate || 0).toFixed(2)} below £${Number(settings.freeShippingThreshold || 0).toFixed(2)}, then free`
+    : `£${Number(settings.standardShippingRate || 0).toFixed(2)} per checkout`
 
   return (
     <Layout client={client} title="Commerce Settings">
       <section className="moduleHero card">
         <div>
           <span>Protected Commerce Settings</span>
-          <h2>{selectedWebsite?.name || 'Website'} Payments & Notifications</h2>
-          <p>Configure checkout redirects and private order notifications. Payment secrets remain in the server environment.</p>
+          <h2>{selectedWebsite?.name || 'Website'} Payments, Shipping & Notifications</h2>
+          <p>Configure checkout, delivery pricing and private notifications. Payment secrets remain in the server environment.</p>
         </div>
         <button onClick={save} disabled={!canEdit}>{notice}</button>
       </section>
@@ -92,6 +102,24 @@ export function CommerceSettingsPage({ client = false }) {
           <section className="card publishBox">
             <h3>Secrets are not stored here</h3>
             <p>Stripe secret keys, webhook secrets and PayPal client secrets stay in protected VPS environment variables.</p>
+          </section>
+        </div>
+
+        <div className="card managerPanel">
+          <div className="panelHead"><h2>Shipping Rules</h2><span>UK checkout</span></div>
+          <label className="formCheck"><input type="checkbox" checked={settings.shippingEnabled} disabled={!canEdit} onChange={event => update('shippingEnabled', event.target.checked)} /> Charge delivery on physical products</label>
+          <label>Delivery Name<input value={settings.standardShippingLabel} disabled={!canEdit || !settings.shippingEnabled} onChange={event => update('standardShippingLabel', event.target.value)} placeholder="UK Standard Delivery" /></label>
+          <label>Delivery Price (£)<input type="number" min="0" step="0.01" value={settings.standardShippingRate} disabled={!canEdit || !settings.shippingEnabled} onChange={event => update('standardShippingRate', Number(event.target.value))} /></label>
+          <label className="formCheck"><input type="checkbox" checked={settings.freeShippingEnabled} disabled={!canEdit || !settings.shippingEnabled} onChange={event => update('freeShippingEnabled', event.target.checked)} /> Offer free shipping above a threshold</label>
+          <label>Free Shipping From (£)<input type="number" min="0" step="0.01" value={settings.freeShippingThreshold} disabled={!canEdit || !settings.shippingEnabled || !settings.freeShippingEnabled} onChange={event => update('freeShippingThreshold', Number(event.target.value))} /></label>
+          <div className="formSettings">
+            <label>Estimated Minimum Days<input type="number" min="0" step="1" value={settings.estimatedDeliveryMinDays} disabled={!canEdit || !settings.shippingEnabled} onChange={event => update('estimatedDeliveryMinDays', Number(event.target.value))} /></label>
+            <label>Estimated Maximum Days<input type="number" min="0" step="1" value={settings.estimatedDeliveryMaxDays} disabled={!canEdit || !settings.shippingEnabled} onChange={event => update('estimatedDeliveryMaxDays', Number(event.target.value))} /></label>
+          </div>
+          <section className="card publishBox">
+            <h3>Checkout preview</h3>
+            <p>{settings.shippingEnabled ? `${settings.standardShippingLabel}: ${shippingPreview}. Estimated ${settings.estimatedDeliveryMinDays}–${settings.estimatedDeliveryMaxDays} working days.` : 'Delivery is included in the product price.'}</p>
+            <p>Digital products always receive free digital delivery. Made-to-order items retain their separate production timeframe.</p>
           </section>
         </div>
 
