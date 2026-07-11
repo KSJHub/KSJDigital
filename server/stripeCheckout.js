@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 import express from 'express'
-import { getCommerceSettings } from './commerceSettingsRouter.js'
+import { calculateShipping, getCommerceSettings } from './commerceSettingsRouter.js'
 import { decrementProductStock, resolveProductSelection } from './merchValidation.js'
 import { createPaidOrder } from './orderService.js'
 import { sendOrderNotifications } from './orderNotificationService.js'
@@ -111,13 +111,13 @@ export async function createStripeCheckoutSession({ websiteId, productId, quanti
   if (!settings.successUrl || !settings.cancelUrl) throw new Error('Stripe success and cancel URLs are not configured')
 
   const amount = Math.round(Number(product.priceGBP) * 100)
-  const session = await stripeRequest('/checkout/sessions', [
+  const shipping = calculateShipping(settings, product, selection.quantity)
+  const entries = [
     ['mode', 'payment'],
     ['success_url', `${settings.successUrl}${settings.successUrl.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`],
     ['cancel_url', settings.cancelUrl],
     ['customer_creation', 'always'],
     ['billing_address_collection', 'auto'],
-    ['shipping_address_collection[allowed_countries][0]', 'GB'],
     ['line_items[0][quantity]', selection.quantity],
     ['line_items[0][price_data][currency]', 'gbp'],
     ['line_items[0][price_data][unit_amount]', amount],
@@ -128,8 +128,24 @@ export async function createStripeCheckoutSession({ websiteId, productId, quanti
     ['metadata[quantity]', selection.quantity],
     ['metadata[size]', selection.variant.size],
     ['metadata[colour]', selection.variant.colour],
-  ])
+    ['metadata[shippingLabel]', shipping.label],
+  ]
 
+  if (product.fulfilment !== 'digital') {
+    entries.push(['shipping_address_collection[allowed_countries][0]', 'GB'])
+    entries.push(['shipping_options[0][shipping_rate_data][type]', 'fixed_amount'])
+    entries.push(['shipping_options[0][shipping_rate_data][display_name]', shipping.label])
+    entries.push(['shipping_options[0][shipping_rate_data][fixed_amount][amount]', Math.round(shipping.amount * 100)])
+    entries.push(['shipping_options[0][shipping_rate_data][fixed_amount][currency]', 'gbp'])
+    if (shipping.minimumDays > 0) {
+      entries.push(['shipping_options[0][shipping_rate_data][delivery_estimate][minimum][unit]', 'business_day'])
+      entries.push(['shipping_options[0][shipping_rate_data][delivery_estimate][minimum][value]', shipping.minimumDays])
+      entries.push(['shipping_options[0][shipping_rate_data][delivery_estimate][maximum][unit]', 'business_day'])
+      entries.push(['shipping_options[0][shipping_rate_data][delivery_estimate][maximum][value]', shipping.maximumDays])
+    }
+  }
+
+  const session = await stripeRequest('/checkout/sessions', entries)
   return { id: session.id, url: session.url }
 }
 
@@ -190,7 +206,11 @@ export async function processStripeCheckoutCompleted(event) {
     },
     billingAddress: stripeAddress(customerDetails.address),
     shippingAddress: stripeAddress(shippingDetails.address),
-    shippingMethod: selection.madeToOrder ? 'Made to order' : 'Standard delivery',
+    shippingMethod: product.fulfilment === 'digital'
+      ? 'Digital delivery'
+      : selection.madeToOrder
+        ? `Made to order · ${session.metadata?.shippingLabel || 'UK delivery'}`
+        : session.metadata?.shippingLabel || 'UK delivery',
     items: [
       {
         productId: product.id,
