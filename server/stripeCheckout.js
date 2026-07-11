@@ -206,7 +206,7 @@ export async function processStripeCheckoutCompleted(event) {
   })
 
   if (created) {
-    await decrementProductStock(websiteId, product.id, selection.quantity)
+    await decrementProductStock(websiteId, product.id, selection.quantity, selection.variant)
     await sendOrderNotifications(order, settings)
   }
   return { order, created }
