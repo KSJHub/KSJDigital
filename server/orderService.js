@@ -37,13 +37,7 @@ function productIdTag(productId = '') {
 
 export function deriveOrderTag(item = {}) {
   return compactCode(
-    item.orderTag ||
-      item.customTag ||
-      item.sku ||
-      item.type ||
-      productIdTag(item.productId) ||
-      item.category ||
-      item.name,
+    item.orderTag || item.customTag || item.sku || item.type || productIdTag(item.productId) || item.category || item.name,
     'ITEM',
   )
 }
@@ -51,11 +45,9 @@ export function deriveOrderTag(item = {}) {
 async function enrichItemsFromCatalogue(websiteId, items = []) {
   const content = await readJson(paths.content(safeName(websiteId)), {})
   const products = Array.isArray(content.merch?.products) ? content.merch.products : []
-
   return items.map(item => {
     const product = products.find(candidate => candidate.id === item.productId)
     if (!product) return item
-
     return {
       ...product,
       ...item,
@@ -65,8 +57,7 @@ async function enrichItemsFromCatalogue(websiteId, items = []) {
       category: item.category || product.category || '',
       type: item.type || product.type || '',
       madeToOrder: item.madeToOrder ?? product.fulfilmentOptions?.madeToOrder === true,
-      leadTimeMessage:
-        item.leadTimeMessage || product.fulfilmentOptions?.leadTimeMessage || '',
+      leadTimeMessage: item.leadTimeMessage || product.fulfilmentOptions?.leadTimeMessage || '',
     }
   })
 }
@@ -85,11 +76,7 @@ function normaliseItems(items = []) {
       quantity: Math.max(1, Number(item.quantity || 1)),
       unitPrice: roundMoney(item.unitPrice),
       total: roundMoney(Number(item.quantity || 1) * Number(item.unitPrice || 0)),
-      variant: {
-        size: clean(item.variant?.size),
-        colour: clean(item.variant?.colour),
-        ...(item.variant || {}),
-      },
+      variant: { size: clean(item.variant?.size), colour: clean(item.variant?.colour), ...(item.variant || {}) },
       fulfilment: item.fulfilment === 'digital' ? 'digital' : 'physical',
       madeToOrder: item.madeToOrder === true,
       leadTimeMessage: clean(item.leadTimeMessage),
@@ -121,19 +108,14 @@ async function nextOrderNumber(websiteId, items, environment, createdAt = new Da
     const sequence = Number(order.orderNumber.slice(prefix.length))
     return Number.isFinite(sequence) ? Math.max(max, sequence) : max
   }, 0)
-
   return `${prefix}${String(highest + 1).padStart(6, '0')}`
 }
 
 function resolveEnvironment(input = {}) {
   if (input.environment === 'test' || input.environment === 'live') return input.environment
   const provider = clean(input.provider).toLowerCase()
-  if (provider === 'stripe') {
-    return process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_') ? 'test' : 'live'
-  }
-  if (provider === 'paypal') {
-    return process.env.PAYPAL_ENVIRONMENT === 'live' ? 'live' : 'test'
-  }
+  if (provider === 'stripe') return process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_') ? 'test' : 'live'
+  if (provider === 'paypal') return process.env.PAYPAL_ENVIRONMENT === 'live' ? 'live' : 'test'
   return 'live'
 }
 
@@ -152,9 +134,7 @@ function validateOrderInput(input = {}) {
 
 export async function findOrderByProviderReference(provider, providerOrderId) {
   const orders = await readJson(paths.orders(), [])
-  return orders.find(
-    order => order.provider === provider && order.providerOrderId === providerOrderId,
-  )
+  return orders.find(order => order.provider === provider && order.providerOrderId === providerOrderId)
 }
 
 export async function createPaidOrder(input = {}) {
@@ -164,13 +144,11 @@ export async function createPaidOrder(input = {}) {
     error.code = 'INVALID_ORDER'
     throw error
   }
-
   const existing = await findOrderByProviderReference(input.provider, input.providerOrderId)
   if (existing) return { order: existing, created: false }
 
   const createdAt = new Date(input.paidAt || Date.now())
-  const enrichedItems = await enrichItemsFromCatalogue(input.websiteId, input.items)
-  const items = normaliseItems(enrichedItems)
+  const items = normaliseItems(await enrichItemsFromCatalogue(input.websiteId, input.items))
   const environment = resolveEnvironment(input)
   const order = {
     id: crypto.randomUUID(),
@@ -208,16 +186,11 @@ export async function createPaidOrder(input = {}) {
     fulfilmentStatus: 'New',
     tracking: null,
     refund: null,
-    notifications: {
-      buyerEmail: 'Pending',
-      clientEmail: 'Pending',
-      discord: 'Pending',
-    },
+    notifications: { buyerEmail: 'Pending', clientEmail: 'Pending', discord: 'Pending' },
     createdAt: createdAt.toISOString(),
     paidAt: createdAt.toISOString(),
     updatedAt: createdAt.toISOString(),
   }
-
   const orders = await readJson(paths.orders(), [])
   await writeJson(paths.orders(), [order, ...orders])
   await appendOrderEvent(order, 'order.created', 'Paid order created from verified provider event')
@@ -236,23 +209,55 @@ export async function getOrder(orderId) {
   return orders.find(order => order.id === orderId || order.orderNumber === orderId) || null
 }
 
+export async function recordOrderRefund(orderId, refundInput = {}) {
+  const orders = await readJson(paths.orders(), [])
+  const existing = orders.find(order => order.id === orderId || order.orderNumber === orderId)
+  if (!existing) return null
+
+  const amount = roundMoney(refundInput.amount)
+  const previousAmount = roundMoney(existing.refund?.totalAmount || 0)
+  const totalAmount = roundMoney(previousAmount + amount)
+  const fullyRefunded = totalAmount >= roundMoney(existing.total)
+  const entry = {
+    id: clean(refundInput.providerRefundId) || crypto.randomUUID(),
+    amount,
+    reason: clean(refundInput.reason),
+    provider: existing.provider,
+    providerRefundId: clean(refundInput.providerRefundId),
+    restoredStock: refundInput.restoredStock === true,
+    createdAt: new Date().toISOString(),
+  }
+  const updated = {
+    ...existing,
+    paymentStatus: fullyRefunded ? 'Refunded' : 'Partially Refunded',
+    fulfilmentStatus: fullyRefunded ? 'Refunded' : existing.fulfilmentStatus,
+    refund: {
+      totalAmount,
+      remainingAmount: roundMoney(Math.max(0, Number(existing.total) - totalAmount)),
+      fullyRefunded,
+      stockRestored: existing.refund?.stockRestored === true || refundInput.restoredStock === true,
+      history: [...(existing.refund?.history || []), entry],
+    },
+    updatedAt: new Date().toISOString(),
+  }
+  await writeJson(paths.orders(), orders.map(order => (order.id === existing.id ? updated : order)))
+  await appendOrderEvent(updated, 'order.refunded', `${fullyRefunded ? 'Full' : 'Partial'} refund of ${amount.toFixed(2)} processed`, entry)
+  return updated
+}
+
 export async function purgeTestOrders(websiteId = '') {
   const safeWebsiteId = websiteId ? safeName(websiteId) : ''
   const orders = await readJson(paths.orders(), [])
-  const removed = orders.filter(
-    order => order.isTestOrder && (!safeWebsiteId || order.websiteId === safeWebsiteId),
-  )
+  const removed = orders.filter(order => order.isTestOrder && (!safeWebsiteId || order.websiteId === safeWebsiteId))
   const removedIds = new Set(removed.map(order => order.id))
   const keptOrders = orders.filter(order => !removedIds.has(order.id))
   const events = await readJson(paths.orderEvents(), [])
   const notifications = await readJson(paths.notificationLog(), [])
-
   await Promise.all([
     writeJson(paths.orders(), keptOrders),
     writeJson(paths.orderEvents(), events.filter(event => !removedIds.has(event.orderId))),
     writeJson(paths.notificationLog(), notifications.filter(log => !removedIds.has(log.orderId))),
   ])
-
   return { removed: removed.length, websiteId: safeWebsiteId || 'all' }
 }
 
@@ -261,7 +266,6 @@ export async function updateOrderStatus(orderId, status, details = {}) {
   const orders = await readJson(paths.orders(), [])
   const existing = orders.find(order => order.id === orderId || order.orderNumber === orderId)
   if (!existing) return null
-
   const updated = {
     ...existing,
     fulfilmentStatus: status,
@@ -269,11 +273,7 @@ export async function updateOrderStatus(orderId, status, details = {}) {
     internalNote: clean(details.internalNote) || existing.internalNote,
     updatedAt: new Date().toISOString(),
   }
-
-  await writeJson(
-    paths.orders(),
-    orders.map(order => (order.id === existing.id ? updated : order)),
-  )
+  await writeJson(paths.orders(), orders.map(order => (order.id === existing.id ? updated : order)))
   await appendOrderEvent(updated, 'order.status_changed', `Fulfilment changed to ${status}`)
   return updated
 }
@@ -282,30 +282,22 @@ export async function updateNotificationStatus(orderId, channel, status, errorMe
   const orders = await readJson(paths.orders(), [])
   const existing = orders.find(order => order.id === orderId)
   if (!existing) return null
-
   const updated = {
     ...existing,
-    notifications: {
-      ...existing.notifications,
-      [channel]: status,
-    },
+    notifications: { ...existing.notifications, [channel]: status },
     updatedAt: new Date().toISOString(),
   }
-
   await writeJson(paths.orders(), orders.map(order => (order.id === orderId ? updated : order)))
   const log = await readJson(paths.notificationLog(), [])
-  await writeJson(paths.notificationLog(), [
-    {
-      id: crypto.randomUUID(),
-      orderId,
-      orderNumber: existing.orderNumber,
-      channel,
-      status,
-      error: clean(errorMessage),
-      createdAt: new Date().toISOString(),
-    },
-    ...log,
-  ])
+  await writeJson(paths.notificationLog(), [{
+    id: crypto.randomUUID(),
+    orderId,
+    orderNumber: existing.orderNumber,
+    channel,
+    status,
+    error: clean(errorMessage),
+    createdAt: new Date().toISOString(),
+  }, ...log])
   return updated
 }
 
