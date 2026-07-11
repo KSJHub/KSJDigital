@@ -19,6 +19,11 @@ function productDefaults(product = {}) {
       trackStock: product.inventory?.trackStock === true,
       quantity: Math.max(0, Number(product.inventory?.quantity || 0)),
       lowStockThreshold: Math.max(0, Number(product.inventory?.lowStockThreshold || 2)),
+      variants: Array.isArray(product.inventory?.variants) ? product.inventory.variants : [],
+    },
+    fulfilmentOptions: {
+      madeToOrder: product.fulfilmentOptions?.madeToOrder === true,
+      leadTimeMessage: product.fulfilmentOptions?.leadTimeMessage || '',
     },
   }
 }
@@ -136,17 +141,21 @@ function isManagedProvider(provider = '') {
 function productErrors(product) {
   if (!product) return ['No product selected']
   const errors = []
+  const madeToOrder = product.fulfilmentOptions?.madeToOrder === true
   if (!product.name?.trim()) errors.push('Product name is required')
   if (!product.description?.trim()) errors.push('Description is required')
   if (Number(product.priceGBP) <= 0) errors.push('Price must be greater than £0')
   if (!product.image?.url?.trim()) errors.push('Product image is required')
   if (!product.shippingNote?.trim()) errors.push('Shipping or delivery note is required')
+  if (madeToOrder && !product.fulfilmentOptions?.leadTimeMessage?.trim()) {
+    errors.push('Made-to-order timeframe message is required')
+  }
   if (product.inventory?.trackStock && Number(product.inventory.quantity) < 0) {
     errors.push('Stock quantity cannot be negative')
   }
   if (product.checkout?.enabled) {
     if (product.availability !== 'available') errors.push('Checkout requires Available status')
-    if (product.inventory?.trackStock && Number(product.inventory.quantity) <= 0) {
+    if (!madeToOrder && product.inventory?.trackStock && Number(product.inventory.quantity) <= 0) {
       errors.push('Checkout requires stock greater than zero')
     }
     if (!product.checkout?.provider?.trim()) errors.push('Checkout provider is required')
@@ -256,6 +265,9 @@ export function MerchManagerPage({ client = false }) {
             checkout: changes.checkout ? { ...product.checkout, ...changes.checkout } : product.checkout,
             variants: changes.variants ? { ...product.variants, ...changes.variants } : product.variants,
             inventory: changes.inventory ? { ...product.inventory, ...changes.inventory } : product.inventory,
+            fulfilmentOptions: changes.fulfilmentOptions
+              ? { ...product.fulfilmentOptions, ...changes.fulfilmentOptions }
+              : product.fulfilmentOptions,
           }
         : product,
     )
@@ -319,7 +331,7 @@ export function MerchManagerPage({ client = false }) {
         <div>
           <span>Merch Manager</span>
           <h2>{website?.name || 'Assigned Website'} Store</h2>
-          <p>Manage the catalogue, variants, inventory, product images and secure checkout providers.</p>
+          <p>Manage the catalogue, fulfilment, inventory, product images and secure checkout providers.</p>
         </div>
         <button>{notice}</button>
       </section>
@@ -332,7 +344,11 @@ export function MerchManagerPage({ client = false }) {
           </div>
           {merch.products.map(product => {
             const ready = productErrors(product).length === 0
-            const stock = product.inventory?.trackStock ? `${product.inventory.quantity} stock` : 'Unlimited'
+            const stock = product.fulfilmentOptions?.madeToOrder
+              ? `${product.inventory?.quantity || 0} ready · Made to order`
+              : product.inventory?.trackStock
+                ? `${product.inventory.quantity} stock`
+                : 'Unlimited'
             return (
               <button
                 className={product.id === selectedId ? 'active' : ''}
@@ -381,10 +397,17 @@ export function MerchManagerPage({ client = false }) {
                 <label>Description<textarea value={selected.description} disabled={!canEdit} onChange={event => updateProduct({ description: event.target.value })} /></label>
                 <label>Sizes (comma separated)<input value={selected.variants?.sizes?.join(', ') || ''} disabled={!canEdit} onChange={event => updateProduct({ variants: { sizes: listFromText(event.target.value) } })} placeholder="S, M, L, XL" /></label>
                 <label>Colours (comma separated)<input value={selected.variants?.colours?.join(', ') || ''} disabled={!canEdit} onChange={event => updateProduct({ variants: { colours: listFromText(event.target.value) } })} placeholder="Black, White, Red" /></label>
-                <label className="formCheck"><input type="checkbox" checked={selected.inventory?.trackStock || false} disabled={!canEdit} onChange={event => updateProduct({ inventory: { trackStock: event.target.checked } })} /> Track stock</label>
-                <label>Stock Quantity<input type="number" min="0" step="1" value={selected.inventory?.quantity || 0} disabled={!canEdit || !selected.inventory?.trackStock} onChange={event => updateProduct({ inventory: { quantity: Math.max(0, Number(event.target.value)) } })} /></label>
+                <label className="formCheck"><input type="checkbox" checked={selected.fulfilmentOptions?.madeToOrder || false} disabled={!canEdit} onChange={event => updateProduct({ fulfilmentOptions: { madeToOrder: event.target.checked } })} /> Made to order</label>
+                {selected.fulfilmentOptions?.madeToOrder && (
+                  <>
+                    <label>Made-to-Order Timeframe / Message<textarea value={selected.fulfilmentOptions?.leadTimeMessage || ''} disabled={!canEdit} onChange={event => updateProduct({ fulfilmentOptions: { leadTimeMessage: event.target.value } })} placeholder="Made to order — please allow 7–10 working days before dispatch." /></label>
+                    <section className="card publishBox"><h3>Customer notice</h3><p>* {selected.fulfilmentOptions?.leadTimeMessage || 'Add a production and dispatch timeframe.'}</p></section>
+                  </>
+                )}
+                <label className="formCheck"><input type="checkbox" checked={selected.inventory?.trackStock || false} disabled={!canEdit} onChange={event => updateProduct({ inventory: { trackStock: event.target.checked } })} /> Track ready stock</label>
+                <label>Ready Stock Quantity<input type="number" min="0" step="1" value={selected.inventory?.quantity || 0} disabled={!canEdit || !selected.inventory?.trackStock} onChange={event => updateProduct({ inventory: { quantity: Math.max(0, Number(event.target.value)) } })} /></label>
                 <label>Low Stock Warning<input type="number" min="0" step="1" value={selected.inventory?.lowStockThreshold || 0} disabled={!canEdit || !selected.inventory?.trackStock} onChange={event => updateProduct({ inventory: { lowStockThreshold: Math.max(0, Number(event.target.value)) } })} /></label>
-                {selected.inventory?.trackStock && selected.inventory.quantity <= selected.inventory.lowStockThreshold && <section className="card publishBox"><h3>Low stock</h3><p>{selected.inventory.quantity} unit(s) remain.</p></section>}
+                {selected.inventory?.trackStock && selected.inventory.quantity <= selected.inventory.lowStockThreshold && <section className="card publishBox"><h3>{selected.fulfilmentOptions?.madeToOrder ? 'Ready stock low' : 'Low stock'}</h3><p>{selected.inventory.quantity} ready unit(s) remain.{selected.fulfilmentOptions?.madeToOrder ? ' Checkout continues as made to order when ready stock reaches zero.' : ''}</p></section>}
                 {canManageMedia && (
                   <>
                     <label>Upload Product Image<input type="file" accept="image/*" disabled={!canEdit} onChange={event => uploadProductImage(event.target.files?.[0])} /></label>
@@ -422,8 +445,9 @@ export function MerchManagerPage({ client = false }) {
               <h3>{selected.name}</h3>
               <p>{selected.description}</p>
               <strong>£{Number(selected.priceGBP || 0).toFixed(2)}</strong>
-              <small>{selected.status} · {selected.inventory?.trackStock ? `${selected.inventory.quantity} in stock` : 'Stock not tracked'} · Order tag {selectedOrderTag}</small>
-              <button disabled={!selected.checkout?.enabled || selected.availability !== 'available' || (selected.inventory?.trackStock && selected.inventory.quantity <= 0)}>{selected.checkout?.label || 'Buy Now'}</button>
+              <small>{selected.status} · {selected.fulfilmentOptions?.madeToOrder ? `${selected.inventory?.quantity || 0} ready · Made to order` : selected.inventory?.trackStock ? `${selected.inventory.quantity} in stock` : 'Stock not tracked'} · Order tag {selectedOrderTag}</small>
+              {selected.fulfilmentOptions?.madeToOrder && <p>* {selected.fulfilmentOptions.leadTimeMessage || 'Made-to-order timeframe required.'}</p>}
+              <button disabled={!selected.checkout?.enabled || selected.availability !== 'available' || (!selected.fulfilmentOptions?.madeToOrder && selected.inventory?.trackStock && selected.inventory.quantity <= 0)}>{selected.checkout?.label || 'Buy Now'}</button>
             </article>
           ) : (
             <p>No product selected.</p>
