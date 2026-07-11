@@ -35,6 +35,17 @@ function suggestedOrderPrefix(name = '', id = '') {
   return compact.slice(-3) || 'WEB'
 }
 
+function uniquePrefix(base, used) {
+  const normalised = normaliseOrderPrefix(base) || 'WEB'
+  if (!used.has(normalised)) return normalised
+  for (let index = 2; index < 1000; index += 1) {
+    const suffix = String(index)
+    const candidate = `${normalised.slice(0, 6 - suffix.length)}${suffix}`
+    if (!used.has(candidate)) return candidate
+  }
+  return `${normalised.slice(0, 3)}999`
+}
+
 function sanitise(input = {}) {
   return {
     ...DEFAULTS,
@@ -107,6 +118,21 @@ function canAccessWebsite(session, websiteId) {
 
 export function createWebsiteOrderPrefixGuard() {
   const router = express.Router()
+
+  router.get('/', async (_req, _res, next) => {
+    const websites = await readJson(paths.websites(), [])
+    const used = new Set(websites.map(site => normaliseOrderPrefix(site.orderPrefix)).filter(Boolean))
+    let changed = false
+    const nextWebsites = websites.map(site => {
+      if (normaliseOrderPrefix(site.orderPrefix)) return site
+      const prefix = uniquePrefix(suggestedOrderPrefix(site.name, site.id), used)
+      used.add(prefix)
+      changed = true
+      return { ...site, orderPrefix: prefix }
+    })
+    if (changed) await writeJson(paths.websites(), nextWebsites)
+    next()
+  })
 
   async function validatePrefix(req, res, next) {
     const websites = await readJson(paths.websites(), [])
