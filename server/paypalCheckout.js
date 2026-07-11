@@ -1,5 +1,5 @@
 import express from 'express'
-import { getCommerceSettings } from './commerceSettingsRouter.js'
+import { calculateShipping, getCommerceSettings } from './commerceSettingsRouter.js'
 import { decrementProductStock, resolveProductSelection } from './merchValidation.js'
 import { createPaidOrder } from './orderService.js'
 import { sendOrderNotifications } from './orderNotificationService.js'
@@ -93,7 +93,9 @@ export async function createPayPalOrder({ websiteId, productId, quantity = 1, va
     throw new Error('PayPal return and cancel URLs are not configured')
   }
 
-  const total = (Number(product.priceGBP) * selection.quantity).toFixed(2)
+  const subtotal = Number(product.priceGBP) * selection.quantity
+  const shipping = calculateShipping(settings, product, selection.quantity)
+  const total = subtotal + shipping.amount
   const order = await paypalRequest('/v2/checkout/orders', {
     method: 'POST',
     headers: { 'PayPal-Request-Id': crypto.randomUUID() },
@@ -108,13 +110,16 @@ export async function createPayPalOrder({ websiteId, productId, quantity = 1, va
             quantity: selection.quantity,
             size: selection.variant.size,
             colour: selection.variant.colour,
+            shippingLabel: shipping.label,
+            shippingAmount: shipping.amount,
           }),
           description: product.name,
           amount: {
             currency_code: 'GBP',
-            value: total,
+            value: total.toFixed(2),
             breakdown: {
-              item_total: { currency_code: 'GBP', value: total },
+              item_total: { currency_code: 'GBP', value: subtotal.toFixed(2) },
+              shipping: { currency_code: 'GBP', value: shipping.amount.toFixed(2) },
             },
           },
           items: [
@@ -182,8 +187,9 @@ export async function capturePayPalOrder(orderId) {
   })
   const payment = unit?.payments?.captures?.[0]
   const payer = capture.payer || {}
-  const shipping = unit?.shipping || {}
+  const shippingAddress = unit?.shipping || {}
   const amount = payment?.amount || unit?.amount || {}
+  const shippingAmount = Number(unit?.amount?.breakdown?.shipping?.value ?? custom.shippingAmount ?? 0)
 
   const { order, created } = await createPaidOrder({
     websiteId,
@@ -194,17 +200,21 @@ export async function capturePayPalOrder(orderId) {
     paymentMethod: 'PayPal',
     currency: amount.currency_code || 'GBP',
     subtotal: Number(product.priceGBP) * selection.quantity,
-    shipping: 0,
+    shipping: shippingAmount,
     tax: 0,
     discount: 0,
     total: Number(amount.value || 0),
     customer: {
-      name: `${payer.name?.given_name || ''} ${payer.name?.surname || ''}`.trim() || shipping.name?.full_name || 'Customer',
+      name: `${payer.name?.given_name || ''} ${payer.name?.surname || ''}`.trim() || shippingAddress.name?.full_name || 'Customer',
       email: payer.email_address || '',
       phone: payer.phone?.phone_number?.national_number || '',
     },
-    shippingAddress: addressFromPayPal(shipping.address),
-    shippingMethod: selection.madeToOrder ? 'Made to order' : product.fulfilment === 'digital' ? 'Digital delivery' : 'Standard delivery',
+    shippingAddress: addressFromPayPal(shippingAddress.address),
+    shippingMethod: product.fulfilment === 'digital'
+      ? 'Digital delivery'
+      : selection.madeToOrder
+        ? `Made to order · ${custom.shippingLabel || 'UK delivery'}`
+        : custom.shippingLabel || 'UK delivery',
     items: [
       {
         productId: product.id,
