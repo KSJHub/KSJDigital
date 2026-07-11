@@ -92,9 +92,13 @@ function normaliseItems(items = []) {
   })
 }
 
-function websiteCode(websiteId) {
-  const safe = safeName(websiteId).replace(/[^a-z0-9]/g, '').toUpperCase()
-  return (safe || 'KSJ').slice(0, 3)
+async function websiteCode(websiteId) {
+  const websites = await readJson(paths.websites(), [])
+  const website = websites.find(site => safeName(site.id) === safeName(websiteId))
+  const configured = compactCode(website?.orderPrefix || '', '')
+  if (configured) return configured.slice(0, 6)
+  const fallback = safeName(websiteId).replace(/[^a-z0-9]/g, '').toUpperCase()
+  return (fallback || 'KSJ').slice(0, 3)
 }
 
 function orderItemCode(items = []) {
@@ -106,7 +110,7 @@ async function nextOrderNumber(websiteId, items, environment, createdAt = new Da
   const orders = await readJson(paths.orders(), [])
   const year = createdAt.getUTCFullYear()
   const environmentPrefix = environment === 'test' ? 'TEST-' : ''
-  const prefix = `${environmentPrefix}${websiteCode(websiteId)}-${orderItemCode(items)}-${year}-`
+  const prefix = `${environmentPrefix}${await websiteCode(websiteId)}-${orderItemCode(items)}-${year}-`
   const highest = orders.reduce((max, order) => {
     if (!order.orderNumber?.startsWith(prefix)) return max
     const sequence = Number(order.orderNumber.slice(prefix.length))
