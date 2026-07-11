@@ -204,7 +204,7 @@ export async function capturePayPalOrder(orderId) {
       phone: payer.phone?.phone_number?.national_number || '',
     },
     shippingAddress: addressFromPayPal(shipping.address),
-    shippingMethod: product.fulfilment === 'digital' ? 'Digital delivery' : 'Standard delivery',
+    shippingMethod: selection.madeToOrder ? 'Made to order' : product.fulfilment === 'digital' ? 'Digital delivery' : 'Standard delivery',
     items: [
       {
         productId: product.id,
@@ -213,6 +213,8 @@ export async function capturePayPalOrder(orderId) {
         quantity: selection.quantity,
         unitPrice: Number(product.priceGBP),
         fulfilment: product.fulfilment,
+        madeToOrder: selection.madeToOrder,
+        leadTimeMessage: selection.leadTimeMessage,
         variant: selection.variant,
       },
     ],
