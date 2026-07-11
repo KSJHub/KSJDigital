@@ -3,6 +3,7 @@ import {
   createCommerceSettingsRouter,
   createWebsiteOrderPrefixGuard,
 } from './commerceSettingsRouter.js'
+import { createInventoryRouter } from './inventoryRouter.js'
 import { createOrdersRouter, createPublicOrdersRouter } from './ordersRouter.js'
 import { createPayPalRouter } from './paypalCheckout.js'
 import { createRefundRouter } from './refundRouter.js'
@@ -35,6 +36,7 @@ express.application.use = function patchedUse(...args) {
     originalUse.call(this, '/api/websites', createWebsiteOrderPrefixGuard())
     originalUse.call(this, '/api/orders', createOrdersRouter())
     originalUse.call(this, '/api/order-refunds', createRefundRouter())
+    originalUse.call(this, '/api/inventory', createInventoryRouter())
     originalUse.call(this, '/api/commerce-settings', createCommerceSettingsRouter())
   }
 
