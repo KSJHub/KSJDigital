@@ -26,6 +26,7 @@ const DEFAULTS = {
   pricesIncludeTax: true,
   taxShipping: true,
   taxNumber: '',
+  discountCodes: [],
 }
 
 function clean(value = '') {
@@ -40,6 +41,25 @@ function money(value, fallback = 0) {
 function wholeNumber(value, fallback) {
   const number = Number(value)
   return Number.isFinite(number) ? Math.max(0, Math.round(number)) : fallback
+}
+
+export function normaliseDiscountCode(value = '') {
+  return String(value).toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 24)
+}
+
+function sanitiseDiscountCodes(input = []) {
+  if (!Array.isArray(input)) return []
+  return input.map((item, index) => ({
+    id: clean(item.id) || `discount-${index + 1}`,
+    code: normaliseDiscountCode(item.code),
+    type: item.type === 'fixed' ? 'fixed' : 'percent',
+    value: money(item.value),
+    minimumSpend: money(item.minimumSpend),
+    maxUses: wholeNumber(item.maxUses, 0),
+    uses: wholeNumber(item.uses, 0),
+    expiresAt: clean(item.expiresAt),
+    active: item.active !== false,
+  })).filter(item => item.code)
 }
 
 export function normaliseOrderPrefix(value = '') {
@@ -100,6 +120,7 @@ function sanitise(input = {}) {
     pricesIncludeTax: input.pricesIncludeTax !== false,
     taxShipping: input.taxShipping !== false,
     taxNumber: clean(input.taxNumber).toUpperCase(),
+    discountCodes: sanitiseDiscountCodes(input.discountCodes),
   }
 }
 
@@ -182,6 +203,47 @@ export function calculateTax(settings = {}, productSubtotal = 0, shippingAmount 
   }
 }
 
+export function resolveDiscount(settings = {}, suppliedCode = '', subtotal = 0) {
+  const code = normaliseDiscountCode(suppliedCode)
+  const safeSubtotal = money(subtotal)
+  if (!code) return { code: '', amount: 0, valid: false, reason: '' }
+
+  const record = sanitise(settings).discountCodes.find(item => item.code === code)
+  if (!record || !record.active) throw new Error('Discount code is invalid')
+  if (record.expiresAt && new Date(record.expiresAt).getTime() < Date.now()) {
+    throw new Error('Discount code has expired')
+  }
+  if (record.maxUses > 0 && record.uses >= record.maxUses) {
+    throw new Error('Discount code usage limit has been reached')
+  }
+  if (safeSubtotal < record.minimumSpend) {
+    throw new Error(`Discount code requires a minimum spend of £${record.minimumSpend.toFixed(2)}`)
+  }
+
+  const amount = record.type === 'fixed'
+    ? Math.min(safeSubtotal, record.value)
+    : money(safeSubtotal * Math.min(100, record.value) / 100)
+
+  return {
+    code,
+    amount,
+    valid: amount > 0,
+    type: record.type,
+    value: record.value,
+  }
+}
+
+export async function recordDiscountUse(websiteId, suppliedCode = '') {
+  const code = normaliseDiscountCode(suppliedCode)
+  if (!code) return
+  const path = paths.commerceSettings(safeName(websiteId))
+  const current = sanitise(await readJson(path, {}))
+  const discountCodes = current.discountCodes.map(item =>
+    item.code === code ? { ...item, uses: item.uses + 1 } : item,
+  )
+  await writeJson(path, { ...current, discountCodes })
+}
+
 function validateHttpsUrl(value, label, required = false) {
   if (!value && !required) return null
   if (!value) return `${label} is required`
@@ -220,6 +282,19 @@ function validate(settings) {
   }
   if (settings.taxEnabled && !settings.taxLabel) errors.push('Tax label is required')
   if (settings.taxEnabled && settings.taxRate <= 0) errors.push('Tax rate must be greater than zero')
+
+  const codes = new Set()
+  for (const discount of settings.discountCodes) {
+    if (codes.has(discount.code)) errors.push(`Discount code ${discount.code} is duplicated`)
+    codes.add(discount.code)
+    if (discount.value <= 0) errors.push(`Discount code ${discount.code} must have a value above zero`)
+    if (discount.type === 'percent' && discount.value > 100) {
+      errors.push(`Discount code ${discount.code} cannot exceed 100%`)
+    }
+    if (discount.expiresAt && Number.isNaN(new Date(discount.expiresAt).getTime())) {
+      errors.push(`Discount code ${discount.code} has an invalid expiry date`)
+    }
+  }
   return errors.filter(Boolean)
 }
 
