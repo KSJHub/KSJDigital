@@ -113,19 +113,12 @@ export async function createPayPalOrder({ websiteId, productId, quantity = 1, va
         {
           reference_id: safeWebsiteId,
           custom_id: JSON.stringify({
-            websiteId: safeWebsiteId,
-            productId: product.id,
-            quantity: selection.quantity,
-            size: selection.variant.size,
-            colour: selection.variant.colour,
-            shippingLabel: shipping.label,
-            productNet: tax.productNet,
-            shippingNet: tax.shippingNet,
-            taxAmount: tax.amount,
-            taxLabel: tax.label,
-            taxRate: tax.rate,
-            taxIncluded: tax.included,
-            taxNumber: tax.number,
+            w: safeWebsiteId,
+            p: product.id,
+            q: selection.quantity,
+            s: selection.variant.size,
+            c: selection.variant.colour,
+            l: shipping.label,
           }),
           description: product.name,
           amount: {
@@ -188,18 +181,21 @@ export async function capturePayPalOrder(orderId) {
   if (capture.status !== 'COMPLETED') return { capture, completed: false }
   const unit = capture.purchase_units?.[0]
   const custom = JSON.parse(unit?.custom_id || '{}')
-  const websiteId = safeName(custom.websiteId)
+  const websiteId = safeName(custom.w)
   const { content, merch } = await getStore(websiteId)
   const settings = await checkoutSettings(websiteId, content)
-  const product = getProduct(merch, custom.productId)
-  const selection = resolveProductSelection(product, custom.quantity, {
-    size: custom.size,
-    colour: custom.colour,
+  const product = getProduct(merch, custom.p)
+  const selection = resolveProductSelection(product, custom.q, {
+    size: custom.s,
+    colour: custom.c,
   })
   const payment = unit?.payments?.captures?.[0]
   const payer = capture.payer || {}
   const shippingAddress = unit?.shipping || {}
   const amount = payment?.amount || unit?.amount || {}
+  const productGrossOrNet = Number(unit?.amount?.breakdown?.item_total?.value || 0)
+  const shippingGrossOrNet = Number(unit?.amount?.breakdown?.shipping?.value || 0)
+  const tax = calculateTax(settings, productGrossOrNet, shippingGrossOrNet)
 
   const { order, created } = await createPaidOrder({
     websiteId,
@@ -209,13 +205,13 @@ export async function capturePayPalOrder(orderId) {
     providerTransactionId: payment?.id || '',
     paymentMethod: 'PayPal',
     currency: amount.currency_code || 'GBP',
-    subtotal: Number(custom.productNet || 0),
-    shipping: Number(custom.shippingNet || 0),
-    tax: Number(custom.taxAmount || 0),
-    taxLabel: custom.taxLabel || 'Tax',
-    taxRate: Number(custom.taxRate || 0),
-    taxIncluded: custom.taxIncluded === true,
-    taxNumber: custom.taxNumber || '',
+    subtotal: tax.productNet,
+    shipping: tax.shippingNet,
+    tax: tax.amount,
+    taxLabel: tax.label,
+    taxRate: tax.rate,
+    taxIncluded: tax.included,
+    taxNumber: tax.number,
     discount: 0,
     total: Number(amount.value || 0),
     customer: {
@@ -227,8 +223,8 @@ export async function capturePayPalOrder(orderId) {
     shippingMethod: product.fulfilment === 'digital'
       ? 'Digital delivery'
       : selection.madeToOrder
-        ? `Made to order · ${custom.shippingLabel || 'UK delivery'}`
-        : custom.shippingLabel || 'UK delivery',
+        ? `Made to order · ${custom.l || 'UK delivery'}`
+        : custom.l || 'UK delivery',
     items: [
       {
         productId: product.id,
