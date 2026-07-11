@@ -8,6 +8,10 @@ function list(value) {
   return Array.isArray(value) ? value.map(text).filter(Boolean) : []
 }
 
+function isMadeToOrder(product = {}) {
+  return product.fulfilmentOptions?.madeToOrder === true
+}
+
 function variantKey(size = '', colour = '') {
   return `${text(size).toLowerCase()}::${text(colour).toLowerCase()}`
 }
@@ -41,6 +45,9 @@ function validateProduct(product, index) {
   }
   if (!text(product?.image?.url)) errors.push(`${label}: product image is required`)
   if (!text(product?.shippingNote)) errors.push(`${label}: shipping or delivery note is required`)
+  if (isMadeToOrder(product) && !text(product.fulfilmentOptions?.leadTimeMessage)) {
+    errors.push(`${label}: made-to-order timeframe message is required`)
+  }
   if (product?.inventory?.trackStock && Number(product.inventory.quantity) < 0) {
     errors.push(`${label}: stock quantity cannot be negative`)
   }
@@ -58,7 +65,7 @@ function validateProduct(product, index) {
     if (product?.availability !== 'available') {
       errors.push(`${label}: checkout requires Available status`)
     }
-    if (product?.inventory?.trackStock && totalTrackedStock(product) <= 0) {
+    if (!isMadeToOrder(product) && product?.inventory?.trackStock && totalTrackedStock(product) <= 0) {
       errors.push(`${label}: checkout requires stock greater than zero`)
     }
 
@@ -95,7 +102,7 @@ export function resolveProductSelection(product, quantity = 1, variant = {}) {
   if (colours.length && !colour) throw new Error('Please choose a colour')
   if (colours.length && !colours.includes(colour)) throw new Error('Selected colour is unavailable')
 
-  if (product?.inventory?.trackStock) {
+  if (!isMadeToOrder(product) && product?.inventory?.trackStock) {
     const records = variantStock(product)
     if (records.length) {
       const selectedStock = findVariantStock(product, { size, colour })
@@ -108,14 +115,19 @@ export function resolveProductSelection(product, quantity = 1, variant = {}) {
     }
   }
 
-  return { quantity: safeQuantity, variant: { size, colour } }
+  return {
+    quantity: safeQuantity,
+    variant: { size, colour },
+    madeToOrder: isMadeToOrder(product),
+    leadTimeMessage: text(product.fulfilmentOptions?.leadTimeMessage),
+  }
 }
 
 export async function decrementProductStock(websiteId, productId, quantity, variant = {}) {
   const content = await readJson(paths.content(websiteId), {})
   const products = Array.isArray(content.merch?.products) ? content.merch.products : []
   const product = products.find(item => item.id === productId)
-  if (!product?.inventory?.trackStock) return null
+  if (!product?.inventory?.trackStock || isMadeToOrder(product)) return null
 
   const reduction = Math.max(1, Number(quantity || 1))
   const records = variantStock(product)
