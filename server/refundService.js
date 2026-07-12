@@ -8,9 +8,10 @@ function serialiseRefund(orderId, action) {
   const key = String(orderId)
   const previous = refundQueues.get(key) || Promise.resolve()
   const next = previous.then(action, action)
-  refundQueues.set(key, next.catch(() => {}))
+  const queued = next.catch(() => {})
+  refundQueues.set(key, queued)
   return next.finally(() => {
-    if (refundQueues.get(key) === next) refundQueues.delete(key)
+    if (refundQueues.get(key) === queued) refundQueues.delete(key)
   })
 }
 
