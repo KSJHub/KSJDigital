@@ -185,10 +185,14 @@ function addressFromPayPal(address = {}) {
 }
 
 export async function capturePayPalOrder(orderId) {
-  const capture = await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`, {
-    method: 'POST',
-    headers: { 'PayPal-Request-Id': crypto.randomUUID() },
-  })
+  const safeOrderId = encodeURIComponent(orderId)
+  const existing = await paypalRequest(`/v2/checkout/orders/${safeOrderId}`)
+  const capture = existing.status === 'COMPLETED'
+    ? existing
+    : await paypalRequest(`/v2/checkout/orders/${safeOrderId}/capture`, {
+        method: 'POST',
+        headers: { 'PayPal-Request-Id': `capture-${orderId}` },
+      })
 
   if (capture.status !== 'COMPLETED') return { capture, completed: false }
   const unit = capture.purchase_units?.[0]
