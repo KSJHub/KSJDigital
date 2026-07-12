@@ -8,6 +8,43 @@ import { createOrdersRouter, createPublicOrdersRouter } from './ordersRouter.js'
 import { createPayPalRouter } from './paypalCheckout.js'
 import { createRefundRouter } from './refundRouter.js'
 import { createStripeRouter } from './stripeCheckout.js'
+import { paths, readJson, writeJson } from './storage.js'
+
+const credentialEnvironment = {
+  morgan: 'KSJ_OWNER_PASSWORD',
+  taj: 'TWOTONETAJ_CLIENT_PASSWORD',
+  'goliath-admin': 'GOLIATH_CLIENT_PASSWORD',
+}
+
+const insecureStarterCredentials = new Set(['owner-access', 'client-access', 'draft-access'])
+
+async function migrateStarterCredentials() {
+  const clients = await readJson(paths.clients(), null)
+  if (!Array.isArray(clients)) return
+
+  let changed = false
+  const nextClients = clients.map(client => {
+    const environmentName = credentialEnvironment[client.id]
+    if (!environmentName) return client
+
+    const configured = String(process.env[environmentName] || '').trim()
+    const current = String(client.password || client.accessCode || '').trim()
+    const shouldReplace = configured && (!current || insecureStarterCredentials.has(current))
+    const shouldRemove = !configured && insecureStarterCredentials.has(current)
+
+    if (!shouldReplace && !shouldRemove) return client
+    changed = true
+
+    const next = { ...client }
+    delete next.password
+    next.accessCode = shouldReplace ? configured : ''
+    return next
+  })
+
+  if (changed) await writeJson(paths.clients(), nextClients)
+}
+
+await migrateStarterCredentials()
 
 const originalUse = express.application.use
 let useCalls = 0
