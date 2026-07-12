@@ -2,7 +2,7 @@ import crypto from 'node:crypto'
 import { decrementProductStock, restoreProductStock } from './merchValidation.js'
 import { paths, readJson, writeJson } from './storage.js'
 
-const RESERVATION_MS = 30 * 60 * 1000
+const RESERVATION_MS = 35 * 60 * 1000
 let reservationQueue = Promise.resolve()
 
 function serialise(action) {
@@ -46,7 +46,7 @@ export async function reserveProductStock({ websiteId, product, quantity, varian
 
     const now = Date.now()
     const reservation = {
-      id: crypto.randomUUID(),
+      id: crypto.randomBytes(12).toString('hex'),
       websiteId,
       productId: product.id,
       quantity: Math.max(1, Number(quantity || 1)),
