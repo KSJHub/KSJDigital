@@ -1,3 +1,9 @@
+function developmentCredential(environmentName, fallback) {
+  const configured = String(process.env[environmentName] || '').trim()
+  if (configured) return configured
+  return process.env.NODE_ENV === 'production' ? '' : fallback
+}
+
 export const starterWebsites = [
   {
     id: 'twotonetaj',
@@ -54,7 +60,7 @@ export const starterClients = [
     id: 'taj',
     name: 'Taj',
     email: 'taj@twotonetaj.com',
-    accessCode: process.env.TWOTONETAJ_CLIENT_PASSWORD || '',
+    accessCode: developmentCredential('TWOTONETAJ_CLIENT_PASSWORD', 'client-access'),
     role: 'Client',
     websiteIds: ['twotonetaj'],
     status: 'Active',
@@ -68,7 +74,7 @@ export const starterClients = [
     id: 'morgan',
     name: 'Morgan',
     email: 'ksj@ksjdigital.co.uk',
-    accessCode: process.env.KSJ_OWNER_PASSWORD || '',
+    accessCode: developmentCredential('KSJ_OWNER_PASSWORD', 'owner-access'),
     role: 'Owner',
     websiteIds: ['twotonetaj', 'ksjdiamondgaming', 'goliath'],
     status: 'Active',
@@ -82,7 +88,7 @@ export const starterClients = [
     id: 'goliath-admin',
     name: 'Goliath Admin',
     email: 'admin@goliath.gg',
-    accessCode: process.env.GOLIATH_CLIENT_PASSWORD || '',
+    accessCode: developmentCredential('GOLIATH_CLIENT_PASSWORD', 'draft-access'),
     role: 'Client',
     websiteIds: ['goliath'],
     status: 'Draft',
