@@ -1,5 +1,18 @@
+import crypto from 'node:crypto'
 import { restoreProductStock } from './merchValidation.js'
 import { getOrder, recordOrderRefund } from './orderService.js'
+
+const refundQueues = new Map()
+
+function serialiseRefund(orderId, action) {
+  const key = String(orderId)
+  const previous = refundQueues.get(key) || Promise.resolve()
+  const next = previous.then(action, action)
+  refundQueues.set(key, next.catch(() => {}))
+  return next.finally(() => {
+    if (refundQueues.get(key) === next) refundQueues.delete(key)
+  })
+}
 
 function requiredEnv(name) {
   const value = process.env[name]
@@ -9,6 +22,14 @@ function requiredEnv(name) {
 
 function roundMoney(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100
+}
+
+function refundRequestId(order, alreadyRefunded, amount) {
+  return crypto
+    .createHash('sha256')
+    .update(`${order.provider}:${order.providerOrderId}:${alreadyRefunded.toFixed(2)}:${amount.toFixed(2)}`)
+    .digest('hex')
+    .slice(0, 32)
 }
 
 function paypalApiBase() {
@@ -34,7 +55,7 @@ async function paypalAccessToken() {
   return data.access_token
 }
 
-async function refundStripe(order, amount, reason) {
+async function refundStripe(order, amount, reason, requestId) {
   if (!order.providerTransactionId) throw new Error('Stripe payment reference is missing')
   const body = new URLSearchParams()
   body.set('payment_intent', order.providerTransactionId)
@@ -47,6 +68,7 @@ async function refundStripe(order, amount, reason) {
     headers: {
       Authorization: `Bearer ${requiredEnv('STRIPE_SECRET_KEY')}`,
       'Content-Type': 'application/x-www-form-urlencoded',
+      'Idempotency-Key': requestId,
     },
     body,
   })
@@ -58,7 +80,7 @@ async function refundStripe(order, amount, reason) {
   return { id: data.id, status: data.status || 'succeeded' }
 }
 
-async function refundPayPal(order, amount, reason) {
+async function refundPayPal(order, amount, reason, requestId) {
   if (!order.providerTransactionId) throw new Error('PayPal capture reference is missing')
   const token = await paypalAccessToken()
   const response = await fetch(
@@ -68,7 +90,7 @@ async function refundPayPal(order, amount, reason) {
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
-        'PayPal-Request-Id': crypto.randomUUID(),
+        'PayPal-Request-Id': requestId,
       },
       body: JSON.stringify({
         amount: { currency_code: order.currency || 'GBP', value: amount.toFixed(2) },
@@ -84,47 +106,57 @@ async function refundPayPal(order, amount, reason) {
 }
 
 export async function processOrderRefund(orderId, input = {}) {
-  const order = await getOrder(orderId)
-  if (!order) throw new Error('Order not found')
-  if (!['stripe', 'paypal'].includes(order.provider)) throw new Error('This payment provider does not support managed refunds')
-
-  const alreadyRefunded = roundMoney(order.refund?.totalAmount || 0)
-  const remaining = roundMoney(Number(order.total || 0) - alreadyRefunded)
-  if (remaining <= 0) throw new Error('This order has already been fully refunded')
-
-  const requested = input.fullRefund === true || input.amount === '' || input.amount == null
-    ? remaining
-    : roundMoney(input.amount)
-  if (!Number.isFinite(requested) || requested <= 0) throw new Error('Refund amount must be greater than zero')
-  if (requested > remaining) throw new Error(`Refund cannot exceed the remaining ${order.currency || 'GBP'} ${remaining.toFixed(2)}`)
-
-  const fullRefund = requested >= remaining
-  if (input.restoreStock === true && !fullRefund) {
-    throw new Error('Stock can only be restored with a full refund')
-  }
-  if (input.restoreStock === true && order.refund?.stockRestored === true) {
-    throw new Error('Stock has already been restored for this order')
-  }
-
-  const providerResult = order.provider === 'stripe'
-    ? await refundStripe(order, requested, String(input.reason || '').trim())
-    : await refundPayPal(order, requested, String(input.reason || '').trim())
-
-  let restoredStock = false
-  if (input.restoreStock === true) {
-    for (const item of order.items || []) {
-      if (item.fulfilment !== 'digital' && !item.madeToOrder) {
-        await restoreProductStock(order.websiteId, item.productId, item.quantity, item.variant)
-      }
+  return serialiseRefund(orderId, async () => {
+    const order = await getOrder(orderId)
+    if (!order) throw new Error('Order not found')
+    if (!['stripe', 'paypal'].includes(order.provider)) {
+      throw new Error('This payment provider does not support managed refunds')
     }
-    restoredStock = true
-  }
 
-  const updated = await recordOrderRefund(order.id, {
-    amount: requested,
-    reason: input.reason,
-    providerRefundId: providerResult.id,
-    restoredStock,
+    const alreadyRefunded = roundMoney(order.refund?.totalAmount || 0)
+    const remaining = roundMoney(Number(order.total || 0) - alreadyRefunded)
+    if (remaining <= 0) throw new Error('This order has already been fully refunded')
+
+    const requested = input.fullRefund === true || input.amount === '' || input.amount == null
+      ? remaining
+      : roundMoney(input.amount)
+    if (!Number.isFinite(requested) || requested <= 0) {
+      throw new Error('Refund amount must be greater than zero')
+    }
+    if (requested > remaining) {
+      throw new Error(`Refund cannot exceed the remaining ${order.currency || 'GBP'} ${remaining.toFixed(2)}`)
+    }
+
+    const fullRefund = requested >= remaining
+    if (input.restoreStock === true && !fullRefund) {
+      throw new Error('Stock can only be restored with a full refund')
+    }
+    if (input.restoreStock === true && order.refund?.stockRestored === true) {
+      throw new Error('Stock has already been restored for this order')
+    }
+
+    const reason = String(input.reason || '').trim()
+    const requestId = refundRequestId(order, alreadyRefunded, requested)
+    const providerResult = order.provider === 'stripe'
+      ? await refundStripe(order, requested, reason, requestId)
+      : await refundPayPal(order, requested, reason, requestId)
+
+    let restoredStock = false
+    if (input.restoreStock === true) {
+      for (const item of order.items || []) {
+        if (item.fulfilment !== 'digital' && !item.madeToOrder) {
+          await restoreProductStock(order.websiteId, item.productId, item.quantity, item.variant)
+        }
+      }
+      restoredStock = true
+    }
+
+    const updated = await recordOrderRefund(order.id, {
+      amount: requested,
+      reason,
+      providerRefundId: providerResult.id,
+      restoredStock,
+    })
+    return { order: updated, providerRefund: providerResult, fullRefund }
   })
-  return { order: updated, providerRefund: providerResult, fullRefund }
 }
