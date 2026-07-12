@@ -30,6 +30,7 @@ const [
   { createPayPalRouter },
   { createRefundRouter },
   { createStripeRouter, processStripeCheckoutCompleted },
+  { releaseStockReservation },
   { paths, readJson, writeJson },
 ] = await Promise.all([
   import('./commerceSettingsRouter.js'),
@@ -38,6 +39,7 @@ const [
   import('./paypalCheckout.js'),
   import('./refundRouter.js'),
   import('./stripeCheckout.js'),
+  import('./stockReservations.js'),
   import('./storage.js'),
 ])
 
@@ -88,6 +90,18 @@ express.application.use = function patchedUse(...args) {
 
   if (!checkoutMounted && useCalls === 2) {
     checkoutMounted = true
+    originalUse.call(
+      this,
+      '/api/checkout/reservations/:id/release',
+      async (req, res) => {
+        try {
+          const released = await releaseStockReservation(req.params.id)
+          res.json({ released })
+        } catch (error) {
+          res.status(400).json({ error: error.message })
+        }
+      },
+    )
     originalUse.call(
       this,
       '/api/checkout/stripe/sessions/:id/complete',
