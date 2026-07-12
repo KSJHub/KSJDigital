@@ -11,10 +11,18 @@ export async function ensureDir(dir) {
 }
 
 export async function readJson(file, fallback) {
+  let source
   try {
-    return JSON.parse(await fs.readFile(file, 'utf8'))
-  } catch {
-    return fallback
+    source = await fs.readFile(file, 'utf8')
+  } catch (error) {
+    if (error?.code === 'ENOENT') return fallback
+    throw error
+  }
+
+  try {
+    return JSON.parse(source)
+  } catch (error) {
+    throw new Error(`Stored JSON is invalid: ${path.relative(DATA_DIR, file)}`, { cause: error })
   }
 }
 
