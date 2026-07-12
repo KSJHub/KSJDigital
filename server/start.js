@@ -29,7 +29,7 @@ const [
   { createOrdersRouter, createPublicOrdersRouter },
   { createPayPalRouter },
   { createRefundRouter },
-  { createStripeRouter },
+  { createStripeRouter, processStripeCheckoutCompleted },
   { paths, readJson, writeJson },
 ] = await Promise.all([
   import('./commerceSettingsRouter.js'),
@@ -88,6 +88,20 @@ express.application.use = function patchedUse(...args) {
 
   if (!checkoutMounted && useCalls === 2) {
     checkoutMounted = true
+    originalUse.call(
+      this,
+      '/api/checkout/stripe/sessions/:id/complete',
+      async (req, res) => {
+        try {
+          const result = await processStripeCheckoutCompleted({
+            data: { object: { id: req.params.id } },
+          })
+          res.json({ ...result, completed: true })
+        } catch (error) {
+          res.status(400).json({ error: error.message })
+        }
+      },
+    )
     originalUse.call(this, '/api/checkout/stripe', createStripeRouter())
     originalUse.call(
       this,
