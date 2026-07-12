@@ -51,7 +51,6 @@ async function stripeRequest(path, entries) {
     },
     body: formBody(entries),
   })
-
   const data = await response.json()
   if (!response.ok) throw new Error(data.error?.message || `Stripe request failed: ${response.status}`)
   return data
@@ -87,7 +86,6 @@ export function verifyStripeWebhook(rawBody, signatureHeader, secret = requiredE
       return false
     }
   })
-
   if (!valid) throw new Error('Stripe webhook signature is invalid')
   return JSON.parse(payload)
 }
@@ -129,7 +127,8 @@ export async function createStripeCheckoutSession({ websiteId, productId, quanti
   if (!settings.stripeEnabled) throw new Error('Stripe checkout is disabled for this website')
   if (!settings.successUrl || !settings.cancelUrl) throw new Error('Stripe success and cancel URLs are not configured')
 
-  const originalSubtotal = Number(product.priceGBP) * selection.quantity
+  const unitPrice = Number(product.priceGBP)
+  const originalSubtotal = unitPrice * selection.quantity
   const discount = resolveDiscount(settings, discountCode, originalSubtotal)
   const discountedSubtotal = Math.max(0, originalSubtotal - discount.amount)
   const shippingProduct = { ...product, priceGBP: discountedSubtotal / selection.quantity }
@@ -158,6 +157,8 @@ export async function createStripeCheckoutSession({ websiteId, productId, quanti
     ['line_items[0][price_data][product_data][description]', hasDiscount ? `${product.description || ''} Discount ${discount.code} applied.`.trim() : product.description],
     ['metadata[websiteId]', safeWebsiteId],
     ['metadata[productId]', product.id],
+    ['metadata[productName]', product.name],
+    ['metadata[unitPrice]', unitPrice.toFixed(2)],
     ['metadata[quantity]', selection.quantity],
     ['metadata[size]', selection.variant.size],
     ['metadata[colour]', selection.variant.colour],
@@ -256,6 +257,8 @@ export async function processStripeCheckoutCompleted(event) {
   const shippingDetails = session.shipping_details || session.collected_information?.shipping_details || {}
   const discountAmount = Number(session.metadata?.discountAmount || 0)
   const discountCode = session.metadata?.discountCode || ''
+  const lockedName = String(session.metadata?.productName || product.name)
+  const lockedUnitPrice = Number(session.metadata?.unitPrice || product.priceGBP)
 
   const { order, created } = await createPaidOrder({
     websiteId,
@@ -287,19 +290,17 @@ export async function processStripeCheckoutCompleted(event) {
       : selection.madeToOrder
         ? `Made to order · ${session.metadata?.shippingLabel || 'UK delivery'}`
         : session.metadata?.shippingLabel || 'UK delivery',
-    items: [
-      {
-        productId: product.id,
-        name: product.name,
-        image: product.image?.url || '',
-        quantity: selection.quantity,
-        unitPrice: Number(product.priceGBP),
-        fulfilment: product.fulfilment,
-        madeToOrder: selection.madeToOrder,
-        leadTimeMessage: selection.leadTimeMessage,
-        variant: selection.variant,
-      },
-    ],
+    items: [{
+      productId: product.id,
+      name: lockedName,
+      image: product.image?.url || '',
+      quantity: selection.quantity,
+      unitPrice: lockedUnitPrice,
+      fulfilment: product.fulfilment,
+      madeToOrder: selection.madeToOrder,
+      leadTimeMessage: selection.leadTimeMessage,
+      variant: selection.variant,
+    }],
     paidAt: new Date((session.created || Math.floor(Date.now() / 1000)) * 1000).toISOString(),
   })
 
@@ -347,8 +348,7 @@ export function createStripeRouter() {
 
   router.post('/session', express.json(), async (req, res) => {
     try {
-      const session = await createStripeCheckoutSession(req.body || {})
-      res.json(session)
+      res.json(await createStripeCheckoutSession(req.body || {}))
     } catch (error) {
       res.status(400).json({ error: error.message })
     }
