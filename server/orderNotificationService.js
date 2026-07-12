@@ -39,10 +39,13 @@ async function sendResendEmail(message, settings = {}) {
 async function sendDiscordWebhook(payload, webhookUrl) {
   if (!webhookUrl) throw new Error('Discord order webhook is not configured')
   const url = new URL(webhookUrl)
-  if (
-    url.protocol !== 'https:' ||
-    (!url.hostname.endsWith('discord.com') && !url.hostname.endsWith('discordapp.com'))
-  ) {
+  const validDiscordHost =
+    url.hostname === 'discord.com' ||
+    url.hostname.endsWith('.discord.com') ||
+    url.hostname === 'discordapp.com' ||
+    url.hostname.endsWith('.discordapp.com')
+
+  if (url.protocol !== 'https:' || !validDiscordHost) {
     throw new Error('Discord webhook URL is invalid')
   }
 
@@ -58,14 +61,23 @@ async function sendDiscordWebhook(payload, webhookUrl) {
   }
 }
 
+async function recordStatus(order, channel, status, errorMessage = '') {
+  try {
+    await updateNotificationStatus(order.id, channel, status, errorMessage)
+  } catch (error) {
+    console.error(`Unable to record ${channel} notification status for ${order.orderNumber}:`, error)
+  }
+}
+
 async function deliver(order, channel, action) {
   try {
     const result = await action()
-    await updateNotificationStatus(order.id, channel, 'Sent')
+    await recordStatus(order, channel, 'Sent')
     return { channel, status: 'Sent', result }
   } catch (error) {
-    await updateNotificationStatus(order.id, channel, 'Failed', error.message)
-    return { channel, status: 'Failed', error: error.message }
+    const message = error instanceof Error ? error.message : String(error)
+    await recordStatus(order, channel, 'Failed', message)
+    return { channel, status: 'Failed', error: message }
   }
 }
 
@@ -124,11 +136,13 @@ export async function sendOrderNotifications(order, settings = {}) {
   const clientMessage = buildClientOrderEmail(order, settings)
   const discordPayload = buildDiscordOrderPayload(order, settings)
 
-  const results = await Promise.all([
-    deliver(order, 'buyerEmail', () => sendResendEmail(buyerMessage, settings)),
-    deliver(order, 'clientEmail', () => sendResendEmail(clientMessage, settings)),
-    deliver(order, 'discord', () => sendDiscordWebhook(discordPayload, settings.discordWebhookUrl)),
-  ])
+  // These writes are intentionally sequential. Every channel updates the same
+  // persisted order record, so parallel delivery could overwrite another
+  // channel's status with stale data.
+  const results = []
+  results.push(await deliver(order, 'buyerEmail', () => sendResendEmail(buyerMessage, settings)))
+  results.push(await deliver(order, 'clientEmail', () => sendResendEmail(clientMessage, settings)))
+  results.push(await deliver(order, 'discord', () => sendDiscordWebhook(discordPayload, settings.discordWebhookUrl)))
 
   return {
     ok: results.every(result => result.status === 'Sent'),
