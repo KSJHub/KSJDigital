@@ -1,4 +1,6 @@
-import { paths, readJson, writeJson } from './storage.js'
+import { paths, readJson, safeName, writeJson } from './storage.js'
+
+const inventoryQueues = new Map()
 
 function text(value) {
   return typeof value === 'string' ? value.trim() : ''
@@ -123,55 +125,82 @@ export function resolveProductSelection(product, quantity = 1, variant = {}) {
   }
 }
 
-async function adjustProductStock(websiteId, productId, quantity, variant = {}, direction = -1) {
-  const content = await readJson(paths.content(websiteId), {})
-  const products = Array.isArray(content.merch?.products) ? content.merch.products : []
-  const product = products.find(item => item.id === productId)
-  if (!product?.inventory?.trackStock) return null
-
-  const change = Math.max(1, Number(quantity || 1)) * direction
-  const records = variantStock(product)
-  let nextInventory
-
-  if (records.length) {
-    const selectedKey = variantKey(variant.size, variant.colour)
-    const nextVariants = records.map(record =>
-      variantKey(record.size, record.colour) === selectedKey
-        ? { ...record, quantity: Math.max(0, Number(record.quantity || 0) + change) }
-        : record,
-    )
-    nextInventory = {
-      ...product.inventory,
-      variants: nextVariants,
-      quantity: nextVariants.reduce((total, record) => total + Number(record.quantity || 0), 0),
-    }
-  } else {
-    nextInventory = {
-      ...product.inventory,
-      quantity: Math.max(0, Number(product.inventory.quantity || 0) + change),
-    }
-  }
-
-  const soldOut = Number(nextInventory.quantity || 0) <= 0
-  const keepAvailable = isMadeToOrder(product)
-  const restored = direction > 0 && Number(nextInventory.quantity || 0) > 0
-  const nextProducts = products.map(item =>
-    item.id === productId
-      ? {
-          ...item,
-          inventory: nextInventory,
-          availability: restored ? 'available' : soldOut && !keepAvailable ? 'sold-out' : item.availability,
-          status: restored ? 'Available' : soldOut && !keepAvailable ? 'Sold Out' : item.status,
-          checkout: restored ? { ...item.checkout, enabled: true } : soldOut && !keepAvailable ? { ...item.checkout, enabled: false } : item.checkout,
-        }
-      : item,
-  )
-
-  await writeJson(paths.content(websiteId), {
-    ...content,
-    merch: { ...content.merch, products: nextProducts },
+function queueInventoryMutation(websiteId, action) {
+  const key = safeName(websiteId)
+  const previous = inventoryQueues.get(key) || Promise.resolve()
+  const current = previous.catch(() => undefined).then(action)
+  inventoryQueues.set(key, current)
+  return current.finally(() => {
+    if (inventoryQueues.get(key) === current) inventoryQueues.delete(key)
   })
-  return nextInventory
+}
+
+async function adjustProductStock(websiteId, productId, quantity, variant = {}, direction = -1) {
+  return queueInventoryMutation(websiteId, async () => {
+    const safeWebsiteId = safeName(websiteId)
+    const content = await readJson(paths.content(safeWebsiteId), {})
+    const products = Array.isArray(content.merch?.products) ? content.merch.products : []
+    const product = products.find(item => item.id === productId)
+    if (!product) throw new Error('Product was not found while updating stock')
+    if (!product.inventory?.trackStock) return null
+
+    const safeQuantity = Math.max(1, Number(quantity || 1))
+    const change = safeQuantity * direction
+    const records = variantStock(product)
+    let nextInventory
+
+    if (records.length) {
+      const selectedKey = variantKey(variant.size, variant.colour)
+      const selected = records.find(record => variantKey(record.size, record.colour) === selectedKey)
+      if (!selected) throw new Error('Selected stock variant was not found')
+
+      const available = Math.max(0, Number(selected.quantity || 0))
+      if (direction < 0 && !isMadeToOrder(product) && available < safeQuantity) {
+        throw new Error('This variant sold out before payment could be finalised')
+      }
+
+      const nextVariants = records.map(record =>
+        variantKey(record.size, record.colour) === selectedKey
+          ? { ...record, quantity: Math.max(0, Number(record.quantity || 0) + change) }
+          : record,
+      )
+      nextInventory = {
+        ...product.inventory,
+        variants: nextVariants,
+        quantity: nextVariants.reduce((total, record) => total + Math.max(0, Number(record.quantity || 0)), 0),
+      }
+    } else {
+      const available = Math.max(0, Number(product.inventory.quantity || 0))
+      if (direction < 0 && !isMadeToOrder(product) && available < safeQuantity) {
+        throw new Error('This product sold out before payment could be finalised')
+      }
+      nextInventory = {
+        ...product.inventory,
+        quantity: Math.max(0, available + change),
+      }
+    }
+
+    const soldOut = Number(nextInventory.quantity || 0) <= 0
+    const keepAvailable = isMadeToOrder(product)
+    const restored = direction > 0 && Number(nextInventory.quantity || 0) > 0
+    const nextProducts = products.map(item =>
+      item.id === productId
+        ? {
+            ...item,
+            inventory: nextInventory,
+            availability: restored ? 'available' : soldOut && !keepAvailable ? 'sold-out' : item.availability,
+            status: restored ? 'Available' : soldOut && !keepAvailable ? 'Sold Out' : item.status,
+            checkout: restored ? { ...item.checkout, enabled: true } : soldOut && !keepAvailable ? { ...item.checkout, enabled: false } : item.checkout,
+          }
+        : item,
+    )
+
+    await writeJson(paths.content(safeWebsiteId), {
+      ...content,
+      merch: { ...content.merch, products: nextProducts },
+    })
+    return nextInventory
+  })
 }
 
 export async function decrementProductStock(websiteId, productId, quantity, variant = {}) {
