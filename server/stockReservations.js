@@ -66,9 +66,19 @@ export async function reserveProductStock({ websiteId, product, quantity, varian
   })
 }
 
+export async function getActiveStockReservation(reservationId) {
+  if (!reservationId) return null
+  return serialise(async () => {
+    await restoreExpiredLocked()
+    const records = await readReservations()
+    return records.find(record => record.id === reservationId && record.status === 'reserved') || null
+  })
+}
+
 export async function consumeStockReservation(reservationId) {
   if (!reservationId) return false
   return serialise(async () => {
+    await restoreExpiredLocked()
     const records = await readReservations()
     const exists = records.some(record => record.id === reservationId)
     if (!exists) return false
