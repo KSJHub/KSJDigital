@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 
@@ -19,7 +20,17 @@ export async function readJson(file, fallback) {
 
 export async function writeJson(file, data) {
   await ensureDir(path.dirname(file))
-  await fs.writeFile(file, JSON.stringify(data, null, 2))
+  const temporaryFile = `${file}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`
+  const payload = JSON.stringify(data, null, 2)
+
+  try {
+    await fs.writeFile(temporaryFile, payload, { encoding: 'utf8', flag: 'wx' })
+    await fs.rename(temporaryFile, file)
+  } catch (error) {
+    await fs.rm(temporaryFile, { force: true }).catch(() => {})
+    throw error
+  }
+
   return data
 }
 
