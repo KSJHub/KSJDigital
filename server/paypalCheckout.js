@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import express from 'express'
 import {
   calculateShipping,
@@ -9,6 +10,12 @@ import {
 import { decrementProductStock, resolveProductSelection } from './merchValidation.js'
 import { createPaidOrder } from './orderService.js'
 import { sendOrderNotifications } from './orderNotificationService.js'
+import {
+  consumeStockReservation,
+  getActiveStockReservation,
+  releaseStockReservation,
+  reserveProductStock,
+} from './stockReservations.js'
 import { paths, readJson, safeName } from './storage.js'
 
 function apiBase() {
@@ -21,6 +28,12 @@ function requiredEnv(name) {
   const value = process.env[name]
   if (!value) throw new Error(`${name} is not configured`)
   return value
+}
+
+function addQueryParam(url, key, value) {
+  const parsed = new URL(url)
+  parsed.searchParams.set(key, value)
+  return parsed.toString()
 }
 
 async function accessToken() {
@@ -67,10 +80,10 @@ async function getStore(websiteId) {
   return { content, merch }
 }
 
-function getProduct(merch, productId) {
+function getProduct(merch, productId, allowUnavailable = false) {
   const product = merch.products.find(item => item.id === productId)
   if (!product) throw new Error('Product was not found')
-  if (product.availability !== 'available') throw new Error('Product is not available')
+  if (!allowUnavailable && product.availability !== 'available') throw new Error('Product is not available')
   if (Number(product.priceGBP) <= 0) throw new Error('Product price is invalid')
   return product
 }
@@ -105,6 +118,14 @@ export async function createPayPalOrder({ websiteId, productId, quantity = 1, va
   const shippingProduct = { ...product, priceGBP: discountedSubtotal / selection.quantity }
   const shipping = calculateShipping(settings, shippingProduct, selection.quantity)
   const tax = calculateTax(settings, discountedSubtotal, shipping.amount)
+  const reservation = await reserveProductStock({
+    websiteId: safeWebsiteId,
+    product,
+    quantity: selection.quantity,
+    variant: selection.variant,
+    provider: 'paypal',
+  })
+  const reservationId = reservation?.id || ''
   const breakdown = {
     item_total: { currency_code: 'GBP', value: discountedSubtotal.toFixed(2) },
     shipping: { currency_code: 'GBP', value: shipping.amount.toFixed(2) },
@@ -114,62 +135,68 @@ export async function createPayPalOrder({ websiteId, productId, quantity = 1, va
   }
 
   const hasDiscount = discount.amount > 0
-  const order = await paypalRequest('/v2/checkout/orders', {
-    method: 'POST',
-    headers: { 'PayPal-Request-Id': crypto.randomUUID() },
-    body: JSON.stringify({
-      intent: 'CAPTURE',
-      purchase_units: [
-        {
-          reference_id: safeWebsiteId,
-          custom_id: JSON.stringify({
-            w: safeWebsiteId,
-            p: product.id,
-            q: selection.quantity,
-            s: selection.variant.size,
-            c: selection.variant.colour,
-            l: shipping.label,
-            d: discount.code,
-            a: discount.amount,
-          }),
-          description: product.name,
-          amount: {
-            currency_code: 'GBP',
-            value: tax.total.toFixed(2),
-            breakdown,
-          },
-          items: [
-            {
-              name: hasDiscount ? `${product.name} × ${selection.quantity}` : product.name,
-              description: hasDiscount ? `${product.description || ''} Discount ${discount.code} applied.`.trim() : product.description,
-              quantity: hasDiscount ? '1' : String(selection.quantity),
-              category: product.fulfilment === 'digital' ? 'DIGITAL_GOODS' : 'PHYSICAL_GOODS',
-              unit_amount: {
-                currency_code: 'GBP',
-                value: (discountedSubtotal / (hasDiscount ? 1 : selection.quantity)).toFixed(2),
-              },
+  try {
+    const order = await paypalRequest('/v2/checkout/orders', {
+      method: 'POST',
+      headers: { 'PayPal-Request-Id': crypto.randomUUID() },
+      body: JSON.stringify({
+        intent: 'CAPTURE',
+        purchase_units: [
+          {
+            reference_id: safeWebsiteId,
+            custom_id: JSON.stringify({
+              w: safeWebsiteId,
+              p: product.id,
+              q: selection.quantity,
+              s: selection.variant.size,
+              c: selection.variant.colour,
+              l: shipping.label,
+              d: discount.code,
+              a: discount.amount,
+              r: reservationId,
+            }),
+            description: product.name,
+            amount: {
+              currency_code: 'GBP',
+              value: tax.total.toFixed(2),
+              breakdown,
             },
-          ],
-        },
-      ],
-      payment_source: {
-        paypal: {
-          experience_context: {
-            brand_name: process.env.PAYPAL_BRAND_NAME || settings.brandName || 'TwoToneTaj Merch',
-            shipping_preference: product.fulfilment === 'digital' ? 'NO_SHIPPING' : 'GET_FROM_FILE',
-            user_action: 'PAY_NOW',
-            return_url: settings.paypalReturnUrl,
-            cancel_url: settings.cancelUrl,
+            items: [
+              {
+                name: hasDiscount ? `${product.name} × ${selection.quantity}` : product.name,
+                description: hasDiscount ? `${product.description || ''} Discount ${discount.code} applied.`.trim() : product.description,
+                quantity: hasDiscount ? '1' : String(selection.quantity),
+                category: product.fulfilment === 'digital' ? 'DIGITAL_GOODS' : 'PHYSICAL_GOODS',
+                unit_amount: {
+                  currency_code: 'GBP',
+                  value: (discountedSubtotal / (hasDiscount ? 1 : selection.quantity)).toFixed(2),
+                },
+              },
+            ],
+          },
+        ],
+        payment_source: {
+          paypal: {
+            experience_context: {
+              brand_name: process.env.PAYPAL_BRAND_NAME || settings.brandName || 'TwoToneTaj Merch',
+              shipping_preference: product.fulfilment === 'digital' ? 'NO_SHIPPING' : 'GET_FROM_FILE',
+              user_action: 'PAY_NOW',
+              return_url: settings.paypalReturnUrl,
+              cancel_url: reservationId ? addQueryParam(settings.cancelUrl, 'reservation_id', reservationId) : settings.cancelUrl,
+            },
           },
         },
-      },
-    }),
-  })
+      }),
+    })
 
-  return {
-    id: order.id,
-    status: order.status,
-    approvalUrl: order.links?.find(link => link.rel === 'payer-action' || link.rel === 'approve')?.href || '',
+    return {
+      id: order.id,
+      status: order.status,
+      approvalUrl: order.links?.find(link => link.rel === 'payer-action' || link.rel === 'approve')?.href || '',
+    }
+  } catch (error) {
+    if (reservationId) await releaseStockReservation(reservationId)
+    throw error
   }
 }
 
@@ -184,9 +211,27 @@ function addressFromPayPal(address = {}) {
   }
 }
 
+function paidSelection(product, custom = {}) {
+  return {
+    quantity: Math.max(1, Number(custom.q || 1)),
+    variant: { size: custom.s || '', colour: custom.c || '' },
+    madeToOrder: product.fulfilmentOptions?.madeToOrder === true,
+    leadTimeMessage: String(product.fulfilmentOptions?.leadTimeMessage || '').trim(),
+  }
+}
+
 export async function capturePayPalOrder(orderId) {
   const safeOrderId = encodeURIComponent(orderId)
   const existing = await paypalRequest(`/v2/checkout/orders/${safeOrderId}`)
+  const existingUnit = existing.purchase_units?.[0]
+  const custom = JSON.parse(existingUnit?.custom_id || '{}')
+  const reservationId = custom.r || ''
+  const reservation = reservationId ? await getActiveStockReservation(reservationId) : null
+
+  if (existing.status !== 'COMPLETED' && reservationId && !reservation) {
+    throw new Error('This PayPal checkout expired before payment was captured. No payment was taken.')
+  }
+
   const capture = existing.status === 'COMPLETED'
     ? existing
     : await paypalRequest(`/v2/checkout/orders/${safeOrderId}/capture`, {
@@ -196,15 +241,17 @@ export async function capturePayPalOrder(orderId) {
 
   if (capture.status !== 'COMPLETED') return { capture, completed: false }
   const unit = capture.purchase_units?.[0]
-  const custom = JSON.parse(unit?.custom_id || '{}')
-  const websiteId = safeName(custom.w)
+  const capturedCustom = JSON.parse(unit?.custom_id || '{}')
+  const websiteId = safeName(capturedCustom.w)
   const { content, merch } = await getStore(websiteId)
   const settings = await checkoutSettings(websiteId, content)
-  const product = getProduct(merch, custom.p)
-  const selection = resolveProductSelection(product, custom.q, {
-    size: custom.s,
-    colour: custom.c,
-  })
+  const product = getProduct(merch, capturedCustom.p, true)
+  const selection = reservation
+    ? paidSelection(product, capturedCustom)
+    : resolveProductSelection(product, capturedCustom.q, {
+        size: capturedCustom.s,
+        colour: capturedCustom.c,
+      })
   const payment = unit?.payments?.captures?.[0]
   const payer = capture.payer || {}
   const shippingAddress = unit?.shipping || {}
@@ -212,8 +259,8 @@ export async function capturePayPalOrder(orderId) {
   const productGrossOrNet = Number(unit?.amount?.breakdown?.item_total?.value || 0)
   const shippingGrossOrNet = Number(unit?.amount?.breakdown?.shipping?.value || 0)
   const tax = calculateTax(settings, productGrossOrNet, shippingGrossOrNet)
-  const discountCode = custom.d || ''
-  const discountAmount = Number(custom.a || 0)
+  const discountCode = capturedCustom.d || ''
+  const discountAmount = Number(capturedCustom.a || 0)
 
   const { order, created } = await createPaidOrder({
     websiteId,
@@ -242,8 +289,8 @@ export async function capturePayPalOrder(orderId) {
     shippingMethod: product.fulfilment === 'digital'
       ? 'Digital delivery'
       : selection.madeToOrder
-        ? `Made to order · ${custom.l || 'UK delivery'}`
-        : custom.l || 'UK delivery',
+        ? `Made to order · ${capturedCustom.l || 'UK delivery'}`
+        : capturedCustom.l || 'UK delivery',
     items: [
       {
         productId: product.id,
@@ -261,7 +308,8 @@ export async function capturePayPalOrder(orderId) {
   })
 
   if (created) {
-    await decrementProductStock(websiteId, product.id, selection.quantity, selection.variant)
+    if (reservation) await consumeStockReservation(reservationId)
+    else await decrementProductStock(websiteId, product.id, selection.quantity, selection.variant)
     await recordDiscountUse(websiteId, discountCode)
     await sendOrderNotifications(order, settings)
   }
