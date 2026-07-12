@@ -10,10 +10,17 @@ import {
 import { decrementProductStock, resolveProductSelection } from './merchValidation.js'
 import { createPaidOrder } from './orderService.js'
 import { sendOrderNotifications } from './orderNotificationService.js'
+import {
+  consumeStockReservation,
+  getActiveStockReservation,
+  releaseStockReservation,
+  reserveProductStock,
+} from './stockReservations.js'
 import { paths, readJson, safeName } from './storage.js'
 
 const STRIPE_API = 'https://api.stripe.com/v1'
 const SIGNATURE_TOLERANCE_SECONDS = 300
+const STRIPE_SESSION_SECONDS = 30 * 60
 
 function requiredEnv(name) {
   const value = process.env[name]
@@ -27,6 +34,12 @@ function formBody(entries) {
     if (value !== undefined && value !== null && value !== '') body.append(key, String(value))
   }
   return body
+}
+
+function addQueryParam(url, key, value) {
+  const parsed = new URL(url)
+  parsed.searchParams.set(key, value)
+  return parsed.toString()
 }
 
 async function stripeRequest(path, entries) {
@@ -86,10 +99,10 @@ async function getStore(websiteId) {
   return { content, merch }
 }
 
-function getProduct(merch, productId) {
+function getProduct(merch, productId, allowUnavailable = false) {
   const product = merch.products.find(item => item.id === productId)
   if (!product) throw new Error('Product was not found')
-  if (product.availability !== 'available') throw new Error('Product is not available')
+  if (!allowUnavailable && product.availability !== 'available') throw new Error('Product is not available')
   if (Number(product.priceGBP) <= 0) throw new Error('Product price is invalid')
   return product
 }
@@ -122,11 +135,20 @@ export async function createStripeCheckoutSession({ websiteId, productId, quanti
   const shippingProduct = { ...product, priceGBP: discountedSubtotal / selection.quantity }
   const shipping = calculateShipping(settings, shippingProduct, selection.quantity)
   const tax = calculateTax(settings, discountedSubtotal, shipping.amount)
+  const reservation = await reserveProductStock({
+    websiteId: safeWebsiteId,
+    product,
+    quantity: selection.quantity,
+    variant: selection.variant,
+    provider: 'stripe',
+  })
+  const reservationId = reservation?.id || ''
   const hasDiscount = discount.amount > 0
   const entries = [
     ['mode', 'payment'],
     ['success_url', `${settings.successUrl}${settings.successUrl.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`],
-    ['cancel_url', settings.cancelUrl],
+    ['cancel_url', reservationId ? addQueryParam(settings.cancelUrl, 'reservation_id', reservationId) : settings.cancelUrl],
+    ['expires_at', Math.floor(Date.now() / 1000) + STRIPE_SESSION_SECONDS],
     ['customer_creation', 'always'],
     ['billing_address_collection', 'auto'],
     ['line_items[0][quantity]', hasDiscount ? 1 : selection.quantity],
@@ -139,6 +161,7 @@ export async function createStripeCheckoutSession({ websiteId, productId, quanti
     ['metadata[quantity]', selection.quantity],
     ['metadata[size]', selection.variant.size],
     ['metadata[colour]', selection.variant.colour],
+    ['metadata[reservationId]', reservationId],
     ['metadata[shippingLabel]', shipping.label],
     ['metadata[originalSubtotal]', originalSubtotal.toFixed(2)],
     ['metadata[discountCode]', discount.code],
@@ -173,8 +196,13 @@ export async function createStripeCheckoutSession({ websiteId, productId, quanti
     }
   }
 
-  const session = await stripeRequest('/checkout/sessions', entries)
-  return { id: session.id, url: session.url }
+  try {
+    const session = await stripeRequest('/checkout/sessions', entries)
+    return { id: session.id, url: session.url }
+  } catch (error) {
+    if (reservationId) await releaseStockReservation(reservationId)
+    throw error
+  }
 }
 
 async function retrieveStripeSession(sessionId) {
@@ -197,6 +225,15 @@ function stripeAddress(address = {}) {
   }
 }
 
+function paidSelection(product, metadata = {}) {
+  return {
+    quantity: Math.max(1, Number(metadata.quantity || 1)),
+    variant: { size: metadata.size || '', colour: metadata.colour || '' },
+    madeToOrder: product.fulfilmentOptions?.madeToOrder === true,
+    leadTimeMessage: String(product.fulfilmentOptions?.leadTimeMessage || '').trim(),
+  }
+}
+
 export async function processStripeCheckoutCompleted(event) {
   const eventSession = event.data?.object
   if (!eventSession?.id) throw new Error('Stripe session is missing')
@@ -205,12 +242,16 @@ export async function processStripeCheckoutCompleted(event) {
 
   const websiteId = safeName(session.metadata?.websiteId)
   const { content, merch } = await getStore(websiteId)
-  const product = getProduct(merch, session.metadata?.productId)
+  const product = getProduct(merch, session.metadata?.productId, true)
   const settings = await checkoutSettings(websiteId, content)
-  const selection = resolveProductSelection(product, session.metadata?.quantity, {
-    size: session.metadata?.size,
-    colour: session.metadata?.colour,
-  })
+  const reservationId = session.metadata?.reservationId || ''
+  const reservation = await getActiveStockReservation(reservationId)
+  const selection = reservation
+    ? paidSelection(product, session.metadata)
+    : resolveProductSelection(product, session.metadata?.quantity, {
+        size: session.metadata?.size,
+        colour: session.metadata?.colour,
+      })
   const customerDetails = session.customer_details || {}
   const shippingDetails = session.shipping_details || session.collected_information?.shipping_details || {}
   const discountAmount = Number(session.metadata?.discountAmount || 0)
@@ -263,7 +304,8 @@ export async function processStripeCheckoutCompleted(event) {
   })
 
   if (created) {
-    await decrementProductStock(websiteId, product.id, selection.quantity, selection.variant)
+    if (reservation) await consumeStockReservation(reservationId)
+    else await decrementProductStock(websiteId, product.id, selection.quantity, selection.variant)
     await recordDiscountUse(websiteId, discountCode)
     await sendOrderNotifications(order, settings)
   }
@@ -293,6 +335,9 @@ export function createStripeRouter() {
       const event = verifyStripeWebhook(req.body, req.headers['stripe-signature'])
       if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
         await processStripeCheckoutCompleted(event)
+      }
+      if (event.type === 'checkout.session.expired') {
+        await releaseStockReservation(event.data?.object?.metadata?.reservationId)
       }
       res.json({ received: true })
     } catch (error) {
