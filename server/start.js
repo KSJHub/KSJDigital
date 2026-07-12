@@ -102,7 +102,8 @@ express.application.use = function patchedUse(...args) {
       }
     })
 
-    originalUse.call(this, '/api/checkout/stripe/start', async (req, res) => {
+    originalUse.call(this, '/api/checkout/stripe/start', async (req, res, next) => {
+      if (req.method !== 'GET' || req.path !== '/') return next()
       try {
         await assertProductCheckoutAccess({
           websiteId: req.query.websiteId,
@@ -126,7 +127,8 @@ express.application.use = function patchedUse(...args) {
       this,
       '/api/checkout/stripe/session',
       express.json({ limit: '1mb' }),
-      async (req, res) => {
+      async (req, res, next) => {
+        if (req.method !== 'POST' || req.path !== '/') return next()
         try {
           await assertProductCheckoutAccess({
             websiteId: req.body?.websiteId,
@@ -151,7 +153,8 @@ express.application.use = function patchedUse(...args) {
       }
     })
 
-    originalUse.call(this, '/api/checkout/paypal/start', async (req, res) => {
+    originalUse.call(this, '/api/checkout/paypal/start', async (req, res, next) => {
+      if (req.method !== 'GET' || req.path !== '/') return next()
       try {
         await assertProductCheckoutAccess({
           websiteId: req.query.websiteId,
@@ -176,7 +179,8 @@ express.application.use = function patchedUse(...args) {
       this,
       '/api/checkout/paypal/orders',
       express.json({ limit: '1mb' }),
-      async (req, res) => {
+      async (req, res, next) => {
+        if (req.method !== 'POST' || req.path !== '/') return next()
         try {
           await assertProductCheckoutAccess({
             websiteId: req.body?.websiteId,
