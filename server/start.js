@@ -1,19 +1,50 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import express from 'express'
-import {
-  createCommerceSettingsRouter,
-  createWebsiteOrderPrefixGuard,
-} from './commerceSettingsRouter.js'
-import { createInventoryRouter } from './inventoryRouter.js'
-import { createOrdersRouter, createPublicOrdersRouter } from './ordersRouter.js'
-import { createPayPalRouter } from './paypalCheckout.js'
-import { createRefundRouter } from './refundRouter.js'
-import { createStripeRouter } from './stripeCheckout.js'
-import { paths, readJson, writeJson } from './storage.js'
 
-const credentialEnvironment = {
-  morgan: 'KSJ_OWNER_PASSWORD',
-  taj: 'TWOTONETAJ_CLIENT_PASSWORD',
-  'goliath-admin': 'GOLIATH_CLIENT_PASSWORD',
+function loadLocalEnvironment() {
+  const file = path.resolve(process.cwd(), '.env.local')
+  if (!fs.existsSync(file)) return
+
+  for (const rawLine of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line || line.startsWith('#')) continue
+    const separator = line.indexOf('=')
+    if (separator < 1) continue
+
+    const key = line.slice(0, separator).trim()
+    let value = line.slice(separator + 1).trim()
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1)
+    }
+    if (!(key in process.env)) process.env[key] = value
+  }
+}
+
+loadLocalEnvironment()
+
+const [
+  { createCommerceSettingsRouter, createWebsiteOrderPrefixGuard },
+  { createInventoryRouter },
+  { createOrdersRouter, createPublicOrdersRouter },
+  { createPayPalRouter },
+  { createRefundRouter },
+  { createStripeRouter },
+  { paths, readJson, writeJson },
+] = await Promise.all([
+  import('./commerceSettingsRouter.js'),
+  import('./inventoryRouter.js'),
+  import('./ordersRouter.js'),
+  import('./paypalCheckout.js'),
+  import('./refundRouter.js'),
+  import('./stripeCheckout.js'),
+  import('./storage.js'),
+])
+
+const credentialConfiguration = {
+  morgan: { environment: 'KSJ_OWNER_PASSWORD', development: 'owner-access' },
+  taj: { environment: 'TWOTONETAJ_CLIENT_PASSWORD', development: 'client-access' },
+  'goliath-admin': { environment: 'GOLIATH_CLIENT_PASSWORD', development: 'draft-access' },
 }
 
 const insecureStarterCredentials = new Set(['owner-access', 'client-access', 'draft-access'])
@@ -22,22 +53,22 @@ async function migrateStarterCredentials() {
   const clients = await readJson(paths.clients(), null)
   if (!Array.isArray(clients)) return
 
+  const production = process.env.NODE_ENV === 'production'
   let changed = false
   const nextClients = clients.map(client => {
-    const environmentName = credentialEnvironment[client.id]
-    if (!environmentName) return client
+    const configuration = credentialConfiguration[client.id]
+    if (!configuration) return client
 
-    const configured = String(process.env[environmentName] || '').trim()
+    const configured = String(process.env[configuration.environment] || '').trim()
     const current = String(client.password || client.accessCode || '').trim()
-    const shouldReplace = configured && (!current || insecureStarterCredentials.has(current))
-    const shouldRemove = !configured && insecureStarterCredentials.has(current)
+    const desired = configured || (!production ? configuration.development : '')
+    const replaceable = !current || insecureStarterCredentials.has(current)
 
-    if (!shouldReplace && !shouldRemove) return client
+    if (!replaceable || current === desired) return client
     changed = true
-
     const next = { ...client }
     delete next.password
-    next.accessCode = shouldReplace ? configured : ''
+    next.accessCode = desired
     return next
   })
 
