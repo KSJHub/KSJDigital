@@ -24,15 +24,17 @@ function loadLocalEnvironment() {
 loadLocalEnvironment()
 
 const [
+  { assertProductCheckoutAccess },
   { createCommerceSettingsRouter, createWebsiteOrderPrefixGuard },
   { createInventoryRouter },
   { createOrdersRouter, createPublicOrdersRouter },
-  { createPayPalRouter },
+  { createPayPalOrder, createPayPalRouter },
   { createRefundRouter },
-  { createStripeRouter, processStripeCheckoutCompleted },
+  { createStripeCheckoutSession, createStripeRouter, processStripeCheckoutCompleted },
   { releaseStockReservation },
   { paths, readJson, writeJson },
 ] = await Promise.all([
+  import('./checkoutAccess.js'),
   import('./commerceSettingsRouter.js'),
   import('./inventoryRouter.js'),
   import('./ordersRouter.js'),
@@ -90,32 +92,104 @@ express.application.use = function patchedUse(...args) {
 
   if (!checkoutMounted && useCalls === 2) {
     checkoutMounted = true
+
+    originalUse.call(this, '/api/checkout/reservations/:id/release', async (req, res) => {
+      try {
+        const released = await releaseStockReservation(req.params.id)
+        res.json({ released })
+      } catch (error) {
+        res.status(400).json({ error: error.message })
+      }
+    })
+
+    originalUse.call(this, '/api/checkout/stripe/start', async (req, res) => {
+      try {
+        await assertProductCheckoutAccess({
+          websiteId: req.query.websiteId,
+          productId: req.query.productId,
+          provider: 'stripe',
+        })
+        const session = await createStripeCheckoutSession({
+          websiteId: req.query.websiteId,
+          productId: req.query.productId,
+          quantity: req.query.quantity,
+          variant: { size: req.query.size, colour: req.query.colour },
+          discountCode: req.query.discountCode,
+        })
+        res.redirect(303, session.url)
+      } catch (error) {
+        res.status(400).send(`Unable to start Stripe checkout: ${error.message}`)
+      }
+    })
+
     originalUse.call(
       this,
-      '/api/checkout/reservations/:id/release',
+      '/api/checkout/stripe/session',
+      express.json({ limit: '1mb' }),
       async (req, res) => {
         try {
-          const released = await releaseStockReservation(req.params.id)
-          res.json({ released })
-        } catch (error) {
-          res.status(400).json({ error: error.message })
-        }
-      },
-    )
-    originalUse.call(
-      this,
-      '/api/checkout/stripe/sessions/:id/complete',
-      async (req, res) => {
-        try {
-          const result = await processStripeCheckoutCompleted({
-            data: { object: { id: req.params.id } },
+          await assertProductCheckoutAccess({
+            websiteId: req.body?.websiteId,
+            productId: req.body?.productId,
+            provider: 'stripe',
           })
-          res.json({ ...result, completed: true })
+          res.json(await createStripeCheckoutSession(req.body || {}))
         } catch (error) {
           res.status(400).json({ error: error.message })
         }
       },
     )
+
+    originalUse.call(this, '/api/checkout/stripe/sessions/:id/complete', async (req, res) => {
+      try {
+        const result = await processStripeCheckoutCompleted({
+          data: { object: { id: req.params.id } },
+        })
+        res.json({ ...result, completed: true })
+      } catch (error) {
+        res.status(400).json({ error: error.message })
+      }
+    })
+
+    originalUse.call(this, '/api/checkout/paypal/start', async (req, res) => {
+      try {
+        await assertProductCheckoutAccess({
+          websiteId: req.query.websiteId,
+          productId: req.query.productId,
+          provider: 'paypal',
+        })
+        const order = await createPayPalOrder({
+          websiteId: req.query.websiteId,
+          productId: req.query.productId,
+          quantity: req.query.quantity,
+          variant: { size: req.query.size, colour: req.query.colour },
+          discountCode: req.query.discountCode,
+        })
+        if (!order.approvalUrl) throw new Error('PayPal approval URL was not returned')
+        res.redirect(303, order.approvalUrl)
+      } catch (error) {
+        res.status(400).send(`Unable to start PayPal checkout: ${error.message}`)
+      }
+    })
+
+    originalUse.call(
+      this,
+      '/api/checkout/paypal/orders',
+      express.json({ limit: '1mb' }),
+      async (req, res) => {
+        try {
+          await assertProductCheckoutAccess({
+            websiteId: req.body?.websiteId,
+            productId: req.body?.productId,
+            provider: 'paypal',
+          })
+          res.json(await createPayPalOrder(req.body || {}))
+        } catch (error) {
+          res.status(400).json({ error: error.message })
+        }
+      },
+    )
+
     originalUse.call(this, '/api/checkout/stripe', createStripeRouter())
     originalUse.call(
       this,
