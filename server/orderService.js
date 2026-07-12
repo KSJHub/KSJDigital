@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import { paths, readJson, safeName, writeJson } from './storage.js'
 
 const ORDER_STATUSES = new Set([
@@ -9,6 +10,23 @@ const ORDER_STATUSES = new Set([
   'Cancelled',
   'Refunded',
 ])
+
+let orderCreationQueue = Promise.resolve()
+
+async function serialiseOrderCreation(action) {
+  const previous = orderCreationQueue
+  let release
+  orderCreationQueue = new Promise(resolve => {
+    release = resolve
+  })
+
+  await previous
+  try {
+    return await action()
+  } finally {
+    release()
+  }
+}
 
 function clean(value = '') {
   return typeof value === 'string' ? value.trim() : value
@@ -144,57 +162,62 @@ export async function createPaidOrder(input = {}) {
     error.code = 'INVALID_ORDER'
     throw error
   }
-  const existing = await findOrderByProviderReference(input.provider, input.providerOrderId)
-  if (existing) return { order: existing, created: false }
 
-  const createdAt = new Date(input.paidAt || Date.now())
-  const items = normaliseItems(await enrichItemsFromCatalogue(input.websiteId, input.items))
-  const environment = resolveEnvironment(input)
-  const order = {
-    id: crypto.randomUUID(),
-    orderNumber: await nextOrderNumber(input.websiteId, items, environment, createdAt),
-    environment,
-    isTestOrder: environment === 'test',
-    websiteId: safeName(input.websiteId),
-    clientName: clean(input.clientName),
-    provider: clean(input.provider).toLowerCase(),
-    providerOrderId: clean(input.providerOrderId),
-    providerTransactionId: clean(input.providerTransactionId),
-    paymentStatus: 'Paid',
-    paymentMethod: clean(input.paymentMethod),
-    currency: clean(input.currency).toUpperCase(),
-    subtotal: roundMoney(input.subtotal),
-    shipping: roundMoney(input.shipping),
-    tax: roundMoney(input.tax),
-    taxLabel: clean(input.taxLabel) || 'Tax',
-    taxRate: Math.max(0, Number(input.taxRate || 0)),
-    taxIncluded: input.taxIncluded === true,
-    taxNumber: clean(input.taxNumber).toUpperCase(),
-    discount: roundMoney(input.discount),
-    discountCode: clean(input.discountCode).toUpperCase(),
-    total: roundMoney(input.total),
-    customer: {
-      name: clean(input.customer.name),
-      email: clean(input.customer.email).toLowerCase(),
-      phone: clean(input.customer.phone),
-    },
-    billingAddress: input.billingAddress || null,
-    shippingAddress: input.shippingAddress || null,
-    shippingMethod: clean(input.shippingMethod),
-    customerNote: clean(input.customerNote),
-    items,
-    fulfilmentStatus: 'New',
-    tracking: null,
-    refund: null,
-    notifications: { buyerEmail: 'Pending', clientEmail: 'Pending', discord: 'Pending' },
-    createdAt: createdAt.toISOString(),
-    paidAt: createdAt.toISOString(),
-    updatedAt: createdAt.toISOString(),
-  }
-  const orders = await readJson(paths.orders(), [])
-  await writeJson(paths.orders(), [order, ...orders])
-  await appendOrderEvent(order, 'order.created', 'Paid order created from verified provider event')
-  return { order, created: true }
+  return serialiseOrderCreation(async () => {
+    const provider = clean(input.provider).toLowerCase()
+    const providerOrderId = clean(input.providerOrderId)
+    const existing = await findOrderByProviderReference(provider, providerOrderId)
+    if (existing) return { order: existing, created: false }
+
+    const createdAt = new Date(input.paidAt || Date.now())
+    const items = normaliseItems(await enrichItemsFromCatalogue(input.websiteId, input.items))
+    const environment = resolveEnvironment(input)
+    const order = {
+      id: crypto.randomUUID(),
+      orderNumber: await nextOrderNumber(input.websiteId, items, environment, createdAt),
+      environment,
+      isTestOrder: environment === 'test',
+      websiteId: safeName(input.websiteId),
+      clientName: clean(input.clientName),
+      provider,
+      providerOrderId,
+      providerTransactionId: clean(input.providerTransactionId),
+      paymentStatus: 'Paid',
+      paymentMethod: clean(input.paymentMethod),
+      currency: clean(input.currency).toUpperCase(),
+      subtotal: roundMoney(input.subtotal),
+      shipping: roundMoney(input.shipping),
+      tax: roundMoney(input.tax),
+      taxLabel: clean(input.taxLabel) || 'Tax',
+      taxRate: Math.max(0, Number(input.taxRate || 0)),
+      taxIncluded: input.taxIncluded === true,
+      taxNumber: clean(input.taxNumber).toUpperCase(),
+      discount: roundMoney(input.discount),
+      discountCode: clean(input.discountCode).toUpperCase(),
+      total: roundMoney(input.total),
+      customer: {
+        name: clean(input.customer.name),
+        email: clean(input.customer.email).toLowerCase(),
+        phone: clean(input.customer.phone),
+      },
+      billingAddress: input.billingAddress || null,
+      shippingAddress: input.shippingAddress || null,
+      shippingMethod: clean(input.shippingMethod),
+      customerNote: clean(input.customerNote),
+      items,
+      fulfilmentStatus: 'New',
+      tracking: null,
+      refund: null,
+      notifications: { buyerEmail: 'Pending', clientEmail: 'Pending', discord: 'Pending' },
+      createdAt: createdAt.toISOString(),
+      paidAt: createdAt.toISOString(),
+      updatedAt: createdAt.toISOString(),
+    }
+    const orders = await readJson(paths.orders(), [])
+    await writeJson(paths.orders(), [order, ...orders])
+    await appendOrderEvent(order, 'order.created', 'Paid order created from verified provider event')
+    return { order, created: true }
+  })
 }
 
 export async function listOrders(websiteIds = null) {
