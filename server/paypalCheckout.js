@@ -40,7 +40,6 @@ async function accessToken() {
   const credentials = Buffer.from(
     `${requiredEnv('PAYPAL_CLIENT_ID')}:${requiredEnv('PAYPAL_CLIENT_SECRET')}`,
   ).toString('base64')
-
   const response = await fetch(`${apiBase()}/v1/oauth2/token`, {
     method: 'POST',
     headers: {
@@ -49,7 +48,6 @@ async function accessToken() {
     },
     body: 'grant_type=client_credentials',
   })
-
   const data = await response.json()
   if (!response.ok) throw new Error(data.error_description || 'PayPal authentication failed')
   return data.access_token
@@ -65,7 +63,6 @@ async function paypalRequest(path, options = {}) {
       ...(options.headers || {}),
     },
   })
-
   const data = await response.json().catch(() => null)
   if (!response.ok) {
     throw new Error(data?.message || data?.details?.[0]?.description || `PayPal request failed: ${response.status}`)
@@ -112,7 +109,8 @@ export async function createPayPalOrder({ websiteId, productId, quantity = 1, va
     throw new Error('PayPal return and cancel URLs are not configured')
   }
 
-  const originalSubtotal = Number(product.priceGBP) * selection.quantity
+  const unitPrice = Number(product.priceGBP)
+  const originalSubtotal = unitPrice * selection.quantity
   const discount = resolveDiscount(settings, discountCode, originalSubtotal)
   const discountedSubtotal = Math.max(0, originalSubtotal - discount.amount)
   const shippingProduct = { ...product, priceGBP: discountedSubtotal / selection.quantity }
@@ -141,40 +139,37 @@ export async function createPayPalOrder({ websiteId, productId, quantity = 1, va
       headers: { 'PayPal-Request-Id': crypto.randomUUID() },
       body: JSON.stringify({
         intent: 'CAPTURE',
-        purchase_units: [
-          {
-            reference_id: safeWebsiteId,
-            custom_id: JSON.stringify({
-              w: safeWebsiteId,
-              p: product.id,
-              q: selection.quantity,
-              s: selection.variant.size,
-              c: selection.variant.colour,
-              l: shipping.label,
-              d: discount.code,
-              a: discount.amount,
-              r: reservationId,
-            }),
-            description: product.name,
-            amount: {
-              currency_code: 'GBP',
-              value: tax.total.toFixed(2),
-              breakdown,
-            },
-            items: [
-              {
-                name: hasDiscount ? `${product.name} × ${selection.quantity}` : product.name,
-                description: hasDiscount ? `${product.description || ''} Discount ${discount.code} applied.`.trim() : product.description,
-                quantity: hasDiscount ? '1' : String(selection.quantity),
-                category: product.fulfilment === 'digital' ? 'DIGITAL_GOODS' : 'PHYSICAL_GOODS',
-                unit_amount: {
-                  currency_code: 'GBP',
-                  value: (discountedSubtotal / (hasDiscount ? 1 : selection.quantity)).toFixed(2),
-                },
-              },
-            ],
+        purchase_units: [{
+          reference_id: safeWebsiteId,
+          custom_id: JSON.stringify({
+            w: safeWebsiteId,
+            p: product.id,
+            q: selection.quantity,
+            s: selection.variant.size,
+            c: selection.variant.colour,
+            l: shipping.label,
+            d: discount.code,
+            a: discount.amount,
+            r: reservationId,
+            u: unitPrice,
+          }),
+          description: product.name,
+          amount: {
+            currency_code: 'GBP',
+            value: tax.total.toFixed(2),
+            breakdown,
           },
-        ],
+          items: [{
+            name: hasDiscount ? `${product.name} × ${selection.quantity}` : product.name,
+            description: hasDiscount ? `${product.description || ''} Discount ${discount.code} applied.`.trim() : product.description,
+            quantity: hasDiscount ? '1' : String(selection.quantity),
+            category: product.fulfilment === 'digital' ? 'DIGITAL_GOODS' : 'PHYSICAL_GOODS',
+            unit_amount: {
+              currency_code: 'GBP',
+              value: (discountedSubtotal / (hasDiscount ? 1 : selection.quantity)).toFixed(2),
+            },
+          }],
+        }],
         payment_source: {
           paypal: {
             experience_context: {
@@ -188,7 +183,6 @@ export async function createPayPalOrder({ websiteId, productId, quantity = 1, va
         },
       }),
     })
-
     return {
       id: order.id,
       status: order.status,
@@ -218,6 +212,12 @@ function paidSelection(product, custom = {}) {
     madeToOrder: product.fulfilmentOptions?.madeToOrder === true,
     leadTimeMessage: String(product.fulfilmentOptions?.leadTimeMessage || '').trim(),
   }
+}
+
+function lockedPayPalName(unit, quantity, fallback) {
+  const itemName = String(unit?.items?.[0]?.name || unit?.description || fallback || '').trim()
+  const suffix = ` × ${quantity}`
+  return itemName.endsWith(suffix) ? itemName.slice(0, -suffix.length) : itemName
 }
 
 export async function capturePayPalOrder(orderId) {
@@ -261,6 +261,8 @@ export async function capturePayPalOrder(orderId) {
   const tax = calculateTax(settings, productGrossOrNet, shippingGrossOrNet)
   const discountCode = capturedCustom.d || ''
   const discountAmount = Number(capturedCustom.a || 0)
+  const lockedName = lockedPayPalName(unit, selection.quantity, product.name)
+  const lockedUnitPrice = Number(capturedCustom.u || product.priceGBP)
 
   const { order, created } = await createPaidOrder({
     websiteId,
@@ -291,19 +293,17 @@ export async function capturePayPalOrder(orderId) {
       : selection.madeToOrder
         ? `Made to order · ${capturedCustom.l || 'UK delivery'}`
         : capturedCustom.l || 'UK delivery',
-    items: [
-      {
-        productId: product.id,
-        name: product.name,
-        image: product.image?.url || '',
-        quantity: selection.quantity,
-        unitPrice: Number(product.priceGBP),
-        fulfilment: product.fulfilment,
-        madeToOrder: selection.madeToOrder,
-        leadTimeMessage: selection.leadTimeMessage,
-        variant: selection.variant,
-      },
-    ],
+    items: [{
+      productId: product.id,
+      name: lockedName,
+      image: product.image?.url || '',
+      quantity: selection.quantity,
+      unitPrice: lockedUnitPrice,
+      fulfilment: product.fulfilment,
+      madeToOrder: selection.madeToOrder,
+      leadTimeMessage: selection.leadTimeMessage,
+      variant: selection.variant,
+    }],
     paidAt: payment?.create_time || capture.create_time || new Date().toISOString(),
   })
 
@@ -329,7 +329,6 @@ export async function verifyPayPalWebhook(headers, body) {
       webhook_event: body,
     }),
   })
-
   return data.verification_status === 'SUCCESS'
 }
 
@@ -372,11 +371,9 @@ export function createPayPalRouter() {
     try {
       const verified = await verifyPayPalWebhook(req.headers, req.body)
       if (!verified) return res.status(400).json({ error: 'PayPal webhook verification failed' })
-
       if (req.body?.event_type === 'CHECKOUT.ORDER.APPROVED') {
         await capturePayPalOrder(req.body.resource?.id)
       }
-
       res.json({ received: true })
     } catch (error) {
       res.status(400).json({ error: error.message })
