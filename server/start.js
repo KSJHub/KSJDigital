@@ -89,7 +89,12 @@ express.application.use = function patchedUse(...args) {
   if (!checkoutMounted && useCalls === 2) {
     checkoutMounted = true
     originalUse.call(this, '/api/checkout/stripe', createStripeRouter())
-    originalUse.call(this, '/api/checkout/paypal', createPayPalRouter())
+    originalUse.call(
+      this,
+      '/api/checkout/paypal',
+      express.json({ limit: '1mb' }),
+      createPayPalRouter(),
+    )
   }
 
   const result = originalUse.apply(this, args)
