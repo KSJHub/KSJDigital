@@ -83,6 +83,8 @@ async function enrichItemsFromCatalogue(websiteId, items = []) {
 function normaliseItems(items = []) {
   return items.map(item => {
     const orderTag = deriveOrderTag(item)
+    const quantity = Math.max(1, Number(item.quantity || 1))
+    const unitPrice = roundMoney(item.unitPrice)
     return {
       productId: clean(item.productId),
       name: clean(item.name),
@@ -91,15 +93,44 @@ function normaliseItems(items = []) {
       type: clean(item.type),
       orderTag,
       sku: clean(item.sku) || orderTag,
-      quantity: Math.max(1, Number(item.quantity || 1)),
-      unitPrice: roundMoney(item.unitPrice),
-      total: roundMoney(Number(item.quantity || 1) * Number(item.unitPrice || 0)),
+      quantity,
+      unitPrice,
+      total: roundMoney(quantity * unitPrice),
       variant: { size: clean(item.variant?.size), colour: clean(item.variant?.colour), ...(item.variant || {}) },
       fulfilment: item.fulfilment === 'digital' ? 'digital' : 'physical',
       madeToOrder: item.madeToOrder === true,
       leadTimeMessage: clean(item.leadTimeMessage),
     }
   })
+}
+
+function reconcileMoney(input, items) {
+  const subtotal = roundMoney(items.reduce((sum, item) => sum + Number(item.total || 0), 0))
+  const discount = roundMoney(input.discount)
+  const tax = roundMoney(input.tax)
+  const total = roundMoney(input.total)
+  const taxIncluded = input.taxIncluded === true
+
+  if (![subtotal, discount, tax, total].every(Number.isFinite)) {
+    throw new Error('Order money values are invalid')
+  }
+  if (discount < 0 || discount > subtotal) {
+    throw new Error('Order discount exceeds the product subtotal')
+  }
+
+  let shipping
+  if (taxIncluded) {
+    shipping = roundMoney(total - subtotal + discount)
+    if (shipping < 0) throw new Error('Captured total is lower than the discounted product value')
+  } else {
+    shipping = roundMoney(input.shipping)
+    const expected = roundMoney(subtotal - discount + shipping + tax)
+    if (Math.abs(expected - total) > 0.01) {
+      throw new Error(`Captured total does not match the order breakdown (${expected.toFixed(2)} expected, ${total.toFixed(2)} captured)`)
+    }
+  }
+
+  return { subtotal, shipping, tax, discount, total, taxIncluded }
 }
 
 async function websiteCode(websiteId) {
@@ -171,6 +202,7 @@ export async function createPaidOrder(input = {}) {
 
     const createdAt = new Date(input.paidAt || Date.now())
     const items = normaliseItems(await enrichItemsFromCatalogue(input.websiteId, input.items))
+    const money = reconcileMoney(input, items)
     const environment = resolveEnvironment(input)
     const order = {
       id: crypto.randomUUID(),
@@ -185,16 +217,16 @@ export async function createPaidOrder(input = {}) {
       paymentStatus: 'Paid',
       paymentMethod: clean(input.paymentMethod),
       currency: clean(input.currency).toUpperCase(),
-      subtotal: roundMoney(input.subtotal),
-      shipping: roundMoney(input.shipping),
-      tax: roundMoney(input.tax),
+      subtotal: money.subtotal,
+      shipping: money.shipping,
+      tax: money.tax,
       taxLabel: clean(input.taxLabel) || 'Tax',
       taxRate: Math.max(0, Number(input.taxRate || 0)),
-      taxIncluded: input.taxIncluded === true,
+      taxIncluded: money.taxIncluded,
       taxNumber: clean(input.taxNumber).toUpperCase(),
-      discount: roundMoney(input.discount),
+      discount: money.discount,
       discountCode: clean(input.discountCode).toUpperCase(),
-      total: roundMoney(input.total),
+      total: money.total,
       customer: {
         name: clean(input.customer.name),
         email: clean(input.customer.email).toLowerCase(),
