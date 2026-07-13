@@ -54,6 +54,49 @@ function assetUploadGuard(req, res, next) {
   next()
 }
 
+function startsWithBytes(buffer, bytes) {
+  return buffer.length >= bytes.length && bytes.every((value, index) => buffer[index] === value)
+}
+
+function detectAssetType(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 4) return null
+  if (startsWithBytes(buffer, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) {
+    return { extensions: new Set(['.png']), mime: 'image/png' }
+  }
+  if (startsWithBytes(buffer, [0xff, 0xd8, 0xff])) {
+    return { extensions: new Set(['.jpg', '.jpeg']), mime: 'image/jpeg' }
+  }
+  const header = buffer.subarray(0, 12).toString('ascii')
+  if (header.startsWith('GIF87a') || header.startsWith('GIF89a')) {
+    return { extensions: new Set(['.gif']), mime: 'image/gif' }
+  }
+  if (header.slice(0, 4) === 'RIFF' && header.slice(8, 12) === 'WEBP') {
+    return { extensions: new Set(['.webp']), mime: 'image/webp' }
+  }
+  if (buffer.subarray(0, 5).toString('ascii') === '%PDF-') {
+    return { extensions: new Set(['.pdf']), mime: 'application/pdf' }
+  }
+  return null
+}
+
+function validateUploadedAsset(req, res, next) {
+  if (!req.file) return next()
+
+  const extension = path.extname(req.file.originalname || '').toLowerCase()
+  const detected = detectAssetType(req.file.buffer)
+  if (!detected || !detected.extensions.has(extension)) {
+    return res.status(415).json({ error: 'File content does not match an approved image or PDF type' })
+  }
+
+  const suppliedMime = String(req.file.mimetype || '').toLowerCase()
+  if (suppliedMime && suppliedMime !== detected.mime) {
+    return res.status(415).json({ error: 'File type does not match its uploaded content' })
+  }
+
+  req.file.mimetype = detected.mime
+  next()
+}
+
 loadLocalEnvironment()
 
 const [
@@ -64,6 +107,7 @@ const [
   { createOrdersRouter, createPublicOrdersRouter },
   { createPayPalOrder, createPayPalRouter },
   { createRefundRouter },
+  { createLiveSessionAccessMiddleware },
   { createStripeCheckoutSession, createStripeRouter, processStripeCheckoutCompleted },
   { releaseStockReservation },
   { paths, readJson, writeJson },
@@ -75,6 +119,7 @@ const [
   import('./ordersRouter.js'),
   import('./paypalCheckout.js'),
   import('./refundRouter.js'),
+  import('./sessionAccess.js'),
   import('./stripeCheckout.js'),
   import('./stockReservations.js'),
   import('./storage.js'),
@@ -117,12 +162,20 @@ async function migrateStarterCredentials() {
 await migrateStarterCredentials()
 
 const originalUse = express.application.use
+const originalPost = express.application.post
 let useCalls = 0
 let checkoutMounted = false
 let publicOrdersMounted = false
 let protectedCommerceMounted = false
 let assetServingMounted = false
 let assetUploadMounted = false
+
+express.application.post = function patchedPost(...args) {
+  if (args[0] === '/api/assets/:ownerId/:websiteId/:slotId' && args.length >= 3) {
+    return originalPost.call(this, args[0], args[1], validateUploadedAsset, ...args.slice(2))
+  }
+  return originalPost.apply(this, args)
+}
 
 express.application.use = function patchedUse(...args) {
   useCalls += 1
@@ -259,6 +312,7 @@ express.application.use = function patchedUse(...args) {
 
   if (!protectedCommerceMounted && useCalls === 4) {
     protectedCommerceMounted = true
+    originalUse.call(this, '/api', createLiveSessionAccessMiddleware())
     originalUse.call(this, '/api/websites', createWebsiteOrderPrefixGuard())
     originalUse.call(this, '/api/orders', createDispatchRouter())
     originalUse.call(this, '/api/orders', createOrdersRouter())
@@ -273,3 +327,4 @@ express.application.use = function patchedUse(...args) {
 await import('./index.js')
 
 express.application.use = originalUse
+express.application.post = originalPost
