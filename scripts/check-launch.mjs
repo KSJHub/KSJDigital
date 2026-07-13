@@ -3,6 +3,7 @@ import path from 'node:path'
 
 const root = process.cwd()
 const dataDir = path.join(root, 'server-data')
+const ACTIVE_WEBSITE_IDS = new Set(['ksjdigital', 'twotonetaj'])
 
 function loadEnvironmentFile(filename) {
   const file = path.join(root, filename)
@@ -24,7 +25,7 @@ function loadEnvironmentFile(filename) {
 
 function readJson(file, fallback) {
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'))
+    return JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''))
   } catch {
     return fallback
   }
@@ -63,11 +64,7 @@ function normalisePrefix(value = '') {
 }
 
 function suggestedPrefix(website = {}) {
-  const known = {
-    twotonetaj: 'TAJ',
-    ksjdiamondgaming: 'DIA',
-    goliath: 'GOL',
-  }
+  const known = { ksjdigital: 'KSJ', twotonetaj: 'TAJ' }
   const id = String(website.id || '').toLowerCase()
   if (known[id]) return known[id]
 
@@ -92,14 +89,12 @@ function uniquePrefix(base, used) {
 }
 
 function repairOrderPrefixes(websitesFile, websites) {
-  const used = new Set(
-    websites.map(website => normalisePrefix(website.orderPrefix)).filter(Boolean),
-  )
-  let changed = false
-  const repaired = websites.map(website => {
+  const active = websites.filter(website => ACTIVE_WEBSITE_IDS.has(String(website.id || '').toLowerCase()))
+  const used = new Set(active.map(website => normalisePrefix(website.orderPrefix)).filter(Boolean))
+  let changed = active.length !== websites.length
+  const repaired = active.map(website => {
     const existing = normalisePrefix(website.orderPrefix)
     if (existing) return { ...website, orderPrefix: existing }
-
     const orderPrefix = uniquePrefix(suggestedPrefix(website), used)
     used.add(orderPrefix)
     changed = true
@@ -128,31 +123,16 @@ const contentDir = path.join(dataDir, 'content')
 
 let failures = 0
 let warnings = 0
-
-function pass(label, detail = '') {
-  line('pass', label, detail)
-}
-
-function warn(label, detail = '') {
-  warnings += 1
-  line('warn', label, detail)
-}
-
-function fail(label, detail = '') {
-  failures += 1
-  line('fail', label, detail)
-}
+const pass = (label, detail = '') => line('pass', label, detail)
+const warn = (label, detail = '') => { warnings += 1; line('warn', label, detail) }
+const fail = (label, detail = '') => { failures += 1; line('fail', label, detail) }
 
 console.log('\nKSJ Digital launch readiness\n')
 
 const production = process.env.NODE_ENV === 'production'
-if (present(process.env.SESSION_SECRET) && process.env.SESSION_SECRET.length >= 32) {
-  pass('Session secret', 'configured')
-} else if (production) {
-  fail('Session secret', 'set SESSION_SECRET to at least 32 characters')
-} else {
-  warn('Session secret', 'development only; set at least 32 characters before production')
-}
+if (present(process.env.SESSION_SECRET) && process.env.SESSION_SECRET.length >= 32) pass('Session secret', 'configured')
+else if (production) fail('Session secret', 'set SESSION_SECRET to at least 32 characters')
+else warn('Session secret', 'development only; set at least 32 characters before production')
 
 if (production) pass('Runtime mode', 'production')
 else warn('Runtime mode', `currently ${process.env.NODE_ENV || 'development'}`)
@@ -160,15 +140,14 @@ else warn('Runtime mode', `currently ${process.env.NODE_ENV || 'development'}`)
 for (const [key, label] of [
   ['KSJ_OWNER_PASSWORD', 'Owner password'],
   ['TWOTONETAJ_CLIENT_PASSWORD', 'TwoToneTaj client password'],
-  ['GOLIATH_CLIENT_PASSWORD', 'Goliath client password'],
 ]) {
   if (present(process.env[key])) pass(label, 'private environment value configured')
   else if (production) fail(label, `${key} is blank in production`)
   else warn(label, 'blank; development fallback remains active')
 }
 
-if (repaired.changed) pass('Order-prefix migration', 'missing prefixes were assigned and saved')
-if (!websites.length) warn('Websites', 'no stored website records found yet')
+if (repaired.changed) pass('Active-site migration', 'inactive website records were removed and prefixes repaired')
+if (!websites.length) warn('Websites', 'no active website records found yet')
 
 for (const website of websites) {
   const websiteId = String(website.id || '').trim()
@@ -186,8 +165,8 @@ for (const website of websites) {
   if (present(website.orderPrefix)) pass('Order prefix', website.orderPrefix)
   else fail('Order prefix', 'required for unique client order numbers')
 
-  if (clientAccounts.length) pass('Client access', `${clientAccounts.length} account(s) assigned`)
-  else warn('Client access', 'no client account assigned')
+  if (clientAccounts.length) pass('Account access', `${clientAccounts.length} account(s) assigned`)
+  else warn('Account access', 'no account assigned')
 
   if (products.length) pass('Merch catalogue', `${products.length} product(s) stored`)
   else warn('Merch catalogue', 'no products stored')
@@ -209,9 +188,7 @@ for (const website of websites) {
     else fail('Stripe success URL', 'missing or invalid')
     if (localOrHttpsUrl(settings.cancelUrl || process.env.STRIPE_CANCEL_URL)) pass('Stripe cancel URL')
     else fail('Stripe cancel URL', 'missing or invalid')
-  } else {
-    warn('Stripe', 'disabled for this website')
-  }
+  } else warn('Stripe', 'disabled for this website')
 
   if (settings.paypalEnabled) {
     if (present(process.env.PAYPAL_CLIENT_ID)) pass('PayPal client ID', 'configured')
@@ -224,9 +201,7 @@ for (const website of websites) {
     else fail('PayPal return URL', 'missing or invalid')
     if (localOrHttpsUrl(settings.cancelUrl || process.env.PAYPAL_CANCEL_URL)) pass('PayPal cancel URL')
     else fail('PayPal cancel URL', 'missing or invalid')
-  } else {
-    warn('PayPal', 'disabled for this website')
-  }
+  } else warn('PayPal', 'disabled for this website')
 
   if (present(process.env.RESEND_API_KEY)) pass('Email provider', 'Resend key configured')
   else warn('Email provider', 'RESEND_API_KEY is blank; order emails will record Failed')
