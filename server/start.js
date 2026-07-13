@@ -97,24 +97,30 @@ function validateUploadedAsset(req, res, next) {
   next()
 }
 
+function isBasketMiss(error) {
+  return ['Checkout basket was not found', 'Stripe basket reference is missing'].includes(error?.message)
+}
+
 loadLocalEnvironment()
 
 const [
   { assertProductCheckoutAccess },
+  { captureBasketPayPalOrder, completeBasketStripeSession },
   { createCommerceSettingsRouter, createWebsiteOrderPrefixGuard },
   { starterWebsites },
   { createDispatchRouter },
   { createInventoryRouter },
   { createOrdersRouter, createPublicOrdersRouter },
-  { createPayPalOrder, createPayPalRouter },
+  { createPayPalOrder, createPayPalRouter, verifyPayPalWebhook },
   { createRefundRouter },
   { createLiveSessionAccessMiddleware },
   { getStarterSiteContent },
-  { createStripeCheckoutSession, createStripeRouter, processStripeCheckoutCompleted },
+  { createStripeCheckoutSession, createStripeRouter, processStripeCheckoutCompleted, verifyStripeWebhook },
   { releaseStockReservation },
   { paths, readJson, readWebsiteAssets, safeName, writeJson },
 ] = await Promise.all([
   import('./checkoutAccess.js'),
+  import('./basketCheckout.js'),
   import('./commerceSettingsRouter.js'),
   import('./defaults.js'),
   import('./dispatchRouter.js'),
@@ -185,7 +191,7 @@ express.application.post = function patchedPost(...args) {
 express.application.use = function patchedUse(...args) {
   useCalls += 1
 
-  if (!assetServingMounted && useCalls === 3) {
+  if (!assetServingMounted && useCalls === 4) {
     assetServingMounted = true
     originalUse.call(this, '/assets', assetServingGuard)
   }
@@ -244,14 +250,35 @@ express.application.use = function patchedUse(...args) {
 
     originalUse.call(this, '/api/checkout/stripe/sessions/:id/complete', async (req, res) => {
       try {
-        const result = await processStripeCheckoutCompleted({
-          data: { object: { id: req.params.id } },
-        })
+        const result = await processStripeCheckoutCompleted({ data: { object: { id: req.params.id } } })
         res.json({ ...result, completed: true })
       } catch (error) {
         res.status(400).json({ error: error.message })
       }
     })
+
+    originalUse.call(
+      this,
+      '/api/checkout/stripe/webhook',
+      express.raw({ type: 'application/json' }),
+      async (req, res, next) => {
+        try {
+          const event = verifyStripeWebhook(req.body, req.headers['stripe-signature'])
+          if (event.type !== 'checkout.session.completed' && event.type !== 'checkout.session.async_payment_succeeded') {
+            return next()
+          }
+          try {
+            await completeBasketStripeSession(event.data?.object?.id)
+            return res.json({ received: true, basket: true })
+          } catch (error) {
+            if (isBasketMiss(error)) return next()
+            throw error
+          }
+        } catch (error) {
+          return res.status(400).json({ error: error.message })
+        }
+      },
+    )
 
     originalUse.call(this, '/api/checkout/paypal/start', async (req, res, next) => {
       if (req.method !== 'GET' || req.path !== '/') return next()
@@ -294,6 +321,28 @@ express.application.use = function patchedUse(...args) {
       },
     )
 
+    originalUse.call(
+      this,
+      '/api/checkout/paypal/webhook',
+      express.json({ limit: '1mb' }),
+      async (req, res, next) => {
+        try {
+          const verified = await verifyPayPalWebhook(req.headers, req.body)
+          if (!verified) return res.status(400).json({ error: 'PayPal webhook verification failed' })
+          if (req.body?.event_type !== 'CHECKOUT.ORDER.APPROVED') return next()
+          try {
+            await captureBasketPayPalOrder(req.body.resource?.id)
+            return res.json({ received: true, basket: true })
+          } catch (error) {
+            if (isBasketMiss(error)) return next()
+            throw error
+          }
+        } catch (error) {
+          return res.status(400).json({ error: error.message })
+        }
+      },
+    )
+
     originalUse.call(this, '/api/checkout/stripe', createStripeRouter())
     originalUse.call(
       this,
@@ -319,12 +368,7 @@ express.application.use = function patchedUse(...args) {
       const assets = await readWebsiteAssets(websiteId)
 
       res.setHeader('Cache-Control', 'no-store')
-      res.json({
-        website,
-        content,
-        assets,
-        publishedAt: content.updatedAt || null,
-      })
+      res.json({ website, content, assets, publishedAt: content.updatedAt || null })
     })
   }
 
@@ -335,12 +379,12 @@ express.application.use = function patchedUse(...args) {
     originalUse.call(this, '/api/public/orders', createPublicOrdersRouter())
   }
 
-  if (!assetUploadMounted && useCalls === 4) {
+  if (!assetUploadMounted && useCalls === 5) {
     assetUploadMounted = true
     originalUse.call(this, '/api/assets', assetUploadGuard)
   }
 
-  if (!protectedCommerceMounted && useCalls === 4) {
+  if (!protectedCommerceMounted && useCalls === 5) {
     protectedCommerceMounted = true
     originalUse.call(this, '/api', createLiveSessionAccessMiddleware())
     originalUse.call(this, '/api/websites', createWebsiteOrderPrefixGuard())
