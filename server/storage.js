@@ -111,6 +111,7 @@ export const paths = {
   orderEvents: () => path.join(DATA_DIR, 'order-events.json'),
   notificationLog: () => path.join(DATA_DIR, 'order-notifications.json'),
   stockReservations: () => path.join(DATA_DIR, 'stock-reservations.json'),
+  checkoutBaskets: () => path.join(DATA_DIR, 'checkout-baskets.json'),
   commerceSettings: websiteId =>
     path.join(DATA_DIR, 'commerce-settings', `${safeName(websiteId)}.json`),
   manifest: ownerId => path.join(assetManifestDir, `${safeName(ownerId)}.json`),
