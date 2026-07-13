@@ -26,6 +26,7 @@ loadLocalEnvironment()
 const [
   { assertProductCheckoutAccess },
   { createCommerceSettingsRouter, createWebsiteOrderPrefixGuard },
+  { createDispatchRouter },
   { createInventoryRouter },
   { createOrdersRouter, createPublicOrdersRouter },
   { createPayPalOrder, createPayPalRouter },
@@ -36,6 +37,7 @@ const [
 ] = await Promise.all([
   import('./checkoutAccess.js'),
   import('./commerceSettingsRouter.js'),
+  import('./dispatchRouter.js'),
   import('./inventoryRouter.js'),
   import('./ordersRouter.js'),
   import('./paypalCheckout.js'),
@@ -213,6 +215,7 @@ express.application.use = function patchedUse(...args) {
   if (!protectedCommerceMounted && useCalls === 4) {
     protectedCommerceMounted = true
     originalUse.call(this, '/api/websites', createWebsiteOrderPrefixGuard())
+    originalUse.call(this, '/api/orders', createDispatchRouter())
     originalUse.call(this, '/api/orders', createOrdersRouter())
     originalUse.call(this, '/api/order-refunds', createRefundRouter())
     originalUse.call(this, '/api/inventory', createInventoryRouter())
