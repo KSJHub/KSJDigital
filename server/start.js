@@ -31,6 +31,7 @@ const [
   { createOrdersRouter, createPublicOrdersRouter },
   { createPayPalOrder, createPayPalRouter },
   { createRefundRouter },
+  { createLiveSessionAccessMiddleware },
   { createStripeCheckoutSession, createStripeRouter, processStripeCheckoutCompleted },
   { releaseStockReservation },
   { paths, readJson, writeJson },
@@ -42,6 +43,7 @@ const [
   import('./ordersRouter.js'),
   import('./paypalCheckout.js'),
   import('./refundRouter.js'),
+  import('./sessionAccess.js'),
   import('./stripeCheckout.js'),
   import('./stockReservations.js'),
   import('./storage.js'),
@@ -214,6 +216,7 @@ express.application.use = function patchedUse(...args) {
 
   if (!protectedCommerceMounted && useCalls === 4) {
     protectedCommerceMounted = true
+    originalUse.call(this, '/api', createLiveSessionAccessMiddleware())
     originalUse.call(this, '/api/websites', createWebsiteOrderPrefixGuard())
     originalUse.call(this, '/api/orders', createDispatchRouter())
     originalUse.call(this, '/api/orders', createOrdersRouter())
