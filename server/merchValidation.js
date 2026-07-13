@@ -135,71 +135,101 @@ function queueInventoryMutation(websiteId, action) {
   })
 }
 
+function adjustedProduct(product, quantity, variant = {}, direction = -1) {
+  if (!product.inventory?.trackStock || isMadeToOrder(product)) return product
+
+  const safeQuantity = Math.max(1, Number(quantity || 1))
+  const change = safeQuantity * direction
+  const records = variantStock(product)
+  let nextInventory
+
+  if (records.length) {
+    const selectedKey = variantKey(variant.size, variant.colour)
+    const selected = records.find(record => variantKey(record.size, record.colour) === selectedKey)
+    if (!selected) throw new Error(`Selected stock variant was not found for ${product.name}`)
+
+    const available = Math.max(0, Number(selected.quantity || 0))
+    if (direction < 0 && available < safeQuantity) {
+      throw new Error(`${product.name} sold out before payment could be finalised`)
+    }
+
+    const nextVariants = records.map(record =>
+      variantKey(record.size, record.colour) === selectedKey
+        ? { ...record, quantity: Math.max(0, Number(record.quantity || 0) + change) }
+        : record,
+    )
+    nextInventory = {
+      ...product.inventory,
+      variants: nextVariants,
+      quantity: nextVariants.reduce((total, record) => total + Math.max(0, Number(record.quantity || 0)), 0),
+    }
+  } else {
+    const available = Math.max(0, Number(product.inventory.quantity || 0))
+    if (direction < 0 && available < safeQuantity) {
+      throw new Error(`${product.name} sold out before payment could be finalised`)
+    }
+    nextInventory = {
+      ...product.inventory,
+      quantity: Math.max(0, available + change),
+    }
+  }
+
+  const soldOut = Number(nextInventory.quantity || 0) <= 0
+  const restored = direction > 0 && Number(nextInventory.quantity || 0) > 0
+  return {
+    ...product,
+    inventory: nextInventory,
+    availability: restored ? 'available' : soldOut ? 'sold-out' : product.availability,
+    status: restored ? 'Available' : soldOut ? 'Sold Out' : product.status,
+    checkout: restored
+      ? { ...product.checkout, enabled: true }
+      : soldOut
+        ? { ...product.checkout, enabled: false }
+        : product.checkout,
+  }
+}
+
 async function adjustProductStock(websiteId, productId, quantity, variant = {}, direction = -1) {
   return queueInventoryMutation(websiteId, async () => {
     const safeWebsiteId = safeName(websiteId)
     const content = await readJson(paths.content(safeWebsiteId), {})
     const products = Array.isArray(content.merch?.products) ? content.merch.products : []
-    const product = products.find(item => item.id === productId)
-    if (!product) throw new Error('Product was not found while updating stock')
-    if (!product.inventory?.trackStock) return null
+    const index = products.findIndex(item => item.id === productId)
+    if (index < 0) throw new Error('Product was not found while updating stock')
 
-    const safeQuantity = Math.max(1, Number(quantity || 1))
-    const change = safeQuantity * direction
-    const records = variantStock(product)
-    let nextInventory
+    const nextProducts = [...products]
+    nextProducts[index] = adjustedProduct(products[index], quantity, variant, direction)
+    await writeJson(paths.content(safeWebsiteId), {
+      ...content,
+      merch: { ...content.merch, products: nextProducts },
+    })
+    return nextProducts[index].inventory || null
+  })
+}
 
-    if (records.length) {
-      const selectedKey = variantKey(variant.size, variant.colour)
-      const selected = records.find(record => variantKey(record.size, record.colour) === selectedKey)
-      if (!selected) throw new Error('Selected stock variant was not found')
+export async function decrementBasketStock(websiteId, items = []) {
+  return queueInventoryMutation(websiteId, async () => {
+    const safeWebsiteId = safeName(websiteId)
+    const content = await readJson(paths.content(safeWebsiteId), {})
+    const products = Array.isArray(content.merch?.products) ? content.merch.products : []
+    const nextProducts = [...products]
 
-      const available = Math.max(0, Number(selected.quantity || 0))
-      if (direction < 0 && !isMadeToOrder(product) && available < safeQuantity) {
-        throw new Error('This variant sold out before payment could be finalised')
-      }
-
-      const nextVariants = records.map(record =>
-        variantKey(record.size, record.colour) === selectedKey
-          ? { ...record, quantity: Math.max(0, Number(record.quantity || 0) + change) }
-          : record,
+    for (const item of items) {
+      const index = nextProducts.findIndex(product => product.id === item.productId)
+      if (index < 0) throw new Error(`${item.name || 'A basket product'} was not found while updating stock`)
+      nextProducts[index] = adjustedProduct(
+        nextProducts[index],
+        item.quantity,
+        item.variant,
+        -1,
       )
-      nextInventory = {
-        ...product.inventory,
-        variants: nextVariants,
-        quantity: nextVariants.reduce((total, record) => total + Math.max(0, Number(record.quantity || 0)), 0),
-      }
-    } else {
-      const available = Math.max(0, Number(product.inventory.quantity || 0))
-      if (direction < 0 && !isMadeToOrder(product) && available < safeQuantity) {
-        throw new Error('This product sold out before payment could be finalised')
-      }
-      nextInventory = {
-        ...product.inventory,
-        quantity: Math.max(0, available + change),
-      }
     }
-
-    const soldOut = Number(nextInventory.quantity || 0) <= 0
-    const keepAvailable = isMadeToOrder(product)
-    const restored = direction > 0 && Number(nextInventory.quantity || 0) > 0
-    const nextProducts = products.map(item =>
-      item.id === productId
-        ? {
-            ...item,
-            inventory: nextInventory,
-            availability: restored ? 'available' : soldOut && !keepAvailable ? 'sold-out' : item.availability,
-            status: restored ? 'Available' : soldOut && !keepAvailable ? 'Sold Out' : item.status,
-            checkout: restored ? { ...item.checkout, enabled: true } : soldOut && !keepAvailable ? { ...item.checkout, enabled: false } : item.checkout,
-          }
-        : item,
-    )
 
     await writeJson(paths.content(safeWebsiteId), {
       ...content,
       merch: { ...content.merch, products: nextProducts },
     })
-    return nextInventory
+    return nextProducts
   })
 }
 
