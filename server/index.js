@@ -2,6 +2,7 @@ import cors from 'cors'
 import express from 'express'
 import multer from 'multer'
 import path from 'node:path'
+import { createBasketCheckoutRouter } from './basketCheckout.js'
 import { starterClients, starterWebsites } from './defaults.js'
 import { getStarterSiteContent } from './siteContentDefaults.js'
 import {
@@ -60,6 +61,7 @@ const starterTickets = [
 
 app.use(cors({ origin: true, credentials: true }))
 app.use(express.json({ limit: '25mb' }))
+app.use('/api/checkout/basket', createBasketCheckoutRouter())
 app.use('/assets', express.static(ASSET_DIR))
 
 function idFrom(value = 'new-record') {
@@ -122,97 +124,87 @@ async function getTicketRecords() {
   return stored
 }
 
-function credentialMatches(account, password = '') {
-  const storedCredential = account.password || account.accessCode
+async function getSiteContentRecord(websiteId) {
+  const stored = await readJson(paths.content(websiteId), null)
 
-  if (!storedCredential) return false
-  return storedCredential === password
+  if (!stored) {
+    return writeJson(paths.content(websiteId), getStarterSiteContent(websiteId))
+  }
+
+  return stored
 }
 
-async function buildSession(account) {
-  const websites = await getWebsiteRecords()
-  const role = account.role?.toLowerCase() === 'owner' ? 'owner' : 'client'
-  const websiteIds = role === 'owner' ? websites.map(site => site.id) : account.websiteIds || []
-  const websiteAccess =
-    role === 'owner'
-      ? 'All websites'
-      : websiteIds
-          .map(id => websites.find(site => site.id === id)?.name)
-          .filter(Boolean)
-          .join(', ') || 'No website assigned'
+async function ensureStarterData() {
+  await Promise.all([getWebsiteRecords(), getClientRecords(), getTicketRecords()])
+}
 
+function findSession(req) {
+  const token = parseCookies(req.headers.cookie || '')[SESSION_COOKIE]
+  return token ? sessions.get(token) : null
+}
+
+function sanitiseClient(client) {
+  const { password, accessCode, ...safe } = client
+  return safe
+}
+
+function accountPayload(client) {
   return {
-    id: account.id,
-    email: account.email,
-    name: account.name,
-    role,
-    label: role === 'owner' ? 'KSJ Digital' : account.websiteName || account.name,
-    home: role === 'owner' ? '/owner' : '/client',
-    websiteId: websiteIds[0],
-    websiteIds,
-    websiteAccess,
-    canPublish: role === 'owner',
-    canManageClients: role === 'owner',
-    canEdit: !!account.canEdit,
-    canManageMedia: !!account.canManageMedia,
-    canRequestUpdates: !!account.canRequestUpdates,
-    canViewSupport: !!account.canViewSupport,
+    id: client.id,
+    name: client.name,
+    role: client.role,
+    websiteId: client.websiteId || '',
+    websiteIds: client.websiteIds || (client.websiteId ? [client.websiteId] : []),
+    canEdit: client.canEdit !== false,
+    canManageMedia: client.canManageMedia !== false,
+    canRequestUpdates: client.canRequestUpdates !== false,
+    canViewSupport: client.canViewSupport !== false,
   }
 }
 
-function getSessionFromRequest(req) {
-  const token = parseCookies(req.headers.cookie)[SESSION_COOKIE]
-  if (!token) return null
-  return sessions.get(token) || null
-}
-
-function canAccessWebsite(session, websiteId) {
-  if (!session || !websiteId) return false
-  if (session.role === 'owner') return true
-  return (session.websiteIds || []).map(safeName).includes(safeName(websiteId))
-}
-
-function canAccessStorageOwner(session, ownerId) {
-  if (!session || !ownerId) return false
-  if (session.role === 'owner') return true
-  return safeName(ownerId) === safeName(session.id)
+function requireSession(req, res, next) {
+  const session = findSession(req)
+  if (!session) return res.status(401).json({ error: 'Login required' })
+  req.session = session
+  next()
 }
 
 function requireOwner(req, res) {
-  if (req.session?.role === 'owner') return true
-  res.status(403).json({ error: 'Owner access required' })
-  return false
+  if (req.session?.role !== 'owner') {
+    res.status(403).json({ error: 'Owner access required' })
+    return false
+  }
+  return true
 }
 
-function requirePermission(req, res, permission, message = 'Permission required') {
-  if (req.session?.role === 'owner' || req.session?.[permission]) return true
-  res.status(403).json({ error: message })
-  return false
+function requirePermission(req, res, permission, message) {
+  if (req.session?.role === 'owner') return true
+  if (!req.session?.[permission]) {
+    res.status(403).json({ error: message })
+    return false
+  }
+  return true
+}
+
+function sessionWebsiteIds(session) {
+  if (session?.role === 'owner') return null
+  return session?.websiteIds || (session?.websiteId ? [session.websiteId] : [])
 }
 
 function requireWebsiteAccess(req, res, websiteId) {
-  if (canAccessWebsite(req.session, websiteId)) return true
-  res.status(403).json({ error: 'Website access denied' })
-  return false
+  if (req.session?.role === 'owner') return true
+  const allowed = new Set(sessionWebsiteIds(req.session) || [])
+  if (!allowed.has(websiteId)) {
+    res.status(403).json({ error: 'Website access denied' })
+    return false
+  }
+  return true
 }
 
-function requireStorageAccess(req, res, ownerId) {
-  if (canAccessStorageOwner(req.session, ownerId)) return true
-  res.status(403).json({ error: 'Storage access denied' })
-  return false
-}
-
-function filterBySessionWebsites(session, records = [], key = 'websiteId') {
-  if (session?.role === 'owner') return records
-  const allowed = new Set((session?.websiteIds || []).map(safeName))
-  return records.filter(item => allowed.has(safeName(item[key])))
-}
-
-async function getSiteContentRecord(websiteId) {
-  const defaultContent = getStarterSiteContent(safeName(websiteId))
-  const stored = await readJson(paths.content(websiteId), null)
-
-  return stored ? { ...defaultContent, ...stored } : defaultContent
+function filterBySessionWebsites(session, items) {
+  if (session?.role === 'owner') return items
+  const allowed = new Set(sessionWebsiteIds(session) || [])
+  return items.filter(item => allowed.has(item.websiteId || item.id))
 }
 
 function updateFormList(forms, formId, updater) {
@@ -223,244 +215,175 @@ function updateTicketList(tickets, ticketId, updater) {
   return tickets.map(ticket => (ticket.id === ticketId ? updater(ticket) : ticket))
 }
 
+await ensureStarterData()
+
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, service: 'KSJ Digital API' })
+  res.json({ ok: true, service: 'ksj-digital-api' })
 })
 
 app.post('/api/login', async (req, res) => {
-  const email = req.body?.email?.trim().toLowerCase()
-  const password = req.body?.password || ''
+  const email = String(req.body?.email || '').trim().toLowerCase()
+  const password = String(req.body?.password || '')
   const clients = await getClientRecords()
-  const account = clients.find(
-    client =>
-      client.email?.toLowerCase() === email &&
-      credentialMatches(client, password) &&
-      client.status !== 'Suspended',
-  )
+  const client = clients.find(item => String(item.email || '').toLowerCase() === email)
+  const storedPassword = client?.password || client?.accessCode || ''
 
-  if (!account) {
-    return res.status(401).json({ error: 'Email or password is incorrect.' })
+  if (!client || !storedPassword || storedPassword !== password) {
+    return res.status(401).json({ error: 'Invalid email or password' })
   }
 
-  const session = await buildSession(account)
   const token = crypto.randomUUID()
-  sessions.set(token, session)
+  const account = accountPayload(client)
+  sessions.set(token, account)
   res.setHeader('Set-Cookie', sessionCookie(token))
-  res.json({ account: session })
+  res.json(account)
 })
 
 app.post('/api/logout', (req, res) => {
-  const token = parseCookies(req.headers.cookie)[SESSION_COOKIE]
+  const token = parseCookies(req.headers.cookie || '')[SESSION_COOKIE]
   if (token) sessions.delete(token)
   res.setHeader('Set-Cookie', sessionCookie('', { clear: true }))
   res.json({ ok: true })
 })
 
 app.get('/api/me', (req, res) => {
-  const session = getSessionFromRequest(req)
-  if (!session) return res.status(401).json({ error: 'Not signed in' })
-  res.json({ account: session })
+  const session = findSession(req)
+  if (!session) return res.status(401).json({ error: 'Login required' })
+  res.json(session)
 })
 
-app.use('/api', (req, res, next) => {
-  if (req.path.startsWith('/public/')) return next()
-
-  const session = getSessionFromRequest(req)
-  if (!session) return res.status(401).json({ error: 'Not signed in' })
-
-  req.session = session
-  next()
-})
+app.use('/api', requireSession)
 
 app.get('/api/websites', async (req, res) => {
   const websites = await getWebsiteRecords()
-  res.json(filterBySessionWebsites(req.session, websites, 'id'))
+  res.json(filterBySessionWebsites(req.session, websites))
 })
 
 app.post('/api/websites', async (req, res) => {
   if (!requireOwner(req, res)) return
-
   const websites = await getWebsiteRecords()
   const website = {
-    id: idFrom(req.body?.name),
+    id: idFrom(req.body?.id || req.body?.name || `website-${Date.now()}`),
     name: req.body?.name || 'New Website',
-    domain: req.body?.domain || 'example.com',
+    domain: req.body?.domain || '',
+    owner: req.body?.owner || '',
     status: req.body?.status || 'Draft',
-    pageCount: Number(req.body?.pageCount || 1),
-    mediaCount: Number(req.body?.mediaCount || 0),
-    owner: req.body?.owner || 'Unassigned',
-    logo: (req.body?.name || 'NW').slice(0, 2).toUpperCase(),
-    plan: req.body?.plan || 'Build',
-    seo: Number(req.body?.seo || 0),
-    performance: Number(req.body?.performance || 0),
-    repository: req.body?.repository || '',
-    notes: req.body?.notes || '',
+    orderPrefix: req.body?.orderPrefix || '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   }
-
-  const next = [...websites.filter(site => site.id !== website.id), website]
-  await writeJson(paths.websites(), next)
+  await writeJson(paths.websites(), [...websites, website])
   res.json(website)
 })
 
 app.patch('/api/websites/:id', async (req, res) => {
-  if (!requireOwner(req, res)) return
-
+  if (!requireWebsiteAccess(req, res, req.params.id)) return
   const websites = await getWebsiteRecords()
-  const existing = websites.find(site => site.id === req.params.id)
-
-  if (!existing) {
-    return res.status(404).json({ error: 'Website not found' })
-  }
-
-  const updated = {
-    ...existing,
-    ...req.body,
-    domain: req.body?.domain?.trim() || existing.domain,
-    logo: (req.body?.name || existing.name).slice(0, 2).toUpperCase(),
-  }
-
-  const next = websites.map(site => (site.id === req.params.id ? updated : site))
-  await writeJson(paths.websites(), next)
-  res.json(updated)
+  const updated = websites.map(website =>
+    website.id === req.params.id
+      ? { ...website, ...req.body, id: website.id, updatedAt: new Date().toISOString() }
+      : website,
+  )
+  await writeJson(paths.websites(), updated)
+  res.json(updated.find(website => website.id === req.params.id))
 })
 
 app.delete('/api/websites/:id', async (req, res) => {
   if (!requireOwner(req, res)) return
-
   const websites = await getWebsiteRecords()
-  const next = websites.filter(site => site.id !== req.params.id)
-  const clients = await getClientRecords()
-  const nextClients = clients.map(client => ({
-    ...client,
-    websiteIds: (client.websiteIds || []).filter(websiteId => websiteId !== req.params.id),
-  }))
-
-  await writeJson(paths.websites(), next)
-  await writeJson(paths.clients(), nextClients)
-  res.json({ ok: true, websites: next, clients: nextClients })
+  await writeJson(paths.websites(), websites.filter(website => website.id !== req.params.id))
+  res.json({ ok: true })
 })
 
 app.get('/api/clients', async (req, res) => {
   if (!requireOwner(req, res)) return
-  res.json(await getClientRecords())
+  const clients = await getClientRecords()
+  res.json(clients.map(sanitiseClient))
 })
 
 app.post('/api/clients', async (req, res) => {
   if (!requireOwner(req, res)) return
-
   const clients = await getClientRecords()
   const client = {
-    id: idFrom(req.body?.name || req.body?.email),
+    id: idFrom(req.body?.id || req.body?.name || `client-${Date.now()}`),
     name: req.body?.name || 'New Client',
-    email: req.body?.email || 'client@example.com',
-    accessCode: req.body?.accessCode || `ksj-${Math.random().toString(36).slice(2, 8)}`,
-    role: req.body?.role || 'Client',
-    websiteIds: req.body?.websiteIds || [],
-    status: req.body?.status || 'Draft',
-    access: req.body?.access || 'Website editor',
-    canEdit: req.body?.canEdit ?? true,
-    canRequestUpdates: req.body?.canRequestUpdates ?? true,
-    canManageMedia: req.body?.canManageMedia ?? true,
-    canViewSupport: req.body?.canViewSupport ?? true,
+    email: String(req.body?.email || '').trim().toLowerCase(),
+    accessCode: req.body?.accessCode || '',
+    role: req.body?.role || 'client',
+    websiteId: req.body?.websiteId || '',
+    websiteIds: req.body?.websiteIds || (req.body?.websiteId ? [req.body.websiteId] : []),
+    canEdit: req.body?.canEdit !== false,
+    canManageMedia: req.body?.canManageMedia !== false,
+    canRequestUpdates: req.body?.canRequestUpdates !== false,
+    canViewSupport: req.body?.canViewSupport !== false,
   }
-
-  const next = [client, ...clients.filter(item => item.id !== client.id)]
-  await writeJson(paths.clients(), next)
-  res.json(client)
+  await writeJson(paths.clients(), [...clients, client])
+  res.json(sanitiseClient(client))
 })
 
 app.patch('/api/clients/:id', async (req, res) => {
   if (!requireOwner(req, res)) return
-
   const clients = await getClientRecords()
-  const existing = clients.find(client => client.id === req.params.id)
-
-  if (!existing) {
-    return res.status(404).json({ error: 'Client not found' })
-  }
-
-  const updated = {
-    ...existing,
-    ...req.body,
-    email: req.body?.email?.trim() || existing.email,
-  }
-
-  const next = clients.map(client => (client.id === req.params.id ? updated : client))
-  await writeJson(paths.clients(), next)
-  res.json(updated)
+  const updated = clients.map(client =>
+    client.id === req.params.id
+      ? { ...client, ...req.body, id: client.id }
+      : client,
+  )
+  await writeJson(paths.clients(), updated)
+  res.json(sanitiseClient(updated.find(client => client.id === req.params.id)))
 })
 
 app.delete('/api/clients/:id', async (req, res) => {
   if (!requireOwner(req, res)) return
-
   const clients = await getClientRecords()
-  const next = clients.filter(client => client.id !== req.params.id)
-  await writeJson(paths.clients(), next)
-  res.json({ ok: true, clients: next })
+  await writeJson(paths.clients(), clients.filter(client => client.id !== req.params.id))
+  res.json({ ok: true })
 })
 
 app.get('/api/storage/:ownerId', async (req, res) => {
-  if (!requireStorageAccess(req, res, req.params.ownerId)) return
-  if (!requirePermission(req, res, 'canManageMedia', 'Media permission required')) return
-
-  const ownerId = safeName(req.params.ownerId)
-  const ownerDir = path.join(ASSET_DIR, ownerId)
-  const used = await getFolderSize(ownerDir)
+  if (!requireWebsiteAccess(req, res, req.params.ownerId) && req.session.role !== 'owner') return
+  const used = await getFolderSize(ASSET_DIR)
   res.json({ used, limit: STORAGE_LIMIT_BYTES })
 })
 
-app.post('/api/assets/:ownerId/:websiteId/:slotId', upload.single('file'), async (req, res) => {
-  if (!requireStorageAccess(req, res, req.params.ownerId)) return
+app.get('/api/assets/:ownerId/:websiteId', async (req, res) => {
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
-  if (!requirePermission(req, res, 'canManageMedia', 'Media permission required')) return
-  if (!req.file) return res.status(400).json({ error: 'No file uploaded' })
-
-  const ownerId = safeName(req.params.ownerId)
-  const websiteId = safeName(req.params.websiteId)
-  const slotId = safeName(req.params.slotId)
-  const ownerDir = path.join(ASSET_DIR, ownerId)
-  const used = await getFolderSize(ownerDir)
-
-  if (used + req.file.size > STORAGE_LIMIT_BYTES) {
-    return res.status(413).json({ error: '2GB storage limit reached' })
-  }
-
-  const assetDir = path.join(ownerDir, websiteId, slotId)
-  await ensureDir(assetDir)
-
-  const manifestFile = paths.manifest(ownerId)
-  const manifest = await readJson(manifestFile, [])
-  const existing = manifest.filter(item => item.websiteId === websiteId && item.slotId === slotId)
-  const version = existing.length + 1
-  const fileName = `${version}-${Date.now()}-${safeName(req.file.originalname)}`
-  const filePath = path.join(assetDir, fileName)
-
-  await import('node:fs/promises').then(fs => fs.writeFile(filePath, req.file.buffer))
-
-  const asset = {
-    id: `${ownerId}:${websiteId}:${slotId}:${version}`,
-    ownerId,
-    websiteId,
-    slotId,
-    name: req.file.originalname,
-    type: req.file.mimetype,
-    size: req.file.size,
-    version,
-    url: `/assets/${ownerId}/${websiteId}/${slotId}/${fileName}`,
-    updatedAt: new Date().toISOString(),
-  }
-
-  await writeJson(manifestFile, [asset, ...manifest])
-  res.json(asset)
+  const assets = await readJson(paths.manifest(req.params.ownerId), [])
+  res.json(assets.filter(asset => asset.websiteId === req.params.websiteId))
 })
 
-app.get('/api/assets/:ownerId/:websiteId', async (req, res) => {
-  if (!requireStorageAccess(req, res, req.params.ownerId)) return
+app.post('/api/assets/:ownerId/:websiteId/:slotId', upload.single('file'), async (req, res) => {
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
   if (!requirePermission(req, res, 'canManageMedia', 'Media permission required')) return
+  if (!req.file) return res.status(400).json({ error: 'File is required' })
 
-  const manifest = await readJson(paths.manifest(req.params.ownerId), [])
-  res.json(manifest.filter(item => item.websiteId === safeName(req.params.websiteId)))
+  const used = await getFolderSize(ASSET_DIR)
+  if (used + req.file.size > STORAGE_LIMIT_BYTES) {
+    return res.status(413).json({ error: 'Storage limit exceeded' })
+  }
+
+  await ensureDir(ASSET_DIR)
+  const extension = path.extname(req.file.originalname || '') || '.bin'
+  const filename = `${safeName(req.params.websiteId)}-${safeName(req.params.slotId)}-${Date.now()}${extension}`
+  await fs.writeFile(path.join(ASSET_DIR, filename), req.file.buffer)
+
+  const manifestPath = paths.manifest(req.params.ownerId)
+  const assets = await readJson(manifestPath, [])
+  const asset = {
+    id: crypto.randomUUID(),
+    ownerId: req.params.ownerId,
+    websiteId: req.params.websiteId,
+    slotId: req.params.slotId,
+    filename,
+    originalName: req.file.originalname,
+    mimeType: req.file.mimetype,
+    size: req.file.size,
+    url: `/assets/${filename}`,
+    updatedAt: new Date().toISOString(),
+  }
+  const next = [asset, ...assets.filter(item => !(item.websiteId === asset.websiteId && item.slotId === asset.slotId))]
+  await writeJson(manifestPath, next)
+  res.json(asset)
 })
 
 app.get('/api/content/:websiteId', async (req, res) => {
@@ -471,12 +394,9 @@ app.get('/api/content/:websiteId', async (req, res) => {
 app.put('/api/content/:websiteId', async (req, res) => {
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
   if (!requirePermission(req, res, 'canEdit', 'Edit permission required')) return
-
-  const data = await writeJson(paths.content(req.params.websiteId), {
-    ...req.body,
-    updatedAt: new Date().toISOString(),
-  })
-  res.json(data)
+  const content = { ...req.body, updatedAt: new Date().toISOString() }
+  await writeJson(paths.content(req.params.websiteId), content)
+  res.json(content)
 })
 
 app.get('/api/forms/:websiteId', async (req, res) => {
@@ -487,72 +407,68 @@ app.get('/api/forms/:websiteId', async (req, res) => {
 app.put('/api/forms/:websiteId', async (req, res) => {
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
   if (!requirePermission(req, res, 'canEdit', 'Edit permission required')) return
-  res.json(await writeJson(paths.forms(req.params.websiteId), req.body?.forms || []))
+  const forms = Array.isArray(req.body?.forms) ? req.body.forms : []
+  await writeJson(paths.forms(req.params.websiteId), forms)
+  res.json(forms)
 })
 
 app.post('/api/forms/:websiteId', async (req, res) => {
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
   if (!requirePermission(req, res, 'canEdit', 'Edit permission required')) return
-
   const forms = await getFormRecords(req.params.websiteId)
   const form = {
-    id: `form-${Date.now()}`,
+    id: idFrom(req.body?.id || req.body?.name || `form-${Date.now()}`),
     name: req.body?.name || 'New Form',
-    status: 'Draft',
+    status: req.body?.status || 'Draft',
     destination: req.body?.destination || '',
-    spamProtection: req.body?.spamProtection ?? true,
+    spamProtection: req.body?.spamProtection !== false,
     fields: [],
     submissions: [],
   }
-  const next = [form, ...forms]
+  const next = [...forms, form]
   await writeJson(paths.forms(req.params.websiteId), next)
-  res.json({ form, forms: next })
+  res.json(form)
 })
 
 app.patch('/api/forms/:websiteId/:formId', async (req, res) => {
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
   if (!requirePermission(req, res, 'canEdit', 'Edit permission required')) return
-
   const forms = await getFormRecords(req.params.websiteId)
-  const next = updateFormList(forms, req.params.formId, form => ({ ...form, ...req.body }))
+  const next = updateFormList(forms, req.params.formId, form => ({ ...form, ...req.body, id: form.id }))
   await writeJson(paths.forms(req.params.websiteId), next)
-  res.json(next)
+  res.json(next.find(form => form.id === req.params.formId))
 })
 
 app.delete('/api/forms/:websiteId/:formId', async (req, res) => {
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
   if (!requirePermission(req, res, 'canEdit', 'Edit permission required')) return
-
   const forms = await getFormRecords(req.params.websiteId)
-  const next = forms.filter(form => form.id !== req.params.formId)
-  await writeJson(paths.forms(req.params.websiteId), next)
-  res.json(next)
+  await writeJson(paths.forms(req.params.websiteId), forms.filter(form => form.id !== req.params.formId))
+  res.json({ ok: true })
 })
 
 app.post('/api/forms/:websiteId/:formId/fields', async (req, res) => {
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
   if (!requirePermission(req, res, 'canEdit', 'Edit permission required')) return
-
   const forms = await getFormRecords(req.params.websiteId)
   const field = {
-    id: `field-${Date.now()}`,
-    label: `${req.body?.type || 'Text'} Field`,
+    id: idFrom(req.body?.id || req.body?.label || `field-${Date.now()}`),
+    label: req.body?.label || 'New field',
     type: req.body?.type || 'Text',
-    required: false,
-    placeholder: '',
+    required: req.body?.required === true,
+    placeholder: req.body?.placeholder || '',
   }
   const next = updateFormList(forms, req.params.formId, form => ({
     ...form,
     fields: [...(form.fields || []), field],
   }))
   await writeJson(paths.forms(req.params.websiteId), next)
-  res.json(next)
+  res.json(next.find(form => form.id === req.params.formId))
 })
 
 app.patch('/api/forms/:websiteId/:formId/fields/:fieldId', async (req, res) => {
   if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
   if (!requirePermission(req, res, 'canEdit', 'Edit permission required')) return
-
   const forms = await getFormRecords(req.params.websiteId)
   const next = updateFormList(forms, req.params.formId, form => ({
     ...form,
@@ -764,31 +680,29 @@ app.post('/api/publish/requests/:id/approve', async (req, res) => {
 
   const requests = await readJson(paths.requests(), [])
   const request = requests.find(item => item.id === req.params.id)
+  if (!request) return res.status(404).json({ error: 'Publish request not found' })
 
-  if (!request) return res.status(404).json({ error: 'Request not found' })
-
-  const updatedRequest = {
-    ...request,
-    status: 'Approved',
-    approvedAt: new Date().toISOString(),
-  }
-  await writeJson(
-    paths.requests(),
-    requests.map(item => (item.id === req.params.id ? updatedRequest : item)),
+  const updated = requests.map(item =>
+    item.id === req.params.id
+      ? { ...item, status: 'Approved', reviewedAt: new Date().toISOString() }
+      : item,
   )
+  await writeJson(paths.requests(), updated)
 
   const history = await readJson(paths.history(), [])
-  const deployment = {
-    id: crypto.randomUUID(),
-    requestId: request.id,
-    websiteId: request.websiteId,
-    status: 'Ready for repository deployment',
-    approvedAt: updatedRequest.approvedAt,
-    repository: request.repository || null,
-  }
+  await writeJson(paths.history(), [
+    {
+      id: crypto.randomUUID(),
+      websiteId: request.websiteId,
+      requestId: request.id,
+      action: 'Published',
+      createdAt: new Date().toISOString(),
+      createdBy: req.session.name,
+    },
+    ...history,
+  ])
 
-  await writeJson(paths.history(), [deployment, ...history])
-  res.json(deployment)
+  res.json(updated.find(item => item.id === req.params.id))
 })
 
 app.get('/api/publish/history', async (req, res) => {
@@ -796,5 +710,6 @@ app.get('/api/publish/history', async (req, res) => {
   res.json(filterBySessionWebsites(req.session, history))
 })
 
-await ensureDir(ASSET_DIR)
-app.listen(port, () => console.log(`KSJ Digital API running on http://localhost:${port}`))
+app.listen(port, () => {
+  console.log(`KSJ Digital API running on http://localhost:${port}`)
+})
