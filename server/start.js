@@ -102,24 +102,28 @@ loadLocalEnvironment()
 const [
   { assertProductCheckoutAccess },
   { createCommerceSettingsRouter, createWebsiteOrderPrefixGuard },
+  { starterWebsites },
   { createDispatchRouter },
   { createInventoryRouter },
   { createOrdersRouter, createPublicOrdersRouter },
   { createPayPalOrder, createPayPalRouter },
   { createRefundRouter },
   { createLiveSessionAccessMiddleware },
+  { getStarterSiteContent },
   { createStripeCheckoutSession, createStripeRouter, processStripeCheckoutCompleted },
   { releaseStockReservation },
-  { paths, readJson, writeJson },
+  { paths, readJson, readWebsiteAssets, safeName, writeJson },
 ] = await Promise.all([
   import('./checkoutAccess.js'),
   import('./commerceSettingsRouter.js'),
+  import('./defaults.js'),
   import('./dispatchRouter.js'),
   import('./inventoryRouter.js'),
   import('./ordersRouter.js'),
   import('./paypalCheckout.js'),
   import('./refundRouter.js'),
   import('./sessionAccess.js'),
+  import('./siteContentDefaults.js'),
   import('./stripeCheckout.js'),
   import('./stockReservations.js'),
   import('./storage.js'),
@@ -166,6 +170,7 @@ const originalPost = express.application.post
 let useCalls = 0
 let checkoutMounted = false
 let publicOrdersMounted = false
+let publicSitesMounted = false
 let protectedCommerceMounted = false
 let assetServingMounted = false
 let assetUploadMounted = false
@@ -296,6 +301,31 @@ express.application.use = function patchedUse(...args) {
       express.json({ limit: '1mb' }),
       createPayPalRouter(),
     )
+  }
+
+  if (!publicSitesMounted && useCalls === 2) {
+    publicSitesMounted = true
+    originalUse.call(this, '/api/public/sites/:websiteId', async (req, res, next) => {
+      if (req.method !== 'GET' || req.path !== '/') return next()
+
+      const websiteId = safeName(req.params.websiteId)
+      const websites = await readJson(paths.websites(), starterWebsites)
+      const website = websites.find(site => safeName(site.id) === websiteId)
+      if (!website) return res.status(404).json({ error: 'Website not found' })
+
+      const defaultContent = getStarterSiteContent(websiteId)
+      const storedContent = await readJson(paths.content(websiteId), null)
+      const content = storedContent ? { ...defaultContent, ...storedContent } : defaultContent
+      const assets = await readWebsiteAssets(websiteId)
+
+      res.setHeader('Cache-Control', 'no-store')
+      res.json({
+        website,
+        content,
+        assets,
+        publishedAt: content.updatedAt || null,
+      })
+    })
   }
 
   const result = originalUse.apply(this, args)
