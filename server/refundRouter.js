@@ -30,13 +30,24 @@ export function createRefundRouter() {
         reason: req.body?.reason,
         restoreStock: req.body?.restoreStock === true,
       })
+
       const settings = await getCommerceSettings(order.websiteId)
-      await sendRefundNotification(result.order, {
+      const notification = await sendRefundNotification(result.order, {
         ...settings,
         brandName: order.clientName || order.websiteId,
         latestRefund: result.order.refund?.history?.at(-1),
       })
-      res.json(result)
+
+      res.json({
+        ...result,
+        notification,
+        warning: [
+          result.warning,
+          notification.status === 'Failed'
+            ? 'Refund completed, but the customer email failed and can be retried from the order.'
+            : '',
+        ].filter(Boolean).join(' '),
+      })
     } catch (error) {
       res.status(400).json({ error: error.message })
     }
