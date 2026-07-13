@@ -1,4 +1,4 @@
-name: Validate Build
+name: Validate KSJ Digital
 
 on:
   push:
@@ -8,10 +8,18 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-ksjdigital-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
-    name: npm build
+  validate:
+    name: Lint, check server, and build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -23,8 +31,8 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install dependencies
-        run: npm install
+      - name: Install locked dependencies
+        run: npm ci
 
-      - name: Build
-        run: npm run build
+      - name: Run full project check
+        run: npm run check
