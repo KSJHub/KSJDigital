@@ -2,15 +2,37 @@ import { api } from './api.js'
 
 let currentAccount = null
 
+function normaliseAccount(value) {
+  const account = value?.account || value
+  if (!account || typeof account !== 'object') return null
+
+  const role = String(account.role || '').trim().toLowerCase()
+  const websiteIds = Array.isArray(account.websiteIds)
+    ? account.websiteIds
+    : account.websiteId
+      ? [account.websiteId]
+      : []
+
+  return {
+    ...account,
+    role,
+    websiteIds,
+    websiteAccess: account.websiteAccess || websiteIds,
+    home: account.home || (role === 'owner' ? '/owner' : '/client'),
+  }
+}
+
 function setCurrentAccount(account) {
-  currentAccount = account || null
+  currentAccount = normaliseAccount(account)
   return currentAccount
 }
 
 export async function signIn(email, password) {
   try {
     const result = await api.login({ email, password })
-    return { account: setCurrentAccount(result.account) }
+    const account = setCurrentAccount(result)
+    if (!account) throw new Error('Login response did not contain an account')
+    return { account }
   } catch (error) {
     return { error: error.message || 'Email or password is incorrect.' }
   }
@@ -30,7 +52,7 @@ export async function signOut() {
 export async function refreshSession() {
   try {
     const result = await api.me()
-    return setCurrentAccount(result.account)
+    return setCurrentAccount(result)
   } catch {
     return setCurrentAccount(null)
   }
