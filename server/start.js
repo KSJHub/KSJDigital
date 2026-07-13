@@ -2,6 +2,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import express from 'express'
 
+const MAX_ASSET_UPLOAD_BYTES = 15 * 1024 * 1024
+const ALLOWED_ASSET_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.pdf'])
+
 function loadLocalEnvironment() {
   const file = path.resolve(process.cwd(), '.env.local')
   if (!fs.existsSync(file)) return
@@ -21,6 +24,36 @@ function loadLocalEnvironment() {
   }
 }
 
+function assetServingGuard(req, res, next) {
+  const extension = path.extname(req.path || '').toLowerCase()
+  if (!ALLOWED_ASSET_EXTENSIONS.has(extension)) {
+    return res.status(404).send('Asset not found')
+  }
+
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self' data:; style-src 'none'; sandbox")
+  res.setHeader('Referrer-Policy', 'no-referrer')
+  if (extension === '.pdf') res.setHeader('Content-Disposition', 'attachment')
+  next()
+}
+
+function assetUploadGuard(req, res, next) {
+  if (req.method !== 'POST') return next()
+  const contentType = String(req.headers['content-type'] || '').toLowerCase()
+  if (!contentType.startsWith('multipart/form-data;')) {
+    return res.status(415).json({ error: 'Asset uploads must use multipart form data' })
+  }
+
+  const contentLength = Number(req.headers['content-length'] || 0)
+  if (!Number.isFinite(contentLength) || contentLength <= 0) {
+    return res.status(411).json({ error: 'Upload size is required' })
+  }
+  if (contentLength > MAX_ASSET_UPLOAD_BYTES) {
+    return res.status(413).json({ error: 'Asset uploads are limited to 15MB' })
+  }
+  next()
+}
+
 loadLocalEnvironment()
 
 const [
@@ -31,7 +64,6 @@ const [
   { createOrdersRouter, createPublicOrdersRouter },
   { createPayPalOrder, createPayPalRouter },
   { createRefundRouter },
-  { createLiveSessionAccessMiddleware },
   { createStripeCheckoutSession, createStripeRouter, processStripeCheckoutCompleted },
   { releaseStockReservation },
   { paths, readJson, writeJson },
@@ -43,7 +75,6 @@ const [
   import('./ordersRouter.js'),
   import('./paypalCheckout.js'),
   import('./refundRouter.js'),
-  import('./sessionAccess.js'),
   import('./stripeCheckout.js'),
   import('./stockReservations.js'),
   import('./storage.js'),
@@ -90,9 +121,16 @@ let useCalls = 0
 let checkoutMounted = false
 let publicOrdersMounted = false
 let protectedCommerceMounted = false
+let assetServingMounted = false
+let assetUploadMounted = false
 
 express.application.use = function patchedUse(...args) {
   useCalls += 1
+
+  if (!assetServingMounted && useCalls === 3) {
+    assetServingMounted = true
+    originalUse.call(this, '/assets', assetServingGuard)
+  }
 
   if (!checkoutMounted && useCalls === 2) {
     checkoutMounted = true
@@ -214,9 +252,13 @@ express.application.use = function patchedUse(...args) {
     originalUse.call(this, '/api/public/orders', createPublicOrdersRouter())
   }
 
+  if (!assetUploadMounted && useCalls === 4) {
+    assetUploadMounted = true
+    originalUse.call(this, '/api/assets', assetUploadGuard)
+  }
+
   if (!protectedCommerceMounted && useCalls === 4) {
     protectedCommerceMounted = true
-    originalUse.call(this, '/api', createLiveSessionAccessMiddleware())
     originalUse.call(this, '/api/websites', createWebsiteOrderPrefixGuard())
     originalUse.call(this, '/api/orders', createDispatchRouter())
     originalUse.call(this, '/api/orders', createOrdersRouter())
