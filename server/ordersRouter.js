@@ -18,6 +18,7 @@ const lookupAttempts = new Map()
 const LOOKUP_WINDOW_MS = 10 * 60 * 1000
 const LOOKUP_LIMIT = 10
 const INVOICE_TOKEN_MS = 15 * 60 * 1000
+const INVOICE_TOKEN_USE_LIMIT = 5
 
 function canAccessOrder(session, order) {
   if (!session || !order) return false
@@ -72,6 +73,7 @@ function invoiceHtml(order, settings = {}) {
   const issued = new Date(order.paidAt || order.createdAt || Date.now())
   const supportEmail = settings.supportEmail || settings.replyTo || ''
   const testLabel = order.isTestOrder ? '<span class="test">TEST INVOICE</span>' : ''
+  const taxLabel = order.taxIncluded ? 'Tax / VAT (included)' : 'Tax / VAT'
 
   return `<!doctype html>
 <html lang="en">
@@ -146,7 +148,7 @@ function invoiceHtml(order, settings = {}) {
     <section class="totals">
       <div><span>Subtotal</span><strong>${escapeHtml(money(order.subtotal, order.currency))}</strong></div>
       <div><span>Shipping</span><strong>${escapeHtml(money(order.shipping, order.currency))}</strong></div>
-      <div><span>Tax / VAT</span><strong>${escapeHtml(money(order.tax, order.currency))}</strong></div>
+      <div><span>${taxLabel}</span><strong>${escapeHtml(money(order.tax, order.currency))}</strong></div>
       <div><span>Discount</span><strong>-${escapeHtml(money(order.discount, order.currency))}</strong></div>
       <div class="grand"><span>Total</span><span>${escapeHtml(money(order.total, order.currency))}</span></div>
     </section>
@@ -185,10 +187,33 @@ function trackingDetails(input = {}, status = '') {
   }
 }
 
+function setPrivateResponseHeaders(res) {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private')
+  res.setHeader('Pragma', 'no-cache')
+  res.setHeader('Expires', '0')
+  res.setHeader('Referrer-Policy', 'no-referrer')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+}
+
+function cleanupPublicSecurityState(now = Date.now()) {
+  for (const [key, attempts] of lookupAttempts) {
+    const active = attempts.filter(time => now - time < LOOKUP_WINDOW_MS)
+    if (active.length) lookupAttempts.set(key, active)
+    else lookupAttempts.delete(key)
+  }
+
+  for (const [token, record] of publicInvoiceTokens) {
+    if (record.expiresAt < now || record.uses >= INVOICE_TOKEN_USE_LIMIT) {
+      publicInvoiceTokens.delete(token)
+    }
+  }
+}
+
 function allowPublicLookup(req) {
   const key = req.ip || req.socket?.remoteAddress || 'unknown'
   const now = Date.now()
-  const attempts = (lookupAttempts.get(key) || []).filter(time => now - time < LOOKUP_WINDOW_MS)
+  cleanupPublicSecurityState(now)
+  const attempts = lookupAttempts.get(key) || []
   if (attempts.length >= LOOKUP_LIMIT) return false
   attempts.push(now)
   lookupAttempts.set(key, attempts)
@@ -230,6 +255,11 @@ function safePublicOrder(order, invoiceToken) {
 export function createPublicOrdersRouter() {
   const router = express.Router()
 
+  router.use((req, res, next) => {
+    setPrivateResponseHeaders(res)
+    next()
+  })
+
   router.post('/lookup', async (req, res) => {
     if (!allowPublicLookup(req)) {
       return res.status(429).json({ error: 'Too many attempts. Please try again later.' })
@@ -240,6 +270,9 @@ export function createPublicOrdersRouter() {
     const email = String(req.body?.email || '').trim().toLowerCase()
     if (!websiteId || !orderNumber || !email) {
       return res.status(400).json({ error: 'Order number and email are required.' })
+    }
+    if (websiteId.length > 100 || orderNumber.length > 100 || email.length > 254) {
+      return res.status(400).json({ error: 'Order details could not be verified.' })
     }
 
     const order = await getOrder(orderNumber)
@@ -252,21 +285,37 @@ export function createPublicOrdersRouter() {
       return res.status(404).json({ error: 'Order details could not be verified.' })
     }
 
-    const token = crypto.randomBytes(24).toString('hex')
-    publicInvoiceTokens.set(token, { orderId: order.id, expiresAt: Date.now() + INVOICE_TOKEN_MS })
+    const token = crypto.randomBytes(32).toString('hex')
+    publicInvoiceTokens.set(token, {
+      orderId: order.id,
+      expiresAt: Date.now() + INVOICE_TOKEN_MS,
+      uses: 0,
+    })
     res.json(safePublicOrder(order, token))
   })
 
   router.get('/invoice/:token', async (req, res) => {
-    const record = publicInvoiceTokens.get(req.params.token)
-    if (!record || record.expiresAt < Date.now()) {
-      publicInvoiceTokens.delete(req.params.token)
+    cleanupPublicSecurityState()
+    const token = String(req.params.token || '')
+    const record = publicInvoiceTokens.get(token)
+    if (!record || record.expiresAt < Date.now() || record.uses >= INVOICE_TOKEN_USE_LIMIT) {
+      publicInvoiceTokens.delete(token)
       return res.status(404).send('Invoice link has expired. Please verify the order again.')
     }
 
+    record.uses += 1
+    publicInvoiceTokens.set(token, record)
     const order = await getOrder(record.orderId)
-    if (!order) return res.status(404).send('Invoice not found')
+    if (!order) {
+      publicInvoiceTokens.delete(token)
+      return res.status(404).send('Invoice not found')
+    }
+
     const settings = await getCommerceSettings(order.websiteId)
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    )
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
     res.setHeader('Content-Disposition', `inline; filename="invoice-${order.orderNumber}.html"`)
     res.send(invoiceHtml(order, settings))
@@ -296,6 +345,7 @@ export function createOrdersRouter() {
     if (!canAccessOrder(req.session, order)) return res.status(403).send('Order access denied')
 
     const settings = await getCommerceSettings(order.websiteId)
+    setPrivateResponseHeaders(res)
     res.setHeader('Content-Type', 'text/html; charset=utf-8')
     res.setHeader('Content-Disposition', `inline; filename="invoice-${order.orderNumber}.html"`)
     res.send(invoiceHtml(order, settings))
