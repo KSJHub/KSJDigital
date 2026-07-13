@@ -131,6 +131,10 @@ function refundEmail(order, settings = {}) {
   }
 }
 
+function discordWebhook(settings = {}) {
+  return settings.discordWebhookUrl || process.env.ORDER_DISCORD_WEBHOOK_URL || ''
+}
+
 export async function sendOrderNotifications(order, settings = {}) {
   const buyerMessage = buildBuyerOrderEmail(order, settings)
   const clientMessage = buildClientOrderEmail(order, settings)
@@ -142,7 +146,7 @@ export async function sendOrderNotifications(order, settings = {}) {
   const results = []
   results.push(await deliver(order, 'buyerEmail', () => sendResendEmail(buyerMessage, settings)))
   results.push(await deliver(order, 'clientEmail', () => sendResendEmail(clientMessage, settings)))
-  results.push(await deliver(order, 'discord', () => sendDiscordWebhook(discordPayload, settings.discordWebhookUrl)))
+  results.push(await deliver(order, 'discord', () => sendDiscordWebhook(discordPayload, discordWebhook(settings))))
 
   return {
     ok: results.every(result => result.status === 'Sent'),
@@ -167,7 +171,7 @@ export async function retryOrderNotification(order, channel, settings = {}) {
   }
   if (channel === 'discord') {
     return deliver(order, channel, () =>
-      sendDiscordWebhook(buildDiscordOrderPayload(order, settings), settings.discordWebhookUrl),
+      sendDiscordWebhook(buildDiscordOrderPayload(order, settings), discordWebhook(settings)),
     )
   }
   if (channel === 'dispatchEmail') return sendDispatchNotification(order, settings)
