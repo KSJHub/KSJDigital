@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import { restoreProductStock } from './merchValidation.js'
 import { getOrder, recordOrderRefund } from './orderService.js'
+import { paths, readJson, writeJson } from './storage.js'
 
 const refundQueues = new Map()
 
@@ -106,6 +107,41 @@ async function refundPayPal(order, amount, reason, requestId) {
   return { id: data.id, status: data.status || 'COMPLETED' }
 }
 
+async function markRefundStockRestored(orderId, providerRefundId) {
+  const orders = await readJson(paths.orders(), [])
+  const existing = orders.find(order => order.id === orderId || order.orderNumber === orderId)
+  if (!existing) throw new Error('Refunded order could not be reloaded')
+
+  const history = (existing.refund?.history || []).map(entry =>
+    entry.providerRefundId === providerRefundId ? { ...entry, restoredStock: true } : entry,
+  )
+  const updated = {
+    ...existing,
+    refund: {
+      ...existing.refund,
+      stockRestored: true,
+      stockRestoreError: '',
+      history,
+    },
+    updatedAt: new Date().toISOString(),
+  }
+  await writeJson(paths.orders(), orders.map(order => (order.id === existing.id ? updated : order)))
+  return updated
+}
+
+async function markRefundStockRestoreFailed(orderId, message) {
+  const orders = await readJson(paths.orders(), [])
+  const existing = orders.find(order => order.id === orderId || order.orderNumber === orderId)
+  if (!existing) return null
+  const updated = {
+    ...existing,
+    refund: { ...existing.refund, stockRestoreError: String(message || 'Stock restoration failed') },
+    updatedAt: new Date().toISOString(),
+  }
+  await writeJson(paths.orders(), orders.map(order => (order.id === existing.id ? updated : order)))
+  return updated
+}
+
 export async function processOrderRefund(orderId, input = {}) {
   return serialiseRefund(orderId, async () => {
     const order = await getOrder(orderId)
@@ -142,22 +178,36 @@ export async function processOrderRefund(orderId, input = {}) {
       ? await refundStripe(order, requested, reason, requestId)
       : await refundPayPal(order, requested, reason, requestId)
 
-    let restoredStock = false
-    if (input.restoreStock === true) {
-      for (const item of order.items || []) {
-        if (item.fulfilment !== 'digital' && !item.madeToOrder) {
-          await restoreProductStock(order.websiteId, item.productId, item.quantity, item.variant)
-        }
-      }
-      restoredStock = true
-    }
-
-    const updated = await recordOrderRefund(order.id, {
+    // The provider has returned the customer's money. Persist that fact before
+    // any optional stock or notification work so follow-up failures cannot hide it.
+    let updated = await recordOrderRefund(order.id, {
       amount: requested,
       reason,
       providerRefundId: providerResult.id,
-      restoredStock,
+      restoredStock: false,
     })
-    return { order: updated, providerRefund: providerResult, fullRefund }
+    if (!updated) throw new Error('Refund was completed by the provider but could not be recorded locally')
+
+    let stockRestoreWarning = ''
+    if (input.restoreStock === true) {
+      try {
+        for (const item of order.items || []) {
+          if (item.fulfilment !== 'digital' && !item.madeToOrder) {
+            await restoreProductStock(order.websiteId, item.productId, item.quantity, item.variant)
+          }
+        }
+        updated = await markRefundStockRestored(order.id, providerResult.id)
+      } catch (error) {
+        stockRestoreWarning = error instanceof Error ? error.message : String(error)
+        updated = (await markRefundStockRestoreFailed(order.id, stockRestoreWarning)) || updated
+      }
+    }
+
+    return {
+      order: updated,
+      providerRefund: providerResult,
+      fullRefund,
+      warning: stockRestoreWarning ? `Refund completed, but stock restoration needs attention: ${stockRestoreWarning}` : '',
+    }
   })
 }
