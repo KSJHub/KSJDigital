@@ -68,6 +68,37 @@ export function safeName(value = 'file') {
   )
 }
 
+const assetManifestDir = path.join(DATA_DIR, 'asset-manifests')
+
+export async function readWebsiteAssets(websiteId) {
+  const safeWebsiteId = safeName(websiteId)
+  let files
+  try {
+    files = await fs.readdir(assetManifestDir)
+  } catch (error) {
+    if (error?.code === 'ENOENT') return []
+    throw error
+  }
+
+  const manifests = await Promise.all(
+    files
+      .filter(file => file.endsWith('.json'))
+      .map(file => readJson(path.join(assetManifestDir, file), [])),
+  )
+
+  const seen = new Set()
+  return manifests
+    .flat()
+    .filter(asset => safeName(asset?.websiteId) === safeWebsiteId)
+    .filter(asset => {
+      const key = asset.id || asset.url
+      if (!key || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))
+}
+
 export const paths = {
   websites: () => path.join(DATA_DIR, 'websites.json'),
   clients: () => path.join(DATA_DIR, 'clients.json'),
@@ -82,5 +113,5 @@ export const paths = {
   stockReservations: () => path.join(DATA_DIR, 'stock-reservations.json'),
   commerceSettings: websiteId =>
     path.join(DATA_DIR, 'commerce-settings', `${safeName(websiteId)}.json`),
-  manifest: ownerId => path.join(DATA_DIR, 'asset-manifests', `${safeName(ownerId)}.json`),
+  manifest: ownerId => path.join(assetManifestDir, `${safeName(ownerId)}.json`),
 }
