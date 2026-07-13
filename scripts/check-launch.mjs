@@ -30,6 +30,11 @@ function readJson(file, fallback) {
   }
 }
 
+function writeJson(file, value) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+}
+
 function present(value) {
   return Boolean(String(value || '').trim())
 }
@@ -53,6 +58,58 @@ function localOrHttpsUrl(value) {
   }
 }
 
+function normalisePrefix(value = '') {
+  return String(value).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)
+}
+
+function suggestedPrefix(website = {}) {
+  const known = {
+    twotonetaj: 'TAJ',
+    ksjdiamondgaming: 'DIA',
+    goliath: 'GOL',
+  }
+  const id = String(website.id || '').toLowerCase()
+  if (known[id]) return known[id]
+
+  const name = String(website.name || website.id || 'WEB')
+  const words = name.replace(/[^A-Za-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean)
+  if (words.length > 1) {
+    const initials = normalisePrefix(words.map(word => word[0]).join(''))
+    if (initials) return initials.slice(0, 3)
+  }
+  return normalisePrefix(name).slice(0, 3) || 'WEB'
+}
+
+function uniquePrefix(base, used) {
+  const normalised = normalisePrefix(base) || 'WEB'
+  if (!used.has(normalised)) return normalised
+  for (let index = 2; index < 1000; index += 1) {
+    const suffix = String(index)
+    const candidate = `${normalised.slice(0, 6 - suffix.length)}${suffix}`
+    if (!used.has(candidate)) return candidate
+  }
+  return `${normalised.slice(0, 3)}999`
+}
+
+function repairOrderPrefixes(websitesFile, websites) {
+  const used = new Set(
+    websites.map(website => normalisePrefix(website.orderPrefix)).filter(Boolean),
+  )
+  let changed = false
+  const repaired = websites.map(website => {
+    const existing = normalisePrefix(website.orderPrefix)
+    if (existing) return { ...website, orderPrefix: existing }
+
+    const orderPrefix = uniquePrefix(suggestedPrefix(website), used)
+    used.add(orderPrefix)
+    changed = true
+    return { ...website, orderPrefix }
+  })
+
+  if (changed) writeJson(websitesFile, repaired)
+  return { websites: repaired, changed }
+}
+
 function line(status, label, detail = '') {
   const symbol = status === 'pass' ? 'PASS' : status === 'warn' ? 'WARN' : 'FAIL'
   console.log(`${symbol.padEnd(4)}  ${label}${detail ? ` — ${detail}` : ''}`)
@@ -61,7 +118,10 @@ function line(status, label, detail = '') {
 loadEnvironmentFile('.env')
 loadEnvironmentFile('.env.local')
 
-const websites = readJson(path.join(dataDir, 'websites.json'), [])
+const websitesFile = path.join(dataDir, 'websites.json')
+const storedWebsites = readJson(websitesFile, [])
+const repaired = repairOrderPrefixes(websitesFile, storedWebsites)
+const websites = repaired.websites
 const clients = readJson(path.join(dataDir, 'clients.json'), [])
 const settingsDir = path.join(dataDir, 'commerce-settings')
 const contentDir = path.join(dataDir, 'content')
@@ -85,13 +145,15 @@ function fail(label, detail = '') {
 
 console.log('\nKSJ Digital launch readiness\n')
 
+const production = process.env.NODE_ENV === 'production'
 if (present(process.env.SESSION_SECRET) && process.env.SESSION_SECRET.length >= 32) {
   pass('Session secret', 'configured')
-} else {
+} else if (production) {
   fail('Session secret', 'set SESSION_SECRET to at least 32 characters')
+} else {
+  warn('Session secret', 'development only; set at least 32 characters before production')
 }
 
-const production = process.env.NODE_ENV === 'production'
 if (production) pass('Runtime mode', 'production')
 else warn('Runtime mode', `currently ${process.env.NODE_ENV || 'development'}`)
 
@@ -105,6 +167,7 @@ for (const [key, label] of [
   else warn(label, 'blank; development fallback remains active')
 }
 
+if (repaired.changed) pass('Order-prefix migration', 'missing prefixes were assigned and saved')
 if (!websites.length) warn('Websites', 'no stored website records found yet')
 
 for (const website of websites) {
