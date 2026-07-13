@@ -9,7 +9,8 @@
     "server": "node server/start.js",
     "build": "vite build",
     "lint": "eslint .",
-    "check": "npm run lint && npm run build",
+    "check:server": "node scripts/check-server.mjs",
+    "check": "npm run lint && npm run check:server && npm run build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "preview": "vite preview"
