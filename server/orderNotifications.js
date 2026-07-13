@@ -65,7 +65,7 @@ export function buildBuyerOrderEmail(order, settings = {}) {
 export function buildClientOrderEmail(order, settings = {}) {
   const address = order.shippingAddress || {}
   return {
-    to: settings.orderEmail,
+    to: settings.orderEmail || settings.businessEmail || settings.supportEmail || '',
     subject: `New ${settings.brandName || order.clientName || 'Store'} Order — ${order.orderNumber} — ${money(order.total, order.currency)}`,
     text: [
       `New paid order received: ${order.orderNumber}`,
