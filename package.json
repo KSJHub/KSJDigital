@@ -10,6 +10,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "check:server": "node scripts/check-server.mjs",
+    "check:launch": "node scripts/check-launch.mjs",
     "check": "npm run lint && npm run check:server && npm run build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
