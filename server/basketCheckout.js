@@ -7,7 +7,7 @@ import {
   recordDiscountUse,
   resolveDiscount,
 } from './commerceSettingsRouter.js'
-import { decrementProductStock, resolveProductSelection } from './merchValidation.js'
+import { decrementBasketStock, resolveProductSelection } from './merchValidation.js'
 import { createPaidOrder } from './orderService.js'
 import { sendOrderNotifications } from './orderNotificationService.js'
 import { paths, readJson, safeName, writeJson } from './storage.js'
@@ -26,6 +26,14 @@ function clean(value = '') {
 
 function roundMoney(value) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100
+}
+
+function basketLineKey(item = {}) {
+  return [
+    clean(item.productId),
+    clean(item.variant?.size).toLowerCase(),
+    clean(item.variant?.colour).toLowerCase(),
+  ].join('::')
 }
 
 function paypalApiBase() {
@@ -128,16 +136,42 @@ function productById(products, productId) {
   const product = products.find(item => item.id === productId)
   if (!product) throw new Error('A basket product was not found')
   if (product.availability !== 'available') throw new Error(`${product.name || 'A product'} is unavailable`)
+  if (product.checkout?.enabled !== true) throw new Error(`${product.name || 'A product'} is not enabled for checkout`)
   if (Number(product.priceGBP) <= 0) throw new Error(`${product.name || 'A product'} has an invalid price`)
   return product
 }
 
-function validateBasketItems(products, input = []) {
+function consolidateBasketInput(input = []) {
   if (!Array.isArray(input) || !input.length) throw new Error('Basket is empty')
   if (input.length > 25) throw new Error('Basket contains too many lines')
-  return input.map(raw => {
-    const product = productById(products, clean(raw.productId))
+
+  const lines = new Map()
+  for (const raw of input) {
+    const normalised = {
+      productId: clean(raw?.productId),
+      quantity: Math.max(1, Number(raw?.quantity || 1)),
+      variant: {
+        size: clean(raw?.variant?.size),
+        colour: clean(raw?.variant?.colour),
+      },
+    }
+    const key = basketLineKey(normalised)
+    const existing = lines.get(key)
+    lines.set(key, existing
+      ? { ...existing, quantity: existing.quantity + normalised.quantity }
+      : normalised)
+  }
+  return [...lines.values()]
+}
+
+function validateBasketItems(products, input = []) {
+  const consolidated = consolidateBasketInput(input)
+  return consolidated.map(raw => {
+    const product = productById(products, raw.productId)
     const selection = resolveProductSelection(product, raw.quantity, raw.variant || {})
+    if (selection.quantity !== raw.quantity) {
+      throw new Error(`${product.name} quantity cannot exceed 10 per basket line`)
+    }
     return {
       productId: product.id,
       name: product.name,
@@ -357,11 +391,7 @@ async function finaliseBasket(record, payment) {
   })
 
   if (created) {
-    for (const item of record.items) {
-      if (!item.madeToOrder) {
-        await decrementProductStock(record.websiteId, item.productId, item.quantity, item.variant)
-      }
-    }
+    await decrementBasketStock(record.websiteId, record.items)
     await recordDiscountUse(record.websiteId, record.totals.discount.code)
     await sendOrderNotifications(order, record.settings)
   }
