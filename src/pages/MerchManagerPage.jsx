@@ -5,143 +5,6 @@ import { getAccountFromPath } from '../services/auth.js'
 import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
 
 const ASSET_BASE = import.meta.env.VITE_KSJ_ASSET_URL || 'http://localhost:4174'
-const MANAGED_PROVIDERS = ['stripe', 'paypal']
-
-function variantKey(size = '', colour = '') {
-  return `${String(size).trim().toLowerCase()}::${String(colour).trim().toLowerCase()}`
-}
-
-function buildVariantMatrix(product = {}) {
-  const sizes = Array.isArray(product.variants?.sizes) ? product.variants.sizes : []
-  const colours = Array.isArray(product.variants?.colours) ? product.variants.colours : []
-  const existing = Array.isArray(product.inventory?.variants) ? product.inventory.variants : []
-  const sizeOptions = sizes.length ? sizes : ['']
-  const colourOptions = colours.length ? colours : ['']
-
-  if (!sizes.length && !colours.length) return []
-
-  return sizeOptions.flatMap(size =>
-    colourOptions.map(colour => {
-      const match = existing.find(item => variantKey(item.size, item.colour) === variantKey(size, colour))
-      return {
-        size,
-        colour,
-        quantity: Math.max(0, Number(match?.quantity || 0)),
-        lowStockThreshold: Math.max(0, Number(match?.lowStockThreshold ?? product.inventory?.lowStockThreshold ?? 2)),
-      }
-    }),
-  )
-}
-
-function totalVariantStock(records = []) {
-  return records.reduce((total, item) => total + Math.max(0, Number(item.quantity || 0)), 0)
-}
-
-function productDefaults(product = {}) {
-  const base = {
-    ...product,
-    orderTag: product.orderTag || '',
-    variants: {
-      sizes: Array.isArray(product.variants?.sizes) ? product.variants.sizes : [],
-      colours: Array.isArray(product.variants?.colours) ? product.variants.colours : [],
-    },
-    inventory: {
-      trackStock: product.inventory?.trackStock === true,
-      quantity: Math.max(0, Number(product.inventory?.quantity || 0)),
-      lowStockThreshold: Math.max(0, Number(product.inventory?.lowStockThreshold || 2)),
-      variants: Array.isArray(product.inventory?.variants) ? product.inventory.variants : [],
-    },
-    fulfilmentOptions: {
-      madeToOrder: product.fulfilmentOptions?.madeToOrder === true,
-      leadTimeMessage: product.fulfilmentOptions?.leadTimeMessage || '',
-    },
-  }
-  const matrix = buildVariantMatrix(base)
-  return {
-    ...base,
-    inventory: {
-      ...base.inventory,
-      variants: matrix,
-      quantity: matrix.length ? totalVariantStock(matrix) : base.inventory.quantity,
-    },
-  }
-}
-
-const starterProducts = [
-  ['product_hoodie_001', 'TwoToneTaj Signature Hoodie', 'Apparel', 'Hoodie', 34.99, true],
-  ['product_tshirt_001', 'TwoToneTaj Logo T-Shirt', 'Apparel', 'T-Shirt', 19.99, false],
-  ['product_cap_001', 'TwoToneTaj Dragon Cap', 'Apparel', 'Cap', 16.99, false],
-  ['product_mug_001', 'TwoToneTaj Mug', 'Accessories', 'Mug', 9.99, true],
-  ['product_mousemat_001', 'TwoToneTaj Mouse Mat', 'Accessories', 'Mouse Mat', 12.99, false],
-  ['product_tote_001', 'TwoToneTaj Tote Bag', 'Accessories', 'Tote Bag', 14.99, false],
-  ['product_stickers_001', 'TwoToneTaj Sticker Pack', 'Accessories', 'Sticker Pack', 4.99, false],
-  ['product_wallpaper_001', 'TwoToneTaj Wallpaper Pack', 'Digital', 'Digital Download', 4.99, false],
-].map(([id, name, category, type, priceGBP, featured], index) =>
-  productDefaults({
-    id,
-    name,
-    category,
-    type,
-    description: `${name} from the official TwoToneTaj merch collection.`,
-    tags: featured ? ['Featured', 'Coming Soon'] : ['Coming Soon'],
-    priceGBP,
-    image: { id: `media-${id}`, title: `${name} product image`, url: '', alt: name },
-    fallbackImage: category.toLowerCase(),
-    status: 'Coming Soon',
-    availability: 'prelaunch',
-    fulfilment: category === 'Digital' ? 'digital' : 'physical',
-    shippingNote:
-      category === 'Digital'
-        ? 'Digital delivery details are shown by the checkout provider.'
-        : 'Shipping cost and delivery estimate are shown by the checkout provider.',
-    checkout: { enabled: false, provider: '', url: '', label: 'Buy Now' },
-    featured,
-    limited: false,
-    showInCarousel: index < 5 || id === 'product_stickers_001',
-    createdAt: '2026-06-07',
-  }),
-)
-
-const defaultMerch = {
-  title: 'Official TwoToneTaj Merch',
-  eyebrow: 'Official TajSquad Gear',
-  subtitle:
-    'Official creator apparel, accessories and digital drops for the TajSquad. Products open a secure external checkout when available.',
-  products: starterProducts,
-}
-
-function normaliseMerch(content = {}) {
-  const products = content.merch?.products?.length ? content.merch.products : starterProducts
-  return {
-    ...defaultMerch,
-    ...(content.merch || {}),
-    products: products.map(productDefaults),
-  }
-}
-
-function newProduct() {
-  const id = `product-${Date.now()}`
-  return productDefaults({
-    id,
-    name: 'New Product',
-    category: 'Apparel',
-    type: 'Product',
-    description: 'Add the product description.',
-    tags: ['Coming Soon'],
-    priceGBP: 0,
-    image: { id: `media-${id}`, title: 'Product image', url: '', alt: 'New Product' },
-    fallbackImage: 'apparel',
-    status: 'Coming Soon',
-    availability: 'prelaunch',
-    fulfilment: 'physical',
-    shippingNote: 'Shipping and delivery details are shown by the checkout provider.',
-    checkout: { enabled: false, provider: '', url: '', label: 'Buy Now' },
-    featured: false,
-    limited: false,
-    showInCarousel: false,
-    createdAt: new Date().toISOString().slice(0, 10),
-  })
-}
 
 function ownerId(website, account) {
   return website?.owner || account?.id || website?.id || 'unassigned'
@@ -152,6 +15,10 @@ function assetUrl(asset) {
   return asset.url.startsWith('http') ? asset.url : `${ASSET_BASE}${asset.url}`
 }
 
+function listFromText(value = '') {
+  return [...new Set(value.split(',').map(item => item.trim()).filter(Boolean))]
+}
+
 function compactOrderTag(value = '') {
   return value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)
 }
@@ -160,51 +27,93 @@ function automaticOrderTag(product = {}) {
   if (product.orderTag?.trim()) return compactOrderTag(product.orderTag)
   if (product.sku?.trim()) return compactOrderTag(product.sku)
   if (product.type?.trim()) return compactOrderTag(product.type)
-
-  const idToken = String(product.id || '')
-    .split(/[_-]+/)
-    .filter(Boolean)
-    .find(token => !['product', 'item', 'merch'].includes(token.toLowerCase()) && !/^\d+$/.test(token))
-
-  return compactOrderTag(idToken || product.category || product.name || 'ITEM') || 'ITEM'
+  return compactOrderTag(product.category || product.name || 'ITEM') || 'ITEM'
 }
 
-function listFromText(value = '') {
-  return [...new Set(value.split(',').map(item => item.trim()).filter(Boolean))]
+function productDefaults(product = {}) {
+  const checkoutMode = product.checkout?.mode || (product.checkout?.provider && !['stripe', 'paypal'].includes(String(product.checkout.provider).toLowerCase()) ? 'external' : 'managed')
+  return {
+    id: product.id || `product-${Date.now()}`,
+    name: product.name || 'New Product',
+    category: product.category || 'Apparel',
+    type: product.type || 'Product',
+    description: product.description || 'Add a product description.',
+    priceGBP: Math.max(0, Number(product.priceGBP || 0)),
+    image: {
+      id: product.image?.id || '',
+      title: product.image?.title || 'Product image',
+      url: product.image?.url || '',
+      alt: product.image?.alt || product.name || 'Product image',
+    },
+    availability: product.availability || 'prelaunch',
+    status: product.status || 'Coming Soon',
+    featured: product.featured === true,
+    limited: product.limited === true,
+    showInCarousel: product.showInCarousel === true,
+    orderTag: product.orderTag || '',
+    shippingNote: product.shippingNote || 'Shipping and delivery details are shown during checkout.',
+    internalNotes: product.internalNotes || '',
+    variants: {
+      sizes: Array.isArray(product.variants?.sizes) ? product.variants.sizes : [],
+      colours: Array.isArray(product.variants?.colours) ? product.variants.colours : [],
+    },
+    inventory: {
+      trackStock: product.inventory?.trackStock === true,
+      quantity: Math.max(0, Number(product.inventory?.quantity || 0)),
+      lowStockThreshold: Math.max(0, Number(product.inventory?.lowStockThreshold ?? 2)),
+    },
+    fulfilmentOptions: {
+      madeToOrder: product.fulfilmentOptions?.madeToOrder === true,
+      leadTimeMessage: product.fulfilmentOptions?.leadTimeMessage || '',
+    },
+    checkout: {
+      enabled: product.checkout?.enabled === true,
+      mode: checkoutMode,
+      provider: checkoutMode === 'external' ? 'Custom' : '',
+      url: product.checkout?.url || '',
+      label: product.checkout?.label || 'Buy Now',
+    },
+    createdAt: product.createdAt || new Date().toISOString().slice(0, 10),
+  }
 }
 
-function isManagedProvider(provider = '') {
-  return MANAGED_PROVIDERS.includes(provider.trim().toLowerCase())
+function defaultMerch(websiteName = 'Your Store') {
+  return {
+    title: `${websiteName} Merch`,
+    eyebrow: 'Official Store',
+    subtitle: `Official products from ${websiteName}.`,
+    products: [],
+  }
 }
 
-function productErrors(product) {
-  if (!product) return ['No product selected']
-  const errors = []
-  const madeToOrder = product.fulfilmentOptions?.madeToOrder === true
-  const records = buildVariantMatrix(product)
-  if (!product.name?.trim()) errors.push('Product name is required')
-  if (!product.description?.trim()) errors.push('Description is required')
-  if (Number(product.priceGBP) <= 0) errors.push('Price must be greater than £0')
-  if (!product.image?.url?.trim()) errors.push('Product image is required')
-  if (!product.shippingNote?.trim()) errors.push('Shipping or delivery note is required')
-  if (madeToOrder && !product.fulfilmentOptions?.leadTimeMessage?.trim()) {
-    errors.push('Made-to-order timeframe message is required')
+function normaliseMerch(content = {}, websiteName = 'Your Store') {
+  const fallback = defaultMerch(websiteName)
+  return {
+    ...fallback,
+    ...(content.merch || {}),
+    products: (content.merch?.products || []).map(productDefaults),
   }
-  if (product.inventory?.trackStock && records.some(item => Number(item.quantity) < 0)) {
-    errors.push('Variant stock cannot be negative')
-  }
-  if (product.checkout?.enabled) {
-    if (product.availability !== 'available') errors.push('Checkout requires Available status')
-    if (!madeToOrder && product.inventory?.trackStock && Number(product.inventory.quantity) <= 0) {
-      errors.push('Checkout requires stock greater than zero')
-    }
-    if (!product.checkout?.provider?.trim()) errors.push('Checkout provider is required')
-    if (!isManagedProvider(product.checkout?.provider)) {
-      if (!product.checkout?.url?.trim()) errors.push('Checkout URL is required for custom providers')
-      if (!/^https:\/\//i.test(product.checkout?.url || '')) errors.push('Checkout URL must use HTTPS')
-    }
-  }
-  return errors
+}
+
+function productWarnings(product, commerce = {}) {
+  if (!product) return []
+  const warnings = []
+  if (!product.name?.trim()) warnings.push('Add a product name')
+  if (!product.description?.trim()) warnings.push('Add a description')
+  if (Number(product.priceGBP) <= 0) warnings.push('Add a price')
+  if (!product.image?.url?.trim()) warnings.push('Add a product image')
+  if (product.fulfilmentOptions?.madeToOrder && !product.fulfilmentOptions?.leadTimeMessage?.trim()) warnings.push('Add a production timeframe')
+  if (product.checkout?.mode === 'external' && product.checkout?.enabled && !/^https:\/\//i.test(product.checkout?.url || '')) warnings.push('Add a secure external checkout URL')
+  if (product.checkout?.mode === 'managed' && product.checkout?.enabled && !commerce.stripeEnabled && !commerce.paypalEnabled) warnings.push('Enable Stripe or PayPal in store settings')
+  if (product.inventory?.trackStock && !product.fulfilmentOptions?.madeToOrder && product.inventory.quantity <= 0) warnings.push('Product has no ready stock')
+  return warnings
+}
+
+function availabilityStatus(value) {
+  if (value === 'available') return 'Available'
+  if (value === 'sold-out') return 'Sold Out'
+  if (value === 'paused') return 'Paused'
+  return 'Coming Soon'
 }
 
 export function MerchManagerPage({ client = false }) {
@@ -215,20 +124,20 @@ export function MerchManagerPage({ client = false }) {
   const owner = ownerId(website, account)
   const canEdit = account?.role === 'owner' || account?.canEdit
   const canManageMedia = account?.role === 'owner' || account?.canManageMedia
+  const canRequestUpdates = account?.role === 'owner' || account?.canRequestUpdates
   const [content, setContent] = useState({ pages: [] })
-  const [merch, setMerch] = useState(defaultMerch)
-  const [selectedId, setSelectedId] = useState(starterProducts[0].id)
+  const [merch, setMerch] = useState(defaultMerch())
+  const [commerce, setCommerce] = useState({ stripeEnabled: false, paypalEnabled: false })
+  const [selectedId, setSelectedId] = useState('')
   const [mediaAssets, setMediaAssets] = useState([])
   const [notice, setNotice] = useState('Loading')
+  const [draggedId, setDraggedId] = useState('')
+  const [imageDragging, setImageDragging] = useState(false)
+
   const selected = merch.products.find(product => product.id === selectedId) || merch.products[0]
-  const errors = productErrors(selected)
-  const managedProvider = isManagedProvider(selected?.checkout?.provider)
-  const selectedOrderTag = automaticOrderTag(selected)
-  const selectedVariantMatrix = buildVariantMatrix(selected)
-  const imageAssets = useMemo(
-    () => mediaAssets.filter(asset => asset.type?.startsWith('image/')),
-    [mediaAssets],
-  )
+  const warnings = productWarnings(selected, commerce)
+  const imageAssets = useMemo(() => mediaAssets.filter(asset => asset.type?.startsWith('image/')), [mediaAssets])
+  const enabledProviders = [commerce.stripeEnabled && 'Stripe', commerce.paypalEnabled && 'PayPal'].filter(Boolean)
 
   async function loadAssets() {
     if (!canManageMedia || !websiteId) return setMediaAssets([])
@@ -240,28 +149,27 @@ export function MerchManagerPage({ client = false }) {
   }
 
   useEffect(() => {
-    if (!websiteId) return setNotice('Waiting for assigned website')
+    if (!websiteId) {
+      setNotice('Waiting for assigned website')
+      return
+    }
     let cancelled = false
-
-    api
-      .getContent(websiteId)
-      .then(data => {
+    Promise.all([api.getContent(websiteId), api.getCommerceSettings(websiteId).catch(() => ({}))])
+      .then(([data, settings]) => {
         if (cancelled) return
-        const nextMerch = normaliseMerch(data)
+        const nextMerch = normaliseMerch(data, website?.name)
         setContent(data)
         setMerch(nextMerch)
+        setCommerce(settings || {})
         setSelectedId(nextMerch.products[0]?.id || '')
         setNotice(canEdit ? 'Ready' : 'Preview only')
       })
       .catch(error => !cancelled && setNotice(error.message || 'Merch unavailable'))
-
     loadAssets()
-    return () => {
-      cancelled = true
-    }
-  }, [canEdit, canManageMedia, owner, websiteId])
+    return () => { cancelled = true }
+  }, [canEdit, canManageMedia, owner, website?.name, websiteId])
 
-  async function save(nextMerch, message = 'Merch saved') {
+  async function save(nextMerch, message = 'Saved') {
     if (!canEdit) return setNotice('Edit permission required')
     if (!websiteId) return setNotice('No website assigned')
     const nextContent = { ...content, merch: nextMerch }
@@ -271,7 +179,7 @@ export function MerchManagerPage({ client = false }) {
     try {
       const saved = await api.saveContent(websiteId, nextContent)
       setContent(saved)
-      setMerch(normaliseMerch(saved))
+      setMerch(normaliseMerch(saved, website?.name))
       setNotice(message)
     } catch (error) {
       setNotice(error.message || 'Save failed')
@@ -284,98 +192,22 @@ export function MerchManagerPage({ client = false }) {
 
   function updateProduct(changes) {
     if (!selected) return
-    if (changes.checkout?.enabled) {
-      const candidate = {
-        ...selected,
-        ...changes,
-        checkout: { ...selected.checkout, ...changes.checkout },
-      }
-      const blocking = productErrors(candidate)
-      if (blocking.length) {
-        setNotice(`Checkout blocked: ${blocking[0]}`)
-        return
-      }
-    }
-
-    const products = merch.products.map(product =>
-      product.id === selected.id
-        ? productDefaults({
-            ...product,
-            ...changes,
-            image: changes.image ? { ...product.image, ...changes.image } : product.image,
-            checkout: changes.checkout ? { ...product.checkout, ...changes.checkout } : product.checkout,
-            variants: changes.variants ? { ...product.variants, ...changes.variants } : product.variants,
-            inventory: changes.inventory ? { ...product.inventory, ...changes.inventory } : product.inventory,
-            fulfilmentOptions: changes.fulfilmentOptions
-              ? { ...product.fulfilmentOptions, ...changes.fulfilmentOptions }
-              : product.fulfilmentOptions,
-          })
-        : product,
-    )
+    const products = merch.products.map(product => product.id === selected.id
+      ? productDefaults({
+          ...product,
+          ...changes,
+          image: changes.image ? { ...product.image, ...changes.image } : product.image,
+          checkout: changes.checkout ? { ...product.checkout, ...changes.checkout } : product.checkout,
+          variants: changes.variants ? { ...product.variants, ...changes.variants } : product.variants,
+          inventory: changes.inventory ? { ...product.inventory, ...changes.inventory } : product.inventory,
+          fulfilmentOptions: changes.fulfilmentOptions ? { ...product.fulfilmentOptions, ...changes.fulfilmentOptions } : product.fulfilmentOptions,
+        })
+      : product)
     save({ ...merch, products }, 'Product saved')
   }
 
-  function updateVariantOptions(key, value) {
-    const variants = { ...selected.variants, [key]: listFromText(value) }
-    const matrix = buildVariantMatrix({ ...selected, variants })
-    updateProduct({
-      variants,
-      inventory: { variants: matrix, quantity: totalVariantStock(matrix) },
-    })
-  }
-
-  function updateVariantStock(index, changes) {
-    const records = selectedVariantMatrix.map((record, recordIndex) =>
-      recordIndex === index ? { ...record, ...changes } : record,
-    )
-    updateProduct({
-      inventory: {
-        variants: records,
-        quantity: totalVariantStock(records),
-      },
-    })
-  }
-
-  function updateProvider(provider) {
-    updateProduct({
-      checkout: {
-        provider,
-        url: isManagedProvider(provider) ? '' : selected.checkout?.url || '',
-      },
-    })
-  }
-
-  function selectAsset(assetId) {
-    const asset = imageAssets.find(item => item.id === assetId)
-    if (!asset) return
-    updateProduct({
-      image: {
-        id: asset.id,
-        title: asset.name,
-        url: assetUrl(asset),
-        alt: selected?.name || asset.name,
-      },
-    })
-  }
-
-  async function uploadProductImage(file) {
-    if (!file || !selected || !canManageMedia || !canEdit || !websiteId) return
-    setNotice('Uploading product image')
-    try {
-      const asset = await api.uploadAsset(owner, websiteId, `merch-${selected.id}`, file)
-      await loadAssets()
-      const nextImage = { id: asset.id, title: asset.name, url: assetUrl(asset), alt: selected.name }
-      const products = merch.products.map(product =>
-        product.id === selected.id ? { ...product, image: nextImage } : product,
-      )
-      await save({ ...merch, products }, 'Product image uploaded')
-    } catch (error) {
-      setNotice(error.message || 'Image upload failed')
-    }
-  }
-
   function addProduct() {
-    const product = newProduct()
+    const product = productDefaults({ name: 'New Product' })
     setSelectedId(product.id)
     save({ ...merch, products: [...merch.products, product] }, 'Product created')
   }
@@ -387,154 +219,178 @@ export function MerchManagerPage({ client = false }) {
     save({ ...merch, products }, 'Product deleted')
   }
 
+  function reorderProducts(sourceId, targetId) {
+    if (!sourceId || !targetId || sourceId === targetId) return
+    const products = [...merch.products]
+    const from = products.findIndex(product => product.id === sourceId)
+    const to = products.findIndex(product => product.id === targetId)
+    if (from < 0 || to < 0) return
+    const [moved] = products.splice(from, 1)
+    products.splice(to, 0, moved)
+    save({ ...merch, products }, 'Product order saved')
+  }
+
+  async function uploadProductImage(file) {
+    if (!file || !selected || !canManageMedia || !canEdit || !websiteId) return
+    setNotice('Uploading image')
+    try {
+      const asset = await api.uploadAsset(owner, websiteId, `merch-${selected.id}`, file)
+      const nextImage = { id: asset.id, title: asset.name, url: assetUrl(asset), alt: selected.name }
+      const products = merch.products.map(product => product.id === selected.id ? { ...product, image: nextImage } : product)
+      await save({ ...merch, products }, 'Image uploaded')
+      await loadAssets()
+    } catch (error) {
+      setNotice(error.message || 'Image upload failed')
+    }
+  }
+
+  function selectAsset(assetId) {
+    const asset = imageAssets.find(item => item.id === assetId)
+    if (!asset) return
+    updateProduct({ image: { id: asset.id, title: asset.name, url: assetUrl(asset), alt: selected?.name || asset.name } })
+  }
+
+  async function submitForApproval() {
+    if (!canRequestUpdates) return setNotice('Approval request permission required')
+    if (!website?.id) return setNotice('No website assigned')
+    try {
+      await api.createPublishRequest({
+        websiteId: website.id,
+        websiteName: website.name,
+        repository: website.repository,
+        title: 'Merch store update',
+        createdBy: account?.name,
+        contentPath: `server-data/content/${website.id}.json`,
+      })
+      setNotice('Merch changes submitted for approval')
+    } catch (error) {
+      setNotice(error.message || 'Could not submit changes')
+    }
+  }
+
   return (
     <Layout client={client} title="Merch">
-      <section className="moduleHero card">
+      <section className="moduleHero card merchHero">
         <div>
-          <span>Merch Manager</span>
-          <h2>{website?.name || 'Assigned Website'} Store</h2>
-          <p>Manage the catalogue, fulfilment, inventory, product images and secure checkout providers.</p>
+          <span>Visual Store Editor</span>
+          <h2>{website?.name || 'Assigned Website'} Merch</h2>
+          <p>Add products, upload images, manage stock, configure checkout and preview the store without leaving this page.</p>
         </div>
-        <button>{notice}</button>
+        <div className="merchHeroActions">
+          {client && canRequestUpdates && <button onClick={submitForApproval}>Submit for Approval</button>}
+          <button>{notice}</button>
+        </div>
       </section>
 
-      <section className="formsGrid">
-        <aside className="card formList">
-          <div className="panelHead">
-            <h2>Products</h2>
-            {canEdit && <button onClick={addProduct}>Add</button>}
+      <section className="card merchStoreBar">
+        <label>Store title<input value={merch.title} disabled={!canEdit} onChange={event => updateStore({ title: event.target.value })} /></label>
+        <label>Small heading<input value={merch.eyebrow} disabled={!canEdit} onChange={event => updateStore({ eyebrow: event.target.value })} /></label>
+        <label>Store description<input value={merch.subtitle} disabled={!canEdit} onChange={event => updateStore({ subtitle: event.target.value })} /></label>
+      </section>
+
+      <section className="merchWorkspace">
+        <aside className="card merchCatalogue">
+          <div className="panelHead"><div><h2>Products</h2><small>Drag cards to reorder</small></div>{canEdit && <button onClick={addProduct}>Add Product</button>}</div>
+          <div className="merchProductGrid">
+            {merch.products.map(product => {
+              const issues = productWarnings(product, commerce)
+              return (
+                <article
+                  key={product.id}
+                  className={product.id === selected?.id ? 'merchProductCard active' : 'merchProductCard'}
+                  draggable={canEdit}
+                  onDragStart={() => setDraggedId(product.id)}
+                  onDragOver={event => event.preventDefault()}
+                  onDrop={() => { reorderProducts(draggedId, product.id); setDraggedId('') }}
+                  onClick={() => setSelectedId(product.id)}
+                >
+                  <div className="merchCardImage">{product.image?.url ? <img src={product.image.url} alt={product.image.alt || product.name} /> : <span>Drop image</span>}</div>
+                  <div><b>{product.name}</b><span>£{Number(product.priceGBP || 0).toFixed(2)}</span></div>
+                  <small>{product.status} · {issues.length ? `${issues.length} warning${issues.length === 1 ? '' : 's'}` : 'Ready'}</small>
+                </article>
+              )
+            })}
+            {!merch.products.length && <button className="merchEmptyAdd" onClick={addProduct}>＋ Add your first product</button>}
           </div>
-          {merch.products.map(product => {
-            const ready = productErrors(product).length === 0
-            const stock = product.fulfilmentOptions?.madeToOrder
-              ? `${product.inventory?.quantity || 0} ready · Made to order`
-              : product.inventory?.trackStock
-                ? `${product.inventory.quantity} stock`
-                : 'Unlimited'
-            return (
-              <button
-                className={product.id === selectedId ? 'active' : ''}
-                key={product.id}
-                onClick={() => setSelectedId(product.id)}
-              >
-                <b>{product.name}</b>
-                <small>
-                  {automaticOrderTag(product)} · {stock} · £{Number(product.priceGBP || 0).toFixed(2)} · {ready ? 'Ready' : 'Needs work'}
-                </small>
-              </button>
-            )
-          })}
         </aside>
 
-        <section className="card formEditor">
-          <div className="panelHead">
-            <h2>Store Details</h2>
-            <span>{merch.products.length} products</span>
-          </div>
-          <div className="formSettings">
-            <label>Store Title<input value={merch.title} disabled={!canEdit} onChange={event => updateStore({ title: event.target.value })} /></label>
-            <label>Eyebrow<input value={merch.eyebrow} disabled={!canEdit} onChange={event => updateStore({ eyebrow: event.target.value })} /></label>
-            <label>Subtitle<textarea value={merch.subtitle} disabled={!canEdit} onChange={event => updateStore({ subtitle: event.target.value })} /></label>
-          </div>
-
-          {selected && (
+        <section className="card merchEditor">
+          {selected ? (
             <>
-              <div className="panelHead">
-                <h2>Product Details</h2>
-                {canEdit && <button onClick={deleteProduct}>Delete</button>}
-              </div>
+              <div className="panelHead"><div><h2>Edit Product</h2><small>Changes save automatically</small></div>{canEdit && <button onClick={deleteProduct}>Delete</button>}</div>
 
-              <section className="card publishBox">
-                <h3>{errors.length ? 'Product needs attention' : 'Product ready'}</h3>
-                {errors.length ? errors.map(error => <p key={error}>• {error}</p>) : <p>All required product and checkout fields are valid.</p>}
+              <section className="merchEditorSection">
+                <h3>Product Basics</h3>
+                <div className="merchFields two">
+                  <label>Name<input value={selected.name} disabled={!canEdit} onChange={event => updateProduct({ name: event.target.value })} /></label>
+                  <label>Price (£)<input type="number" min="0" step="0.01" value={selected.priceGBP} disabled={!canEdit} onChange={event => updateProduct({ priceGBP: Number(event.target.value) })} /></label>
+                  <label>Category<select value={selected.category} disabled={!canEdit} onChange={event => updateProduct({ category: event.target.value })}><option>Apparel</option><option>Accessories</option><option>Digital</option><option>Other</option></select></label>
+                  <label>Product type<input value={selected.type} disabled={!canEdit} onChange={event => updateProduct({ type: event.target.value })} /></label>
+                </div>
+                <label>Description<textarea value={selected.description} disabled={!canEdit} onChange={event => updateProduct({ description: event.target.value })} /></label>
+                <div className="merchChecks"><label><input type="checkbox" checked={selected.featured} disabled={!canEdit} onChange={event => updateProduct({ featured: event.target.checked })} /> Featured</label><label><input type="checkbox" checked={selected.limited} disabled={!canEdit} onChange={event => updateProduct({ limited: event.target.checked })} /> Limited drop</label><label><input type="checkbox" checked={selected.showInCarousel} disabled={!canEdit} onChange={event => updateProduct({ showInCarousel: event.target.checked })} /> Homepage carousel</label></div>
               </section>
 
-              <div className="formSettings">
-                <label>Name<input value={selected.name} disabled={!canEdit} onChange={event => updateProduct({ name: event.target.value })} /></label>
-                <label>Type<input value={selected.type} disabled={!canEdit} onChange={event => updateProduct({ type: event.target.value })} /></label>
-                <label>Category<select value={selected.category} disabled={!canEdit} onChange={event => updateProduct({ category: event.target.value })}><option>Apparel</option><option>Accessories</option><option>Digital</option></select></label>
-                <label>Custom Order Tag<input maxLength="8" value={selected.orderTag || ''} disabled={!canEdit} onChange={event => updateProduct({ orderTag: compactOrderTag(event.target.value) })} placeholder={selectedOrderTag} /></label>
-                <section className="card publishBox"><h3>Order code preview</h3><p>{selectedOrderTag} — leave the custom field blank to derive it automatically.</p></section>
-                <label>Price GBP<input type="number" min="0" step="0.01" value={selected.priceGBP} disabled={!canEdit} onChange={event => updateProduct({ priceGBP: Number(event.target.value) })} /></label>
-                <label>Description<textarea value={selected.description} disabled={!canEdit} onChange={event => updateProduct({ description: event.target.value })} /></label>
-                <label>Sizes (comma separated)<input value={selected.variants?.sizes?.join(', ') || ''} disabled={!canEdit} onChange={event => updateVariantOptions('sizes', event.target.value)} placeholder="S, M, L, XL" /></label>
-                <label>Colours (comma separated)<input value={selected.variants?.colours?.join(', ') || ''} disabled={!canEdit} onChange={event => updateVariantOptions('colours', event.target.value)} placeholder="Black, White, Red" /></label>
-                <label className="formCheck"><input type="checkbox" checked={selected.fulfilmentOptions?.madeToOrder || false} disabled={!canEdit} onChange={event => updateProduct({ fulfilmentOptions: { madeToOrder: event.target.checked } })} /> Made to order</label>
-                {selected.fulfilmentOptions?.madeToOrder && (
-                  <>
-                    <label>Made-to-Order Timeframe / Message<textarea value={selected.fulfilmentOptions?.leadTimeMessage || ''} disabled={!canEdit} onChange={event => updateProduct({ fulfilmentOptions: { leadTimeMessage: event.target.value } })} placeholder="Made to order — please allow 7–10 working days before dispatch." /></label>
-                    <section className="card publishBox"><h3>Customer notice</h3><p>* {selected.fulfilmentOptions?.leadTimeMessage || 'Add a production and dispatch timeframe.'}</p></section>
-                  </>
-                )}
-                <label className="formCheck"><input type="checkbox" checked={selected.inventory?.trackStock || false} disabled={!canEdit} onChange={event => updateProduct({ inventory: { trackStock: event.target.checked } })} /> Track ready stock</label>
+              <section className="merchEditorSection">
+                <h3>Product Image</h3>
+                <div
+                  className={imageDragging ? 'merchDropZone dragging' : 'merchDropZone'}
+                  onDragOver={event => { event.preventDefault(); setImageDragging(true) }}
+                  onDragLeave={() => setImageDragging(false)}
+                  onDrop={event => { event.preventDefault(); setImageDragging(false); uploadProductImage(event.dataTransfer.files?.[0]) }}
+                >
+                  {selected.image?.url ? <img src={selected.image.url} alt={selected.image.alt || selected.name} /> : <span>Drag and drop a product image here</span>}
+                  <label className="merchUploadButton">Choose Image<input type="file" accept="image/*" disabled={!canEdit || !canManageMedia} onChange={event => uploadProductImage(event.target.files?.[0])} /></label>
+                </div>
+                {canManageMedia && <label>Use an existing image<select value={selected.image?.id || ''} disabled={!canEdit} onChange={event => selectAsset(event.target.value)}><option value="">Choose from media</option>{imageAssets.map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></label>}
+              </section>
 
-                {selected.inventory?.trackStock && selectedVariantMatrix.length > 0 ? (
-                  <section className="card publishBox">
-                    <h3>Variant Stock Matrix</h3>
-                    <p>Set ready stock and low-stock warning for every size and colour combination.</p>
-                    <div className="formSettings">
-                      {selectedVariantMatrix.map((record, index) => (
-                        <div className="card" key={variantKey(record.size, record.colour)}>
-                          <strong>{[record.size, record.colour].filter(Boolean).join(' / ') || 'Standard'}</strong>
-                          <label>Ready Stock<input type="number" min="0" step="1" value={record.quantity} disabled={!canEdit} onChange={event => updateVariantStock(index, { quantity: Math.max(0, Number(event.target.value)) })} /></label>
-                          <label>Low Stock Warning<input type="number" min="0" step="1" value={record.lowStockThreshold} disabled={!canEdit} onChange={event => updateVariantStock(index, { lowStockThreshold: Math.max(0, Number(event.target.value)) })} /></label>
-                          <small>{record.quantity <= record.lowStockThreshold ? 'Low stock' : 'In stock'}</small>
-                        </div>
-                      ))}
-                    </div>
-                    <p>Total ready stock: {selected.inventory.quantity}</p>
-                  </section>
-                ) : (
-                  <>
-                    <label>Ready Stock Quantity<input type="number" min="0" step="1" value={selected.inventory?.quantity || 0} disabled={!canEdit || !selected.inventory?.trackStock} onChange={event => updateProduct({ inventory: { quantity: Math.max(0, Number(event.target.value)) } })} /></label>
-                    <label>Low Stock Warning<input type="number" min="0" step="1" value={selected.inventory?.lowStockThreshold || 0} disabled={!canEdit || !selected.inventory?.trackStock} onChange={event => updateProduct({ inventory: { lowStockThreshold: Math.max(0, Number(event.target.value)) } })} /></label>
-                  </>
-                )}
-                {selected.inventory?.trackStock && selected.inventory.quantity <= selected.inventory.lowStockThreshold && <section className="card publishBox"><h3>{selected.fulfilmentOptions?.madeToOrder ? 'Ready stock low' : 'Low stock'}</h3><p>{selected.inventory.quantity} ready unit(s) remain.{selected.fulfilmentOptions?.madeToOrder ? ' Checkout continues as made to order when ready stock reaches zero.' : ''}</p></section>}
-                {canManageMedia && (
-                  <>
-                    <label>Upload Product Image<input type="file" accept="image/*" disabled={!canEdit} onChange={event => uploadProductImage(event.target.files?.[0])} /></label>
-                    <label>Media Library Image<select value={selected.image?.id || ''} disabled={!canEdit} onChange={event => selectAsset(event.target.value)}><option value="">Choose uploaded image</option>{imageAssets.map(asset => <option key={asset.id} value={asset.id}>{asset.name} · {asset.slotId}</option>)}</select></label>
-                  </>
-                )}
-                <label>Image URL<input value={selected.image?.url || ''} disabled={!canEdit} onChange={event => updateProduct({ image: { url: event.target.value, alt: selected.name } })} /></label>
-                <label>Availability<select value={selected.availability} disabled={!canEdit} onChange={event => updateProduct({ availability: event.target.value, status: event.target.value === 'available' ? 'Available' : event.target.value === 'sold-out' ? 'Sold Out' : 'Coming Soon' })}><option value="prelaunch">Coming Soon</option><option value="available">Available</option><option value="sold-out">Sold Out</option><option value="paused">Paused</option></select></label>
-                <label>Shipping / Delivery Note<textarea value={selected.shippingNote} disabled={!canEdit} onChange={event => updateProduct({ shippingNote: event.target.value })} /></label>
-                <label>Checkout Provider<select value={selected.checkout?.provider || ''} disabled={!canEdit} onChange={event => updateProvider(event.target.value)}><option value="">Choose provider</option><option value="Stripe">Stripe</option><option value="PayPal">PayPal</option><option value="Custom">Custom checkout link</option></select></label>
-                {managedProvider ? (
-                  <section className="card publishBox">
-                    <h3>{selected.checkout.provider} managed checkout</h3>
-                    <p>KSJ Digital generates the secure checkout URL automatically. No payment link needs to be pasted here.</p>
-                  </section>
-                ) : (
-                  <label>Custom Checkout URL<input type="url" value={selected.checkout?.url || ''} disabled={!canEdit} onChange={event => updateProduct({ checkout: { url: event.target.value } })} /></label>
-                )}
-                <label className="formCheck"><input type="checkbox" checked={selected.checkout?.enabled || false} disabled={!canEdit} onChange={event => updateProduct({ checkout: { enabled: event.target.checked } })} /> Checkout enabled</label>
-                <label className="formCheck"><input type="checkbox" checked={selected.featured || false} disabled={!canEdit} onChange={event => updateProduct({ featured: event.target.checked })} /> Featured</label>
-                <label className="formCheck"><input type="checkbox" checked={selected.limited || false} disabled={!canEdit} onChange={event => updateProduct({ limited: event.target.checked })} /> Limited drop</label>
-                <label className="formCheck"><input type="checkbox" checked={selected.showInCarousel || false} disabled={!canEdit} onChange={event => updateProduct({ showInCarousel: event.target.checked })} /> Featured carousel</label>
-              </div>
+              <section className="merchEditorSection">
+                <h3>Inventory & Options</h3>
+                <div className="merchChecks"><label><input type="checkbox" checked={selected.inventory.trackStock} disabled={!canEdit} onChange={event => updateProduct({ inventory: { trackStock: event.target.checked } })} /> Track ready stock</label><label><input type="checkbox" checked={selected.fulfilmentOptions.madeToOrder} disabled={!canEdit} onChange={event => updateProduct({ fulfilmentOptions: { madeToOrder: event.target.checked } })} /> Made to order</label></div>
+                <div className="merchFields two">
+                  <label>Ready stock<input type="number" min="0" step="1" value={selected.inventory.quantity} disabled={!canEdit || !selected.inventory.trackStock} onChange={event => updateProduct({ inventory: { quantity: Math.max(0, Number(event.target.value)) } })} /></label>
+                  <label>Low stock warning<input type="number" min="0" step="1" value={selected.inventory.lowStockThreshold} disabled={!canEdit || !selected.inventory.trackStock} onChange={event => updateProduct({ inventory: { lowStockThreshold: Math.max(0, Number(event.target.value)) } })} /></label>
+                  <label>Sizes<input value={selected.variants.sizes.join(', ')} disabled={!canEdit} onChange={event => updateProduct({ variants: { sizes: listFromText(event.target.value) } })} placeholder="S, M, L, XL" /></label>
+                  <label>Colours<input value={selected.variants.colours.join(', ')} disabled={!canEdit} onChange={event => updateProduct({ variants: { colours: listFromText(event.target.value) } })} placeholder="Black, White, Blue" /></label>
+                </div>
+                {selected.fulfilmentOptions.madeToOrder && <label>Production timeframe<textarea value={selected.fulfilmentOptions.leadTimeMessage} disabled={!canEdit} onChange={event => updateProduct({ fulfilmentOptions: { leadTimeMessage: event.target.value } })} placeholder="Please allow 7–10 working days before dispatch." /></label>}
+              </section>
+
+              <section className="merchEditorSection">
+                <h3>Availability & Checkout</h3>
+                <div className="merchFields two">
+                  <label>Availability<select value={selected.availability} disabled={!canEdit} onChange={event => updateProduct({ availability: event.target.value, status: availabilityStatus(event.target.value) })}><option value="prelaunch">Coming Soon</option><option value="available">Available</option><option value="sold-out">Sold Out</option><option value="paused">Paused</option></select></label>
+                  <label>Checkout type<select value={selected.checkout.mode} disabled={!canEdit} onChange={event => updateProduct({ checkout: { mode: event.target.value, provider: event.target.value === 'external' ? 'Custom' : '', url: event.target.value === 'managed' ? '' : selected.checkout.url } })}><option value="managed">Managed checkout</option><option value="external">External checkout link</option></select></label>
+                </div>
+                {selected.checkout.mode === 'managed' ? <div className="merchProviderSummary"><b>Website payment methods</b><span>{enabledProviders.length ? enabledProviders.join(' and ') : 'No provider enabled yet'}</span><small>Stripe and PayPal are controlled once in Store Settings, not on each product.</small></div> : <label>External checkout URL<input type="url" value={selected.checkout.url} disabled={!canEdit} onChange={event => updateProduct({ checkout: { url: event.target.value } })} placeholder="https://..." /></label>}
+                <div className="merchChecks"><label><input type="checkbox" checked={selected.checkout.enabled} disabled={!canEdit} onChange={event => updateProduct({ checkout: { enabled: event.target.checked } })} /> Checkout enabled</label></div>
+              </section>
+
+              <section className="merchEditorSection">
+                <h3>Advanced</h3>
+                <div className="merchFields two"><label>Order tag<input maxLength="8" value={selected.orderTag} disabled={!canEdit} onChange={event => updateProduct({ orderTag: compactOrderTag(event.target.value) })} placeholder={automaticOrderTag(selected)} /></label><label>Button label<input value={selected.checkout.label} disabled={!canEdit} onChange={event => updateProduct({ checkout: { label: event.target.value } })} /></label></div>
+                <label>Shipping note<textarea value={selected.shippingNote} disabled={!canEdit} onChange={event => updateProduct({ shippingNote: event.target.value })} /></label>
+                <label>Internal notes<textarea value={selected.internalNotes} disabled={!canEdit} onChange={event => updateProduct({ internalNotes: event.target.value })} placeholder="Only portal users can see this." /></label>
+              </section>
             </>
-          )}
+          ) : <div className="emptyState">Select or add a product.</div>}
         </section>
 
-        <aside className="card formPreview">
-          <h2>Store Preview</h2>
-          {selected ? (
-            <article className="brandSlot">
-              <div className="brandPreview">
-                {selected.image?.url ? <img src={selected.image.url} alt={selected.image.alt || selected.name} /> : <div className="assetEmpty">Image coming soon</div>}
-              </div>
-              <h3>{selected.name}</h3>
-              <p>{selected.description}</p>
-              <strong>£{Number(selected.priceGBP || 0).toFixed(2)}</strong>
-              <small>{selected.status} · {selected.fulfilmentOptions?.madeToOrder ? `${selected.inventory?.quantity || 0} ready · Made to order` : selected.inventory?.trackStock ? `${selected.inventory.quantity} in stock` : 'Stock not tracked'} · Order tag {selectedOrderTag}</small>
-              {selected.fulfilmentOptions?.madeToOrder && <p>* {selected.fulfilmentOptions.leadTimeMessage || 'Made-to-order timeframe required.'}</p>}
-              <button disabled={!selected.checkout?.enabled || selected.availability !== 'available' || (!selected.fulfilmentOptions?.madeToOrder && selected.inventory?.trackStock && selected.inventory.quantity <= 0)}>{selected.checkout?.label || 'Buy Now'}</button>
-            </article>
-          ) : (
-            <p>No product selected.</p>
-          )}
+        <aside className="card merchPreviewPanel">
+          <div className="panelHead"><div><h2>Live Preview</h2><small>What customers will see</small></div></div>
+          {selected ? <article className="merchLiveCard">
+            <div className="merchLiveImage">{selected.image?.url ? <img src={selected.image.url} alt={selected.image.alt || selected.name} /> : <span>Image coming soon</span>}</div>
+            {selected.featured && <em>Featured</em>}
+            <h3>{selected.name}</h3>
+            <p>{selected.description}</p>
+            <strong>£{Number(selected.priceGBP || 0).toFixed(2)}</strong>
+            <small>{selected.status}{selected.inventory.trackStock ? ` · ${selected.inventory.quantity} ready` : ''}{selected.fulfilmentOptions.madeToOrder ? ' · Made to order' : ''}</small>
+            {selected.variants.sizes.length > 0 && <div className="merchOptionPreview">{selected.variants.sizes.map(size => <span key={size}>{size}</span>)}</div>}
+            {selected.variants.colours.length > 0 && <div className="merchOptionPreview">{selected.variants.colours.map(colour => <span key={colour}>{colour}</span>)}</div>}
+            <button disabled={!selected.checkout.enabled || selected.availability !== 'available'}>{selected.checkout.label || 'Buy Now'}</button>
+          </article> : <p>No product selected.</p>}
+          {selected && <section className={warnings.length ? 'merchWarnings' : 'merchWarnings ready'}><h3>{warnings.length ? 'Before publishing' : 'Ready to publish'}</h3>{warnings.length ? warnings.map(item => <p key={item}>• {item}</p>) : <p>No product warnings.</p>}<small>Warnings do not block you from saving or enabling checkout.</small></section>}
         </aside>
       </section>
     </Layout>
