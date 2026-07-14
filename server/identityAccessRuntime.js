@@ -1,0 +1,91 @@
+import express from 'express'
+import { starterClients, starterWebsites } from './defaults.js'
+import { paths, readJson, safeName, writeJson } from './storage.js'
+
+const PLATFORM_ACCOUNT_ID = 'morgan'
+const PLATFORM_DISPLAY_NAME = 'KSJ Digital'
+
+function normaliseRole(account = {}) {
+  const role = String(account.role || '').trim().toLowerCase().replace(/[ _-]+/g, '_')
+  if (account.id === PLATFORM_ACCOUNT_ID || role === 'platform_owner') return 'owner'
+  return 'client'
+}
+
+function normaliseAccount(account = {}) {
+  const platformOwner = account.id === PLATFORM_ACCOUNT_ID
+  const websiteIds = Array.isArray(account.websiteIds)
+    ? account.websiteIds.map(safeName).filter(Boolean)
+    : account.websiteId
+      ? [safeName(account.websiteId)]
+      : []
+
+  return {
+    ...account,
+    name: platformOwner ? PLATFORM_DISPLAY_NAME : account.name,
+    displayName: platformOwner ? PLATFORM_DISPLAY_NAME : (account.displayName || account.name),
+    role: normaliseRole(account),
+    roleLabel: platformOwner ? 'Platform Owner' : (account.roleLabel || 'Website Owner'),
+    access: platformOwner ? 'Platform administration' : (account.access || 'Full website access'),
+    websiteIds,
+    websiteId: websiteIds[0] || '',
+  }
+}
+
+async function migrateAccounts() {
+  const stored = await readJson(paths.clients(), null)
+  const source = Array.isArray(stored) ? stored : starterClients
+  const migrated = source.map(account => {
+    if (account.id === PLATFORM_ACCOUNT_ID) {
+      return normaliseAccount({
+        ...account,
+        name: PLATFORM_DISPLAY_NAME,
+        role: 'owner',
+        websiteIds: starterWebsites.map(site => site.id),
+      })
+    }
+
+    const assigned = Array.isArray(account.websiteIds) && account.websiteIds.length
+      ? account.websiteIds
+      : account.id === 'taj'
+        ? ['twotonetaj']
+        : []
+
+    return normaliseAccount({
+      ...account,
+      role: 'client',
+      roleLabel: account.roleLabel === 'Viewer' ? 'Viewer' : 'Website Owner',
+      access: account.access === 'Read only' ? 'Read only' : 'Full website access',
+      websiteIds: assigned.filter(id => id !== 'ksjdigital' || account.id === PLATFORM_ACCOUNT_ID),
+    })
+  })
+
+  await writeJson(paths.clients(), migrated)
+}
+
+async function migrateWebsiteIdentity() {
+  const stored = await readJson(paths.websites(), null)
+  const source = Array.isArray(stored) ? stored : starterWebsites
+  const migrated = source.map(site => site.id === 'ksjdigital'
+    ? { ...site, owner: PLATFORM_DISPLAY_NAME, notes: 'KSJ Digital platform website' }
+    : site)
+  await writeJson(paths.websites(), migrated)
+}
+
+await Promise.all([migrateAccounts(), migrateWebsiteIdentity()])
+
+const originalGet = express.application.get
+
+express.application.get = function scopedGet(path, ...handlers) {
+  if (path !== '/api/websites') return originalGet.call(this, path, ...handlers)
+
+  return originalGet.call(this, path, async (req, res) => {
+    try {
+      const websites = await readJson(paths.websites(), starterWebsites)
+      const allowed = new Set((req.session?.websiteIds || []).map(safeName))
+      const visible = websites.filter(site => allowed.has(safeName(site.id)))
+      return res.json(visible)
+    } catch (error) {
+      return res.status(500).json({ error: error.message || 'Website access unavailable' })
+    }
+  })
+}
