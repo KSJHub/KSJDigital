@@ -13,25 +13,46 @@ export function normaliseEditorPolicy(content = {}) {
   }
 }
 
+function legalPath(id = '') {
+  return id === 'privacy' || id.startsWith('privacy.') || id === 'terms' || id.startsWith('terms.')
+}
+
+function inheritedRule(rules = {}, id = '') {
+  if (rules[id]) return rules[id]
+  const parts = String(id).split('.')
+  while (parts.length > 1) {
+    parts.pop()
+    const parent = parts.join('.')
+    if (rules[parent]) return rules[parent]
+  }
+  return null
+}
+
 function defaultFieldRule(fieldId) {
   if (fieldId === 'brand.supportCredit' || fieldId === 'globals.platformCredit') {
     return { access: FIELD_ACCESS.OWNER_ONLY, approvalRequired: true, movable: false, deletable: false, reason: 'KSJ Digital platform credit' }
   }
+  if (legalPath(fieldId)) {
+    return { access: FIELD_ACCESS.OWNER_ONLY, approvalRequired: true, movable: false, deletable: false, reason: 'Legal content is controlled by KSJ Digital' }
+  }
   return { access: FIELD_ACCESS.EDITABLE, approvalRequired: true, movable: true, deletable: true, reason: '' }
 }
 
-function defaultSectionRule(order = 0) {
-  return { access: FIELD_ACCESS.EDITABLE, approvalRequired: true, movable: true, deletable: false, hidden: false, order, reason: '' }
+function defaultSectionRule(sectionId, order = 0) {
+  if (legalPath(sectionId)) {
+    return { access: FIELD_ACCESS.OWNER_ONLY, approvalRequired: true, movable: false, deletable: false, hidden: false, removed: false, order, reason: 'Legal content is controlled by KSJ Digital' }
+  }
+  return { access: FIELD_ACCESS.EDITABLE, approvalRequired: true, movable: true, deletable: false, hidden: false, removed: false, order, reason: '' }
 }
 
 export function fieldRule(content, fieldId) {
   const policy = normaliseEditorPolicy(content)
-  return { ...defaultFieldRule(fieldId), ...(policy.fields[fieldId] || {}) }
+  return { ...defaultFieldRule(fieldId), ...(inheritedRule(policy.fields, fieldId) || {}) }
 }
 
 export function sectionRule(content, sectionId, order = 0) {
   const policy = normaliseEditorPolicy(content)
-  return { ...defaultSectionRule(order), ...(policy.sections[sectionId] || {}) }
+  return { ...defaultSectionRule(sectionId, order), ...(inheritedRule(policy.sections, sectionId) || {}) }
 }
 
 export function canEditField(account, content, fieldId) {
