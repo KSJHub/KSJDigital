@@ -13,14 +13,30 @@ export function normaliseEditorPolicy(content = {}) {
   }
 }
 
-export function fieldRule(content, fieldId) {
-  const policy = normaliseEditorPolicy(content)
+function defaultFieldRule(fieldId) {
+  if (fieldId === 'brand.supportCredit' || fieldId === 'globals.platformCredit') {
+    return {
+      access: FIELD_ACCESS.OWNER_ONLY,
+      approvalRequired: true,
+      movable: false,
+      deletable: false,
+      reason: 'KSJ Digital platform credit',
+    }
+  }
+
   return {
     access: FIELD_ACCESS.EDITABLE,
     approvalRequired: true,
     movable: true,
     deletable: true,
     reason: '',
+  }
+}
+
+export function fieldRule(content, fieldId) {
+  const policy = normaliseEditorPolicy(content)
+  return {
+    ...defaultFieldRule(fieldId),
     ...(policy.fields[fieldId] || {}),
   }
 }
