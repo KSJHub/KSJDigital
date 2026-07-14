@@ -57,14 +57,21 @@ export function setPathValue(source, path, value) {
   if (!keys.length) return source
   const next = structuredClone(source || {})
   let target = next
+
   keys.forEach((key, index) => {
     if (index === keys.length - 1) {
       target[key] = value
       return
     }
+
     const child = target[key]
-    target[key] = child && typeof child === 'object' && !Array.isArray(child) ? { ...child } : {}
+    const nextKey = keys[index + 1]
+    const nextIsIndex = /^\d+$/.test(nextKey)
+    if (Array.isArray(child)) target[key] = [...child]
+    else if (child && typeof child === 'object') target[key] = { ...child }
+    else target[key] = nextIsIndex ? [] : {}
     target = target[key]
   })
+
   return next
 }
