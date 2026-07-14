@@ -161,6 +161,8 @@ async function approveRequestHandler(req, res) {
     const snapshot = request.draftSnapshot
     if (!snapshot) return res.status(404).json({ error: 'Submitted draft snapshot was not found' })
     const history = await readJson(paths.history(), [])
+    const currentPublished = await getPublishedContent(request.websiteId)
+    const changedFields = buildDiff(currentPublished, snapshot).length
     const version = nextVersion(history, request.websiteId)
     const published = await publishContentSnapshot(request.websiteId, snapshot, { publishedBy: req.session.name, publishRequestId: request.id })
     const reviewedAt = new Date().toISOString()
@@ -179,7 +181,7 @@ async function approveRequestHandler(req, res) {
       publishedAt: published.publishedAt,
       createdBy: req.session.name,
       submittedBy: request.createdBy || 'Client',
-      changedFields: buildDiff(await getPublishedContent(request.websiteId), snapshot).length,
+      changedFields,
     }, ...history])
     return res.json(withoutSnapshot(updatedRequest))
   } catch (error) {
