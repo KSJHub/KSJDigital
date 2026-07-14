@@ -28,6 +28,11 @@ const FALLBACK_PAGES = [
   { label: 'Privacy', target: '/privacy' },
   { label: 'Terms', target: '/terms' },
 ]
+const BLOCK_TEMPLATES = [
+  { type: 'text', icon: '¶', title: 'Text Section', description: 'Eyebrow, heading and editable paragraph.' },
+  { type: 'image', icon: '🖼', title: 'Image Section', description: 'Managed image with title and supporting text.' },
+  { type: 'cta', icon: '↗', title: 'Call To Action', description: 'Prominent message with a visitor action button.' },
+]
 
 function localDevelopment() {
   return ['localhost', '127.0.0.1'].includes(window.location.hostname)
@@ -61,6 +66,32 @@ function editorPages(content = {}) {
   return [...result, ...optional].filter((page, index, pages) => pages.findIndex(item => item.target === page.target) === index)
 }
 
+function pageKey(pathname = '/') {
+  if (pathname === '/') return 'home'
+  return pathname.replace(/^\//, '').split('/')[0] || 'home'
+}
+
+function makeId() {
+  return globalThis.crypto?.randomUUID?.() || `block-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function templateBlock(type, order) {
+  const common = { id: makeId(), type, order }
+  if (type === 'image') return { ...common, title: 'Image Section', text: 'Add supporting text for this image.', image: '', alt: '', layout: 'wide' }
+  if (type === 'cta') return { ...common, eyebrow: 'Next Step', title: 'Ready to get involved?', text: 'Add a clear reason for visitors to take action.', buttonLabel: 'Learn More', buttonUrl: '#' }
+  return { ...common, eyebrow: 'New Section', title: 'New text section', text: 'Click here and start typing.', align: 'left' }
+}
+
+function managedBlockDetails(selection, content) {
+  const match = /^pageBlocks\.([^.]+)\.(.+)$/.exec(selection?.sectionId || '')
+  if (!match) return null
+  const [, key, id] = match
+  const blocks = content.engine?.pageBlocks?.[key] || []
+  const index = blocks.findIndex(block => block.id === id)
+  if (index < 0) return null
+  return { key, id, index, block: blocks[index] }
+}
+
 function FieldInspector({ account, content, selection, value, onChange, onUpload, onRuleChange, onClose }) {
   if (!selection?.fieldId) return null
   const rule = fieldRule(content, selection.fieldId)
@@ -89,11 +120,12 @@ function FieldInspector({ account, content, selection, value, onChange, onUpload
   )
 }
 
-function SectionInspector({ account, content, selection, onRuleChange, onMove, onClose }) {
+function SectionInspector({ account, content, selection, onRuleChange, onMove, onDuplicate, onDelete, onClose }) {
   if (!selection?.sectionId) return null
   const rule = sectionRule(content, selection.sectionId, selection.defaultOrder || 0)
   const manageable = canManageSection(account, content, selection.sectionId)
   const platformOwner = account?.role === 'owner'
+  const managedBlock = managedBlockDetails(selection, content)
   const canMove = platformOwner || (manageable && rule.movable !== false)
   const canHide = platformOwner || manageable
   const canRemove = platformOwner || (manageable && rule.deletable === true)
@@ -110,8 +142,11 @@ function SectionInspector({ account, content, selection, onRuleChange, onMove, o
           <button disabled={!canMove} onClick={() => onMove('up')}>↑ Move Up</button>
           <button disabled={!canMove} onClick={() => onMove('down')}>↓ Move Down</button>
         </div>
+        {managedBlock && <button disabled={!manageable && !platformOwner} onClick={onDuplicate}>Duplicate Section</button>}
         <button disabled={!canHide} onClick={() => onRuleChange({ hidden: !rule.hidden })}>{rule.hidden ? 'Restore Section' : 'Hide Section'}</button>
-        <button className="danger" disabled={!canRemove} onClick={() => onRuleChange({ hidden: true, removed: true })}>Remove Section</button>
+        {managedBlock
+          ? <button className="danger" disabled={!canRemove} onClick={onDelete}>Delete Section Permanently</button>
+          : <button className="danger" disabled={!canRemove} onClick={() => onRuleChange({ hidden: true, removed: true })}>Remove Section</button>}
         {!manageable && <div className="lockedFieldNotice">🔒 {rule.reason || 'This section is controlled by KSJ Digital.'}</div>}
       </section>
       {platformOwner && (
@@ -125,6 +160,18 @@ function SectionInspector({ account, content, selection, onRuleChange, onMove, o
         </section>
       )}
     </div>
+  )
+}
+
+function BlockLibrary({ pathname, onAdd, onClose }) {
+  return (
+    <aside className="editorBlockLibrary">
+      <div className="selectedFieldTitle"><div><span>Add Section</span><code>{pathname}</code></div><button className="inspectorClose" onClick={onClose}>×</button></div>
+      <p>Choose a reusable section. It will be added to the current page as managed content.</p>
+      <div className="blockTemplateGrid">
+        {BLOCK_TEMPLATES.map(template => <button key={template.type} onClick={() => onAdd(template.type)}><span>{template.icon}</span><strong>{template.title}</strong><small>{template.description}</small></button>)}
+      </div>
+    </aside>
   )
 }
 
@@ -154,6 +201,7 @@ export function PageBuilderPage({ client = false }) {
   const [browserFullscreen, setBrowserFullscreen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submission, setSubmission] = useState(null)
+  const [showBlockLibrary, setShowBlockLibrary] = useState(false)
   const [historyState, setHistoryState] = useState({ index: -1, length: 0 })
   const canRequestUpdates = account?.role === 'owner' || account?.canRequestUpdates
   const selectedValue = useMemo(() => selection?.fieldId ? getPathValue(content, selection.fieldId) ?? selection.value ?? '' : '', [content, selection])
@@ -196,6 +244,7 @@ export function PageBuilderPage({ client = false }) {
     setSelection(null)
     setFrameReady(false)
     setSubmission(null)
+    setShowBlockLibrary(false)
     setCurrentPath('/')
     window.clearTimeout(inlineSaveTimerRef.current)
     inlineDraftRef.current = null
@@ -309,8 +358,9 @@ export function PageBuilderPage({ client = false }) {
 
   useEffect(() => {
     function keyboard(event) {
-      if (event.key === 'Escape' && selection) {
-        setSelection(null)
+      if (event.key === 'Escape') {
+        if (showBlockLibrary) setShowBlockLibrary(false)
+        else if (selection) setSelection(null)
         return
       }
       if (!(event.ctrlKey || event.metaKey)) return
@@ -325,7 +375,7 @@ export function PageBuilderPage({ client = false }) {
     }
     window.addEventListener('keydown', keyboard)
     return () => window.removeEventListener('keydown', keyboard)
-  }, [selection, canUndo, canRedo])
+  }, [selection, canUndo, canRedo, showBlockLibrary])
 
   function frameLoaded() {
     setFrameReady(false)
@@ -347,6 +397,7 @@ export function PageBuilderPage({ client = false }) {
     const saved = await flushInlineDraft('✓ Draft saved before changing page')
     if (!saved) return
     setSelection(null)
+    setShowBlockLibrary(false)
     setNotice('Opening page…')
     frameRef.current?.contentWindow?.postMessage({ source: 'ksj-portal-editor', type: 'navigate', pathname }, '*')
   }
@@ -355,6 +406,7 @@ export function PageBuilderPage({ client = false }) {
     const saved = await flushInlineDraft('✓ Draft saved before changing page')
     if (!saved) return
     setSelection(null)
+    setShowBlockLibrary(false)
     setNotice(direction === 'back' ? 'Going back…' : 'Going forward…')
     frameRef.current?.contentWindow?.postMessage({ source: 'ksj-portal-editor', type: direction === 'back' ? 'history-back' : 'history-forward' }, '*')
   }
@@ -429,6 +481,57 @@ export function PageBuilderPage({ client = false }) {
     save(updateSectionRule(contentRef.current, selection.sectionId, { order: Number(current.order || 0) + step }), direction === 'up' ? '✓ Section moved up' : '✓ Section moved down')
   }
 
+  async function addBlock(type) {
+    await flushInlineDraft('✓ Text saved before adding section')
+    const key = pageKey(currentPath)
+    const next = structuredClone(contentRef.current)
+    next.engine = { ...(next.engine || {}) }
+    next.engine.pageBlocks = { ...(next.engine.pageBlocks || {}) }
+    const blocks = Array.isArray(next.engine.pageBlocks[key]) ? [...next.engine.pageBlocks[key]] : []
+    const highestOrder = blocks.reduce((maximum, block) => Math.max(maximum, Number(block.order || 0)), 0)
+    const block = templateBlock(type, highestOrder + 10)
+    blocks.push(block)
+    next.engine.pageBlocks[key] = blocks
+    const sectionId = `pageBlocks.${key}.${block.id}`
+    const withPolicy = updateSectionRule(next, sectionId, { access: FIELD_ACCESS.EDITABLE, approvalRequired: true, movable: true, deletable: true, order: block.order, reason: '' })
+    setShowBlockLibrary(false)
+    setSelection({ type: 'section', sectionId, label: block.title, defaultOrder: block.order })
+    await save(withPolicy, '✓ New section added')
+  }
+
+  async function duplicateSelectedBlock() {
+    const details = managedBlockDetails(selection, contentRef.current)
+    if (!details) return
+    const rule = sectionRule(contentRef.current, selection.sectionId, selection.defaultOrder || 0)
+    if (account?.role !== 'owner' && rule.access !== FIELD_ACCESS.EDITABLE) return
+    await flushInlineDraft('✓ Text saved before duplicating section')
+    const next = structuredClone(contentRef.current)
+    const blocks = [...(next.engine?.pageBlocks?.[details.key] || [])]
+    const duplicate = { ...structuredClone(details.block), id: makeId(), title: `${details.block.title || 'Section'} Copy`, order: Number(details.block.order || 0) + 5 }
+    blocks.splice(details.index + 1, 0, duplicate)
+    next.engine = { ...(next.engine || {}), pageBlocks: { ...(next.engine?.pageBlocks || {}), [details.key]: blocks } }
+    const sectionId = `pageBlocks.${details.key}.${duplicate.id}`
+    const withPolicy = updateSectionRule(next, sectionId, { access: FIELD_ACCESS.EDITABLE, approvalRequired: true, movable: true, deletable: true, order: duplicate.order, reason: '' })
+    setSelection({ type: 'section', sectionId, label: duplicate.title, defaultOrder: duplicate.order })
+    await save(withPolicy, '✓ Section duplicated')
+  }
+
+  async function deleteSelectedBlock() {
+    const details = managedBlockDetails(selection, contentRef.current)
+    if (!details) return
+    const rule = sectionRule(contentRef.current, selection.sectionId, selection.defaultOrder || 0)
+    if (account?.role !== 'owner' && rule.deletable !== true) return
+    if (!window.confirm(`Delete “${details.block.title || 'this section'}” permanently?`)) return
+    await flushInlineDraft('✓ Text saved before deleting section')
+    const next = structuredClone(contentRef.current)
+    const blocks = [...(next.engine?.pageBlocks?.[details.key] || [])]
+    blocks.splice(details.index, 1)
+    next.engine = { ...(next.engine || {}), pageBlocks: { ...(next.engine?.pageBlocks || {}), [details.key]: blocks } }
+    if (next.editorPolicy?.sections) delete next.editorPolicy.sections[selection.sectionId]
+    setSelection(null)
+    await save(next, '✓ Section deleted')
+  }
+
   async function submitForApproval() {
     if (!websiteId || !canRequestUpdates || submitting || submission?.type === 'success') return
     setSubmitting(true)
@@ -476,6 +579,7 @@ export function PageBuilderPage({ client = false }) {
             {['desktop', 'tablet', 'mobile'].map(mode => <button key={mode} className={device === mode ? 'active' : ''} onClick={() => setDevice(mode)}>{mode}</button>)}
           </div>
           <div className="editorActions">
+            <button className="addSectionButton" onClick={() => { setSelection(null); setShowBlockLibrary(true) }}>＋ Add Section</button>
             <button disabled={!canUndo} onClick={undo} title="Undo (Ctrl+Z)">↶ Undo</button>
             <button disabled={!canRedo} onClick={redo} title="Redo (Ctrl+Y)">↷ Redo</button>
             {!focusMode && <button onClick={() => setFocusMode(true)}>Focus Editor</button>}
@@ -487,8 +591,9 @@ export function PageBuilderPage({ client = false }) {
         </header>
         <main className="editorStage">
           <div className={`editorCanvas ${device}`}>{website?.domain || website?.editorUrl || website?.previewUrl || website?.developmentEditorUrl ? <iframe key={websiteId} ref={frameRef} title={`${website.name} visual editor`} src={siteUrl(website, true)} onLoad={frameLoaded} /> : <p className="emptyState">This website does not have an editor URL configured.</p>}</div>
+          {showBlockLibrary && <BlockLibrary pathname={currentPath} onAdd={addBlock} onClose={() => setShowBlockLibrary(false)} />}
           {selection?.type === 'field' && <aside className="editorInspector"><FieldInspector account={account} content={content} selection={selection} value={selectedValue} onChange={updateSelected} onUpload={uploadSelectedImage} onRuleChange={updateRule} onClose={() => setSelection(null)} /></aside>}
-          {selection?.type === 'section' && <aside className="editorInspector"><SectionInspector account={account} content={content} selection={selection} onRuleChange={updateSelectedSection} onMove={moveSelectedSection} onClose={() => setSelection(null)} /></aside>}
+          {selection?.type === 'section' && <aside className="editorInspector"><SectionInspector account={account} content={content} selection={selection} onRuleChange={updateSelectedSection} onMove={moveSelectedSection} onDuplicate={duplicateSelectedBlock} onDelete={deleteSelectedBlock} onClose={() => setSelection(null)} /></aside>}
           {submission && <div className={`editorSubmission ${submission.type}`} role="status"><button onClick={() => setSubmission(null)} aria-label="Dismiss notification">×</button><strong>{submission.title}</strong><span>{submission.message}</span>{submission.requestId && <small>Request: {submission.requestId}</small>}</div>}
         </main>
       </div>
