@@ -1,82 +1,83 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Layout } from '../layouts/Shell.jsx'
 import { api } from '../services/api.js'
 import { getAccountFromPath } from '../services/auth.js'
 import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
+import {
+  FIELD_ACCESS,
+  canEditField,
+  fieldRule,
+  getPathValue,
+  setPathValue,
+  updateFieldRule,
+} from '../services/editorPolicy.js'
 
-const blockTypes = ['Hero', 'Text', 'Image', 'Gallery', 'Button', 'Divider', 'FAQ', 'Embed']
-
-function slugify(title = '') {
-  const slug = title.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
-  return slug ? `/${slug}` : '/new-page'
+function siteUrl(website, editor = false) {
+  const raw = website?.domain || ''
+  const url = raw.startsWith('http') ? raw : `https://${raw}`
+  if (!editor) return url
+  const separator = url.includes('?') ? '&' : '?'
+  return `${url}${separator}ksjEditor=1`
 }
 
-function orderPages(pages = []) {
-  return [...pages].sort((a, b) => a.order - b.order).map((page, index) => ({ ...page, order: index + 1 }))
-}
-
-function starterPage() {
-  return {
-    id: 'home',
-    title: 'Homepage',
-    slug: '/',
-    status: 'Published',
-    locked: true,
-    order: 1,
-    blocks: [
-      {
-        id: 'hero-1',
-        type: 'Hero',
-        title: 'Welcome to your website',
-        text: 'Click this section to edit the heading, text and button.',
-        button: 'Learn More',
-      },
-    ],
+function FieldInspector({ account, content, selection, value, onChange, onRuleChange }) {
+  if (!selection?.fieldId) {
+    return <p>Click an editable area on the website to manage it here.</p>
   }
-}
 
-function newBlock(type) {
-  return {
-    id: `${type.toLowerCase()}-${Date.now()}`,
-    type,
-    title: type === 'Hero' ? 'New hero section' : `New ${type.toLowerCase()}`,
-    text: type === 'Divider' ? '' : 'Click this section to edit its content.',
-    button: ['Hero', 'Button'].includes(type) ? 'Learn More' : '',
-    image: '',
-  }
-}
-
-function VisualBlock({ block, selected, canEdit, onSelect, onDragStart, onDrop }) {
-  const className = `visualBlock visual${block.type} ${selected ? 'selected' : ''}`
+  const rule = fieldRule(content, selection.fieldId)
+  const editable = canEditField(account, content, selection.fieldId)
+  const multiline = selection.kind === 'textarea' || String(value || '').length > 80
 
   return (
-    <section
-      className={className}
-      draggable={canEdit}
-      onClick={() => onSelect(block.id)}
-      onDragStart={() => onDragStart(block.id)}
-      onDragOver={event => event.preventDefault()}
-      onDrop={() => onDrop(block.id)}
-    >
-      {block.type === 'Divider' ? (
-        <hr />
-      ) : ['Image', 'Gallery'].includes(block.type) ? (
-        <div className="visualImageArea">
-          {block.image ? <img src={block.image} alt={block.title || 'Website content'} /> : <span>Drop or choose an image</span>}
-          {block.type === 'Gallery' && <small>Gallery section</small>}
-        </div>
-      ) : block.type === 'Embed' ? (
-        <div className="visualEmbedArea">Embedded content</div>
+    <div className="liveFieldInspector">
+      <div className="selectedFieldTitle">
+        <span>{selection.label || 'Website field'}</span>
+        <code>{selection.fieldId}</code>
+      </div>
+
+      <label>
+        Content
+        {multiline ? (
+          <textarea value={value ?? ''} disabled={!editable} onChange={event => onChange(event.target.value)} />
+        ) : (
+          <input value={value ?? ''} disabled={!editable} onChange={event => onChange(event.target.value)} />
+        )}
+      </label>
+
+      {account?.role === 'owner' ? (
+        <section className="ownerFieldControls">
+          <h3>Client access</h3>
+          <label>
+            Access
+            <select value={rule.access} onChange={event => onRuleChange({ access: event.target.value })}>
+              <option value={FIELD_ACCESS.EDITABLE}>Client editable</option>
+              <option value={FIELD_ACCESS.VIEW_ONLY}>View only</option>
+              <option value={FIELD_ACCESS.HIDDEN}>Hidden from client editor</option>
+              <option value={FIELD_ACCESS.OWNER_ONLY}>Owner only</option>
+            </select>
+          </label>
+          <label className="formCheck">
+            <input type="checkbox" checked={rule.approvalRequired !== false} onChange={event => onRuleChange({ approvalRequired: event.target.checked })} />
+            Changes require KSJ approval
+          </label>
+          <label className="formCheck">
+            <input type="checkbox" checked={rule.movable !== false} onChange={event => onRuleChange({ movable: event.target.checked })} />
+            Client may move this section
+          </label>
+          <label className="formCheck">
+            <input type="checkbox" checked={rule.deletable !== false} onChange={event => onRuleChange({ deletable: event.target.checked })} />
+            Client may remove this section
+          </label>
+          <label>
+            Lock reason
+            <input value={rule.reason || ''} onChange={event => onRuleChange({ reason: event.target.value })} placeholder="Example: KSJ Digital platform credit" />
+          </label>
+        </section>
       ) : (
-        <>
-          <small>{block.type}</small>
-          {block.title && <h2>{block.title}</h2>}
-          {block.text && <p>{block.text}</p>}
-          {block.button && <button>{block.button}</button>}
-        </>
+        !editable && <div className="lockedFieldNotice">🔒 {rule.reason || 'This content is controlled by KSJ Digital.'}</div>
       )}
-      {canEdit && <span className="visualEditHint">Click to edit · Drag to move</span>}
-    </section>
+    </div>
   )
 }
 
@@ -85,115 +86,83 @@ export function PageBuilderPage({ client = false }) {
   const { websites } = useWebsites()
   const website = findClientWebsite(websites, account)
   const websiteId = website?.id
-  const canEdit = account?.role === 'owner' || account?.canEdit
-  const canRequestUpdates = account?.role === 'owner' || account?.canRequestUpdates
+  const frameRef = useRef(null)
   const [content, setContent] = useState({ pages: [] })
-  const [selectedPageId, setSelectedPageId] = useState('')
-  const [selectedBlockId, setSelectedBlockId] = useState('')
+  const [selection, setSelection] = useState(null)
   const [device, setDevice] = useState('desktop')
-  const [notice, setNotice] = useState('Loading')
-  const [draggedBlockId, setDraggedBlockId] = useState('')
-  const pages = useMemo(() => orderPages(content.pages || []), [content.pages])
-  const selectedPage = pages.find(page => page.id === selectedPageId) || pages[0]
-  const selectedBlock = selectedPage?.blocks?.find(block => block.id === selectedBlockId)
+  const [notice, setNotice] = useState('Loading website')
+  const canRequestUpdates = account?.role === 'owner' || account?.canRequestUpdates
+  const selectedValue = useMemo(
+    () => selection?.fieldId ? getPathValue(content, selection.fieldId) ?? selection.value ?? '' : '',
+    [content, selection],
+  )
 
   useEffect(() => {
-    if (!websiteId) {
-      setContent({ pages: [] })
-      setNotice('Waiting for assigned website')
-      return
-    }
-
+    if (!websiteId) return setNotice('Waiting for assigned website')
     let cancelled = false
     api.getContent(websiteId)
       .then(data => {
         if (cancelled) return
-        const nextPages = data.pages?.length ? data.pages : [starterPage()]
-        const next = { ...data, pages: orderPages(nextPages) }
-        setContent(next)
-        setSelectedPageId(next.pages[0]?.id || '')
-        setSelectedBlockId(next.pages[0]?.blocks?.[0]?.id || '')
-        setNotice(canEdit ? 'Ready to edit' : 'Preview only')
+        setContent(data)
+        setNotice('Website ready')
       })
-      .catch(error => !cancelled && setNotice(error.message))
-
+      .catch(error => !cancelled && setNotice(error.message || 'Website unavailable'))
     return () => { cancelled = true }
-  }, [canEdit, websiteId])
+  }, [websiteId])
 
-  async function save(nextContent, message = 'Draft saved') {
-    if (!websiteId || !canEdit) return setNotice(!websiteId ? 'No website assigned' : 'Edit permission required')
-    const ordered = { ...nextContent, pages: orderPages(nextContent.pages || []) }
-    setContent(ordered)
+  useEffect(() => {
+    function receive(event) {
+      if (!event.data || event.data.source !== 'ksj-site-editor') return
+      if (event.data.type === 'ready') {
+        frameRef.current?.contentWindow?.postMessage({
+          source: 'ksj-portal-editor',
+          type: 'initialise',
+          content,
+          role: account?.role,
+        }, '*')
+        setNotice('Click the website to edit')
+      }
+      if (event.data.type === 'select-field') setSelection(event.data.field)
+    }
+    window.addEventListener('message', receive)
+    return () => window.removeEventListener('message', receive)
+  }, [account?.role, content])
+
+  async function save(nextContent, message) {
+    if (!websiteId) return
+    setContent(nextContent)
     setNotice('Saving draft')
     try {
-      const saved = await api.saveContent(websiteId, ordered)
-      setContent({ ...ordered, updatedAt: saved.updatedAt })
+      const saved = await api.saveContent(websiteId, nextContent)
+      setContent(saved)
       setNotice(message)
     } catch (error) {
-      setNotice(error.message)
+      setNotice(error.message || 'Save failed')
     }
   }
 
-  function updatePage(changes) {
-    if (!selectedPage) return
-    const nextPages = pages.map(page => page.id === selectedPage.id
-      ? { ...page, ...changes, slug: changes.title && page.slug !== '/' ? slugify(changes.title) : page.slug }
-      : page)
-    save({ ...content, pages: nextPages }, 'Page draft saved')
+  function patchFrame(fieldId, value, nextContent = content) {
+    frameRef.current?.contentWindow?.postMessage({
+      source: 'ksj-portal-editor',
+      type: 'patch-field',
+      fieldId,
+      value,
+      rule: fieldRule(nextContent, fieldId),
+    }, '*')
   }
 
-  function updateBlock(changes) {
-    if (!selectedPage || !selectedBlock) return
-    const nextPages = pages.map(page => page.id === selectedPage.id
-      ? { ...page, status: client ? 'Draft' : page.status, blocks: page.blocks.map(block => block.id === selectedBlock.id ? { ...block, ...changes } : block) }
-      : page)
-    save({ ...content, pages: nextPages }, 'Section draft saved')
+  function updateSelected(value) {
+    if (!selection?.fieldId || !canEditField(account, content, selection.fieldId)) return
+    const next = setPathValue(content, selection.fieldId, value)
+    patchFrame(selection.fieldId, value, next)
+    save(next, 'Draft saved')
   }
 
-  function addPage() {
-    const page = {
-      id: `page-${Date.now()}`,
-      title: 'New Page',
-      slug: '/new-page',
-      status: 'Draft',
-      locked: false,
-      order: pages.length + 1,
-      blocks: [newBlock('Hero')],
-    }
-    setSelectedPageId(page.id)
-    setSelectedBlockId(page.blocks[0].id)
-    save({ ...content, pages: [...pages, page] }, 'Page created')
-  }
-
-  function addBlock(type) {
-    if (!selectedPage) return
-    const block = newBlock(type)
-    const nextPages = pages.map(page => page.id === selectedPage.id
-      ? { ...page, status: client ? 'Draft' : page.status, blocks: [...(page.blocks || []), block] }
-      : page)
-    setSelectedBlockId(block.id)
-    save({ ...content, pages: nextPages }, `${type} section added`)
-  }
-
-  function removeBlock() {
-    if (!selectedPage || !selectedBlock) return
-    const nextBlocks = selectedPage.blocks.filter(block => block.id !== selectedBlock.id)
-    const nextPages = pages.map(page => page.id === selectedPage.id ? { ...page, blocks: nextBlocks, status: 'Draft' } : page)
-    setSelectedBlockId(nextBlocks[0]?.id || '')
-    save({ ...content, pages: nextPages }, 'Section removed')
-  }
-
-  function moveBlock(targetId) {
-    if (!draggedBlockId || draggedBlockId === targetId || !selectedPage) return
-    const blocks = [...selectedPage.blocks]
-    const from = blocks.findIndex(block => block.id === draggedBlockId)
-    const to = blocks.findIndex(block => block.id === targetId)
-    if (from < 0 || to < 0) return
-    const [moved] = blocks.splice(from, 1)
-    blocks.splice(to, 0, moved)
-    const nextPages = pages.map(page => page.id === selectedPage.id ? { ...page, blocks, status: 'Draft' } : page)
-    setDraggedBlockId('')
-    save({ ...content, pages: nextPages }, 'Section order saved')
+  function updateRule(changes) {
+    if (account?.role !== 'owner' || !selection?.fieldId) return
+    const next = updateFieldRule(content, selection.fieldId, changes)
+    patchFrame(selection.fieldId, getPathValue(next, selection.fieldId), next)
+    save(next, 'Client access updated')
   }
 
   async function submitForApproval() {
@@ -204,13 +173,13 @@ export function PageBuilderPage({ client = false }) {
         websiteId,
         websiteName: website.name,
         repository: website.repository,
-        title: `${selectedPage?.title || 'Website'} visual edits`,
+        title: 'Visual website edits',
         createdBy: account?.name,
         contentPath: `server-data/content/${websiteId}.json`,
       })
       setNotice('Submitted to KSJ Digital for approval')
     } catch (error) {
-      setNotice(error.message)
+      setNotice(error.message || 'Submission failed')
     }
   }
 
@@ -218,57 +187,46 @@ export function PageBuilderPage({ client = false }) {
     <Layout client={client} title={client ? 'Edit Website' : 'Website Editor'}>
       <section className="visualEditorHeader card">
         <div>
-          <span>Visual Website Editor</span>
+          <span>{client ? 'Your live website' : 'Owner editing mode'}</span>
           <h2>{website?.name || 'Assigned Website'}</h2>
-          <p>Click any section in the preview to edit it. Drag sections to change their order.</p>
+          <p>This is the real website visitors see. Click highlighted content to edit it directly.</p>
         </div>
         <div className="visualEditorHeaderActions">
-          <button className="secondary" onClick={() => window.open(website?.domain?.startsWith('http') ? website.domain : `https://${website?.domain}`, '_blank')}>View Live Site</button>
-          {client && canRequestUpdates && <button onClick={submitForApproval}>Submit for Approval</button>}
+          <button className="secondary" onClick={() => window.open(siteUrl(website), '_blank')}>Open Live Website</button>
+          {client && canRequestUpdates && <button onClick={submitForApproval}>Submit Changes</button>}
           <small>{notice}</small>
         </div>
       </section>
 
-      <section className="visualEditorShell">
-        <aside className="card visualPagePanel">
-          <div className="panelHead"><h2>Pages</h2>{canEdit && <button onClick={addPage}>Add</button>}</div>
-          {pages.map(page => (
-            <button className={page.id === selectedPage?.id ? 'active' : ''} key={page.id} onClick={() => { setSelectedPageId(page.id); setSelectedBlockId(page.blocks?.[0]?.id || '') }}>
-              <b>{page.title}</b><small>{page.slug} · {page.status}</small>
-            </button>
-          ))}
-          <hr />
-          <h3>Add Section</h3>
-          <div className="visualBlockLibrary">
-            {blockTypes.map(type => <button key={type} disabled={!canEdit || !selectedPage} onClick={() => addBlock(type)}>{type}</button>)}
-          </div>
-        </aside>
-
-        <main className={`card visualCanvas ${device}`}>
+      <section className="realSiteEditorShell">
+        <div className="card realSiteCanvas">
           <div className="visualCanvasToolbar">
-            <label>Page name<input value={selectedPage?.title || ''} disabled={!canEdit} onChange={event => updatePage({ title: event.target.value })} /></label>
-            <div><button className={device === 'desktop' ? 'active' : ''} onClick={() => setDevice('desktop')}>Desktop</button><button className={device === 'tablet' ? 'active' : ''} onClick={() => setDevice('tablet')}>Tablet</button><button className={device === 'mobile' ? 'active' : ''} onClick={() => setDevice('mobile')}>Mobile</button></div>
-          </div>
-          <div className="visualWebsiteFrame">
-            <nav><b>{website?.logo || website?.name?.slice(0, 3).toUpperCase() || 'SITE'}</b><span>{pages.map(page => page.title).join('   ')}</span></nav>
-            {selectedPage?.blocks?.map(block => (
-              <VisualBlock key={block.id} block={block} selected={block.id === selectedBlockId} canEdit={canEdit} onSelect={setSelectedBlockId} onDragStart={setDraggedBlockId} onDrop={moveBlock} />
-            ))}
-            {!selectedPage?.blocks?.length && <p className="emptyState">Add a section to begin editing this page.</p>}
-          </div>
-        </main>
-
-        <aside className="card visualInspector">
-          <div className="panelHead"><h2>{selectedBlock ? `Edit ${selectedBlock.type}` : 'Select a Section'}</h2>{selectedBlock && canEdit && <button onClick={removeBlock}>Remove</button>}</div>
-          {selectedBlock ? (
-            <div className="visualInspectorFields">
-              {selectedBlock.type !== 'Divider' && <label>Heading<input value={selectedBlock.title || ''} disabled={!canEdit} onChange={event => updateBlock({ title: event.target.value })} /></label>}
-              {!['Divider', 'Image', 'Gallery'].includes(selectedBlock.type) && <label>Text<textarea value={selectedBlock.text || ''} disabled={!canEdit} onChange={event => updateBlock({ text: event.target.value })} /></label>}
-              {['Hero', 'Button'].includes(selectedBlock.type) && <label>Button text<input value={selectedBlock.button || ''} disabled={!canEdit} onChange={event => updateBlock({ button: event.target.value })} /></label>}
-              {['Image', 'Gallery'].includes(selectedBlock.type) && <label>Image URL<input value={selectedBlock.image || ''} disabled={!canEdit} onChange={event => updateBlock({ image: event.target.value })} placeholder="Paste an image URL" /></label>}
-              <p>Changes appear immediately in the preview and save as a draft.</p>
+            <strong>Website preview</strong>
+            <div>
+              {['desktop', 'tablet', 'mobile'].map(mode => (
+                <button key={mode} className={device === mode ? 'active' : ''} onClick={() => setDevice(mode)}>{mode}</button>
+              ))}
             </div>
-          ) : <p>Click a section in the website preview to edit it here.</p>}
+          </div>
+          <div className={`realSiteFrameWrap ${device}`}>
+            {website?.domain ? (
+              <iframe ref={frameRef} title={`${website.name} visual editor`} src={siteUrl(website, true)} />
+            ) : (
+              <p className="emptyState">This website does not have a domain configured.</p>
+            )}
+          </div>
+        </div>
+
+        <aside className="card visualInspector realSiteInspector">
+          <div className="panelHead"><h2>{selection?.label || 'Edit Website'}</h2>{selection?.locked && <span>🔒</span>}</div>
+          <FieldInspector
+            account={account}
+            content={content}
+            selection={selection}
+            value={selectedValue}
+            onChange={updateSelected}
+            onRuleChange={updateRule}
+          />
         </aside>
       </section>
     </Layout>
