@@ -18,6 +18,16 @@ import {
 
 const MAX_HISTORY = 50
 const INLINE_SAVE_DELAY = 650
+const FALLBACK_PAGES = [
+  { label: 'Home', target: '/' },
+  { label: 'About', target: '/about' },
+  { label: 'Content', target: '/content' },
+  { label: 'Community', target: '/community' },
+  { label: 'Merch', target: '/merch' },
+  { label: 'Contact', target: '/contact' },
+  { label: 'Privacy', target: '/privacy' },
+  { label: 'Terms', target: '/terms' },
+]
 
 function localDevelopment() {
   return ['localhost', '127.0.0.1'].includes(window.location.hostname)
@@ -34,6 +44,23 @@ function siteUrl(website, editor = false) {
 
 function sameContent(left, right) {
   return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function editorPages(content = {}) {
+  const navigation = content.engine?.navigation || content.navigation || []
+  const managed = navigation
+    .filter(item => item.visible !== false && item.external !== true && typeof item.target === 'string' && item.target.startsWith('/'))
+    .sort((left, right) => Number(left.order || 0) - Number(right.order || 0))
+    .map(item => ({ label: item.label || item.target, target: item.target }))
+
+  const result = managed.length ? managed : FALLBACK_PAGES.slice(0, 6)
+  const optional = [
+    content.contactPage && { label: 'Contact', target: '/contact' },
+    content.privacy && { label: 'Privacy', target: '/privacy' },
+    content.terms && { label: 'Terms', target: '/terms' },
+  ].filter(Boolean)
+
+  return [...result, ...optional].filter((page, index, pages) => pages.findIndex(item => item.target === page.target) === index)
 }
 
 function FieldInspector({ account, content, selection, value, onChange, onUpload, onRuleChange, onClose }) {
@@ -123,6 +150,7 @@ export function PageBuilderPage({ client = false }) {
   const [content, setContent] = useState({ pages: [] })
   const [selection, setSelection] = useState(null)
   const [device, setDevice] = useState('desktop')
+  const [currentPath, setCurrentPath] = useState('/')
   const [notice, setNotice] = useState('Loading website')
   const [focusMode, setFocusMode] = useState(true)
   const [browserFullscreen, setBrowserFullscreen] = useState(false)
@@ -131,6 +159,7 @@ export function PageBuilderPage({ client = false }) {
   const [historyState, setHistoryState] = useState({ index: -1, length: 0 })
   const canRequestUpdates = account?.role === 'owner' || account?.canRequestUpdates
   const selectedValue = useMemo(() => selection?.fieldId ? getPathValue(content, selection.fieldId) ?? selection.value ?? '' : '', [content, selection])
+  const pages = useMemo(() => editorPages(content), [content])
   const canUndo = historyState.index > 0
   const canRedo = historyState.index >= 0 && historyState.index < historyState.length - 1
 
@@ -162,6 +191,7 @@ export function PageBuilderPage({ client = false }) {
     setSelection(null)
     setFrameReady(false)
     setSubmission(null)
+    setCurrentPath('/')
     window.clearTimeout(inlineSaveTimerRef.current)
     inlineDraftRef.current = null
     historyRef.current = []
@@ -225,11 +255,13 @@ export function PageBuilderPage({ client = false }) {
   useEffect(() => {
     function receive(event) {
       if (!event.data || event.data.source !== 'ksj-site-editor') return
-      if (event.data.type === 'ready') {
+      if (event.data.type === 'ready' || event.data.type === 'page-change') {
         window.clearTimeout(bridgeTimerRef.current)
         setFrameReady(true)
+        setCurrentPath(event.data.pathname || '/')
+        if (event.data.type === 'page-change') setSelection(null)
         setNotice(event.data.fieldCount ? `${event.data.fieldCount} editable areas ready` : 'Editor connected')
-        initialiseFrame()
+        initialiseFrame(inlineDraftRef.current || content)
       }
       if (event.data.type === 'select-field') setSelection({ type: 'field', ...event.data.field })
       if (event.data.type === 'select-section') setSelection({ type: 'section', ...event.data.section })
@@ -284,6 +316,23 @@ export function PageBuilderPage({ client = false }) {
         ? `No editor bridge found at ${siteUrl(website, true)} — confirm that website's dev server is running.`
         : 'This live website build does not yet contain the KSJ visual editor bridge.')
     }, 3000)
+  }
+
+  async function navigateFrame(pathname) {
+    if (!pathname || pathname === currentPath) return
+    const saved = await flushInlineDraft('✓ Draft saved before changing page')
+    if (!saved) return
+    setSelection(null)
+    setNotice('Opening page…')
+    frameRef.current?.contentWindow?.postMessage({ source: 'ksj-portal-editor', type: 'navigate', pathname }, '*')
+  }
+
+  async function navigateHistory(direction) {
+    const saved = await flushInlineDraft('✓ Draft saved before changing page')
+    if (!saved) return
+    setSelection(null)
+    setNotice(direction === 'back' ? 'Going back…' : 'Going forward…')
+    frameRef.current?.contentWindow?.postMessage({ source: 'ksj-portal-editor', type: direction === 'back' ? 'history-back' : 'history-forward' }, '*')
   }
 
   async function applyHistory(index, message) {
@@ -397,7 +446,15 @@ export function PageBuilderPage({ client = false }) {
       <div ref={workspaceRef} className={`editorWorkspace ${focusMode ? 'editorFocusMode' : ''} ${selection ? 'inspectorOpen' : ''}`}>
         <header className="editorTopbar">
           <div className="editorIdentity"><button className="editorBack" onClick={() => setFocusMode(false)} aria-label="Exit focus mode">←</button><div><strong>{website?.name || 'Assigned Website'}</strong><small>{notice}</small></div>{account?.role === 'owner' && websites.length > 1 && <select value={websiteId || ''} onChange={event => setSelectedWebsiteId(event.target.value)}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select>}</div>
-          <div className="editorDevices">{['desktop', 'tablet', 'mobile'].map(mode => <button key={mode} className={device === mode ? 'active' : ''} onClick={() => setDevice(mode)}>{mode}</button>)}</div>
+          <div className="editorDevices editorPageNavigator">
+            <button onClick={() => navigateHistory('back')} title="Previous page">←</button>
+            <button onClick={() => navigateHistory('forward')} title="Next page">→</button>
+            <select aria-label="Page being edited" value={pages.some(page => page.target === currentPath) ? currentPath : ''} onChange={event => navigateFrame(event.target.value)}>
+              {!pages.some(page => page.target === currentPath) && <option value="">Current: {currentPath}</option>}
+              {pages.map(page => <option key={page.target} value={page.target}>{page.label}</option>)}
+            </select>
+            {['desktop', 'tablet', 'mobile'].map(mode => <button key={mode} className={device === mode ? 'active' : ''} onClick={() => setDevice(mode)}>{mode}</button>)}
+          </div>
           <div className="editorActions">
             <button disabled={!canUndo} onClick={undo} title="Undo (Ctrl+Z)">↶ Undo</button>
             <button disabled={!canRedo} onClick={redo} title="Redo (Ctrl+Y)">↷ Redo</button>
