@@ -13,15 +13,18 @@ function siteUrl(website, editor = false) {
   return `${url}${url.includes('?') ? '&' : '?'}ksjEditor=1`
 }
 
-function FieldInspector({ account, content, selection, value, onChange, onUpload, onRuleChange }) {
-  if (!selection?.fieldId) return <p>Click an editable area on the website to manage it here.</p>
+function FieldInspector({ account, content, selection, value, onChange, onUpload, onRuleChange, onClose }) {
+  if (!selection?.fieldId) return null
   const rule = fieldRule(content, selection.fieldId)
   const editable = canEditField(account, content, selection.fieldId)
   const multiline = selection.kind === 'textarea' || String(value || '').length > 80
 
   return (
     <div className="liveFieldInspector">
-      <div className="selectedFieldTitle"><span>{selection.label || 'Website field'}</span><code>{selection.fieldId}</code></div>
+      <div className="selectedFieldTitle">
+        <div><span>{selection.label || 'Website field'}</span><code>{selection.fieldId}</code></div>
+        <button className="inspectorClose" onClick={onClose} aria-label="Close editor">×</button>
+      </div>
       {selection.kind === 'image' ? (
         <VisualImageControl value={value} disabled={!editable} onUpload={onUpload} onUrlChange={onChange} />
       ) : (
@@ -49,11 +52,14 @@ export function PageBuilderPage({ client = false }) {
   const website = account?.role === 'owner' ? websites.find(site => site.id === selectedWebsiteId) || websites[0] || null : assignedWebsite
   const websiteId = website?.id
   const frameRef = useRef(null)
+  const workspaceRef = useRef(null)
   const [frameReady, setFrameReady] = useState(false)
   const [content, setContent] = useState({ pages: [] })
   const [selection, setSelection] = useState(null)
   const [device, setDevice] = useState('desktop')
   const [notice, setNotice] = useState('Loading website')
+  const [focusMode, setFocusMode] = useState(true)
+  const [browserFullscreen, setBrowserFullscreen] = useState(false)
   const canRequestUpdates = account?.role === 'owner' || account?.canRequestUpdates
   const selectedValue = useMemo(() => selection?.fieldId ? getPathValue(content, selection.fieldId) ?? selection.value ?? '' : '', [content, selection])
 
@@ -65,23 +71,49 @@ export function PageBuilderPage({ client = false }) {
     api.getContent(websiteId).then(data => { if (!cancelled) { setContent(data); setNotice('Website ready') } }).catch(error => !cancelled && setNotice(error.message || 'Website unavailable'))
     return () => { cancelled = true }
   }, [websiteId])
+
+  function initialiseFrame() {
+    frameRef.current?.contentWindow?.postMessage({ source: 'ksj-portal-editor', type: 'initialise', content, role: account?.role }, '*')
+  }
+
   useEffect(() => {
     function receive(event) {
       if (!event.data || event.data.source !== 'ksj-site-editor') return
-      if (event.data.type === 'ready') { setFrameReady(true); setNotice('Click the website to edit') }
+      if (event.data.type === 'ready') {
+        setFrameReady(true)
+        setNotice(event.data.fieldCount ? `${event.data.fieldCount} editable areas ready` : 'Editor connected')
+        initialiseFrame()
+      }
       if (event.data.type === 'select-field') setSelection(event.data.field)
     }
     window.addEventListener('message', receive)
     return () => window.removeEventListener('message', receive)
+  })
+
+  useEffect(() => { if (frameReady) initialiseFrame() }, [account?.role, content, frameReady])
+  useEffect(() => {
+    function changed() { setBrowserFullscreen(document.fullscreenElement === workspaceRef.current) }
+    document.addEventListener('fullscreenchange', changed)
+    return () => document.removeEventListener('fullscreenchange', changed)
   }, [])
   useEffect(() => {
-    if (!frameReady) return
-    frameRef.current?.contentWindow?.postMessage({ source: 'ksj-portal-editor', type: 'initialise', content, role: account?.role }, '*')
-  }, [account?.role, content, frameReady])
+    function closeInspector(event) { if (event.key === 'Escape' && selection) setSelection(null) }
+    window.addEventListener('keydown', closeInspector)
+    return () => window.removeEventListener('keydown', closeInspector)
+  }, [selection])
+
+  function frameLoaded() {
+    setFrameReady(false)
+    setNotice('Connecting editor…')
+    const target = frameRef.current?.contentWindow
+    target?.postMessage({ source: 'ksj-portal-editor', type: 'ping' }, '*')
+    window.setTimeout(initialiseFrame, 150)
+    window.setTimeout(() => target?.postMessage({ source: 'ksj-portal-editor', type: 'ping' }, '*'), 700)
+  }
 
   async function save(nextContent, message) {
     if (!websiteId) return
-    setContent(nextContent); setNotice('Saving draft')
+    setContent(nextContent); setNotice('Saving…')
     try { const saved = await api.saveContent(websiteId, nextContent); setContent(saved); setNotice(message) } catch (error) { setNotice(error.message || 'Save failed') }
   }
   function patchFrame(fieldId, value, nextContent = content) {
@@ -90,34 +122,57 @@ export function PageBuilderPage({ client = false }) {
   function updateSelected(value) {
     if (!selection?.fieldId || !canEditField(account, content, selection.fieldId)) return
     const next = setPathValue(content, selection.fieldId, value)
-    patchFrame(selection.fieldId, value, next); save(next, 'Draft saved')
+    patchFrame(selection.fieldId, value, next); save(next, '✓ Draft saved')
   }
   async function uploadSelectedImage(file) {
     if (!file || !selection?.fieldId || !websiteId || !canEditField(account, content, selection.fieldId)) return
-    setNotice('Uploading image')
+    setNotice('Uploading image…')
     try {
       const asset = await api.uploadAsset(website.owner || website.id, websiteId, selection.fieldId, file)
-      const value = asset.url
-      const next = setPathValue(content, selection.fieldId, value)
-      patchFrame(selection.fieldId, value, next)
-      await save(next, 'Image uploaded and draft saved')
+      const next = setPathValue(content, selection.fieldId, asset.url)
+      patchFrame(selection.fieldId, asset.url, next)
+      await save(next, '✓ Image uploaded')
     } catch (error) { setNotice(error.message || 'Image upload failed') }
   }
   function updateRule(changes) {
     if (account?.role !== 'owner' || !selection?.fieldId) return
     const next = updateFieldRule(content, selection.fieldId, changes)
-    patchFrame(selection.fieldId, getPathValue(next, selection.fieldId), next); save(next, 'Client access updated')
+    patchFrame(selection.fieldId, getPathValue(next, selection.fieldId), next); save(next, '✓ Client access updated')
   }
   async function submitForApproval() {
     if (!websiteId || !canRequestUpdates) return setNotice('Update request permission required')
-    setNotice('Submitting for approval')
-    try { await api.createPublishRequest({ websiteId, websiteName: website.name, repository: website.repository, title: 'Visual website edits', createdBy: account?.displayName || account?.name, contentPath: `server-data/content/${websiteId}.json` }); setNotice('Submitted to KSJ Digital for approval') } catch (error) { setNotice(error.message || 'Submission failed') }
+    setNotice('Submitting…')
+    try { await api.createPublishRequest({ websiteId, websiteName: website.name, repository: website.repository, title: 'Visual website edits', createdBy: account?.displayName || account?.name, contentPath: `server-data/content/${websiteId}.json` }); setNotice('✓ Submitted for approval') } catch (error) { setNotice(error.message || 'Submission failed') }
+  }
+  async function toggleBrowserFullscreen() {
+    if (document.fullscreenElement) await document.exitFullscreen()
+    else await workspaceRef.current?.requestFullscreen()
   }
 
   return (
     <Layout client={client} title={client ? 'Edit Website' : 'Website Editor'}>
-      <section className="visualEditorHeader card"><div><span>{client ? 'Your live website' : 'Owner editing mode'}</span><h2>{website?.name || 'Assigned Website'}</h2><p>This is the real website visitors see. Click highlighted content or images to edit them directly.</p>{account?.role === 'owner' && websites.length > 0 && <label className="ownerWebsitePicker">Website<select value={websiteId || ''} onChange={event => setSelectedWebsiteId(event.target.value)}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>}</div><div className="visualEditorHeaderActions"><button className="secondary" onClick={() => window.open(siteUrl(website), '_blank')}>Open Live Website</button>{client && canRequestUpdates && <button onClick={submitForApproval}>Submit Changes</button>}<small>{notice}</small></div></section>
-      <section className="realSiteEditorShell"><div className="card realSiteCanvas"><div className="visualCanvasToolbar"><strong>Website preview</strong><div>{['desktop', 'tablet', 'mobile'].map(mode => <button key={mode} className={device === mode ? 'active' : ''} onClick={() => setDevice(mode)}>{mode}</button>)}</div></div><div className={`realSiteFrameWrap ${device}`}>{website?.domain || website?.editorUrl || website?.previewUrl ? <iframe key={websiteId} ref={frameRef} title={`${website.name} visual editor`} src={siteUrl(website, true)} /> : <p className="emptyState">This website does not have a domain or editor URL configured.</p>}</div></div><aside className="card visualInspector realSiteInspector"><div className="panelHead"><h2>{selection?.label || 'Edit Website'}</h2>{selection?.locked && <span>🔒</span>}</div><FieldInspector account={account} content={content} selection={selection} value={selectedValue} onChange={updateSelected} onUpload={uploadSelectedImage} onRuleChange={updateRule} /></aside></section>
+      <div ref={workspaceRef} className={`editorWorkspace ${focusMode ? 'editorFocusMode' : ''} ${selection ? 'inspectorOpen' : ''}`}>
+        <header className="editorTopbar">
+          <div className="editorIdentity">
+            <button className="editorBack" onClick={() => setFocusMode(false)} aria-label="Exit focus mode">←</button>
+            <div><strong>{website?.name || 'Assigned Website'}</strong><small>{notice}</small></div>
+            {account?.role === 'owner' && websites.length > 1 && <select value={websiteId || ''} onChange={event => setSelectedWebsiteId(event.target.value)}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select>}
+          </div>
+          <div className="editorDevices">{['desktop', 'tablet', 'mobile'].map(mode => <button key={mode} className={device === mode ? 'active' : ''} onClick={() => setDevice(mode)}>{mode}</button>)}</div>
+          <div className="editorActions">
+            {!focusMode && <button onClick={() => setFocusMode(true)}>Focus Editor</button>}
+            <button onClick={toggleBrowserFullscreen}>{browserFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</button>
+            <button onClick={() => window.open(siteUrl(website), '_blank')}>Preview</button>
+            {client && canRequestUpdates && <button className="primary" onClick={submitForApproval}>Submit Changes</button>}
+          </div>
+        </header>
+        <main className="editorStage">
+          <div className={`editorCanvas ${device}`}>
+            {website?.domain || website?.editorUrl || website?.previewUrl ? <iframe key={websiteId} ref={frameRef} title={`${website.name} visual editor`} src={siteUrl(website, true)} onLoad={frameLoaded} /> : <p className="emptyState">This website does not have a domain or editor URL configured.</p>}
+          </div>
+          {selection && <aside className="editorInspector"><FieldInspector account={account} content={content} selection={selection} value={selectedValue} onChange={updateSelected} onUpload={uploadSelectedImage} onRuleChange={updateRule} onClose={() => setSelection(null)} /></aside>}
+        </main>
+      </div>
     </Layout>
   )
 }
