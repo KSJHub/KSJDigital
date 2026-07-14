@@ -11,6 +11,10 @@ function isPublicSiteRoute(path) {
   return path === '/api/public/sites/:websiteId'
 }
 
+function isRequestListRoute(path) {
+  return path === '/api/publish/requests'
+}
+
 function isCreateRequestRoute(path) {
   return path === '/api/publish/requests'
 }
@@ -31,6 +35,11 @@ function sessionWebsiteIds(session) {
 function hasWebsiteAccess(session, websiteId) {
   if (session?.role === 'owner') return true
   return new Set(sessionWebsiteIds(session) || []).has(websiteId)
+}
+
+function withoutSnapshot(request) {
+  const { draftSnapshot, ...safeRequest } = request
+  return safeRequest
 }
 
 function safePreviewValue(value) {
@@ -97,6 +106,18 @@ async function publicSiteHandler(req, res) {
   }
 }
 
+async function listRequestsHandler(req, res) {
+  try {
+    const requests = await readJson(paths.requests(), [])
+    const visible = req.session?.role === 'owner'
+      ? requests
+      : requests.filter(request => hasWebsiteAccess(req.session, request.websiteId))
+    return res.json(visible.map(withoutSnapshot))
+  } catch (error) {
+    return res.status(400).json({ error: error.message || 'Unable to load publish requests' })
+  }
+}
+
 async function createRequestHandler(req, res) {
   try {
     if (req.session?.role !== 'owner' && !req.session?.canRequestUpdates) {
@@ -126,7 +147,7 @@ async function createRequestHandler(req, res) {
     }
 
     await writeJson(paths.requests(), [request, ...requests])
-    return res.json(request)
+    return res.json(withoutSnapshot(request))
   } catch (error) {
     return res.status(400).json({ error: error.message || 'Unable to create publish request' })
   }
@@ -148,7 +169,7 @@ async function reviewRequestHandler(req, res) {
 
     const changes = buildDiff(published, draft)
     return res.json({
-      request: { ...request, draftSnapshot: undefined },
+      request: withoutSnapshot(request),
       published,
       draft,
       changes,
@@ -211,7 +232,7 @@ async function approveRequestHandler(req, res) {
       ...history,
     ])
 
-    return res.json({ ...updatedRequest, draftSnapshot: undefined })
+    return res.json(withoutSnapshot(updatedRequest))
   } catch (error) {
     return res.status(400).json({ error: error.message || 'Unable to publish website snapshot' })
   }
@@ -219,6 +240,7 @@ async function approveRequestHandler(req, res) {
 
 express.application.get = function patchedGet(path, ...handlers) {
   if (isPublicSiteRoute(path)) return originalGet.call(this, path, publicSiteHandler)
+  if (isRequestListRoute(path)) return originalGet.call(this, path, listRequestsHandler)
   if (isReviewRoute(path)) return originalGet.call(this, path, reviewRequestHandler)
   return originalGet.call(this, path, ...handlers)
 }
