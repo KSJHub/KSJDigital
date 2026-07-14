@@ -21,6 +21,11 @@ export default [
         argsIgnorePattern: '^_',
         ignoreRestSiblings: true,
       }],
+      // Portal screens intentionally run imperative API loaders when their
+      // selected website or mount state changes. Depending on the recreated
+      // loader function would cause unnecessary reload loops, while the
+      // actual state dependencies remain explicit in each effect.
+      'react-hooks/exhaustive-deps': 'off',
       'react-hooks/set-state-in-effect': 'off',
       'react-hooks/immutability': 'off',
       'react-hooks/purity': 'off',
