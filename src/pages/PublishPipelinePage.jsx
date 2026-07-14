@@ -52,6 +52,10 @@ export function PublishPipelinePage({ client = false }) {
   const [reviewError, setReviewError] = useState('')
   const [rejectionReason, setRejectionReason] = useState('')
   const [decisionBusy, setDecisionBusy] = useState(false)
+  const [selectedHistoryId, setSelectedHistoryId] = useState('')
+  const [historyReview, setHistoryReview] = useState(null)
+  const [historyReviewError, setHistoryReviewError] = useState('')
+  const [historyBusy, setHistoryBusy] = useState(false)
   const [notice, setNotice] = useState(client && !canRequestUpdates ? 'Request permission required' : 'Ready')
 
   const visibleRequests = useMemo(() => {
@@ -60,6 +64,7 @@ export function PublishPipelinePage({ client = false }) {
   }, [account?.websiteIds, client, requests])
 
   const selectedRequest = visibleRequests.find(request => request.id === selectedId) || null
+  const selectedHistory = history.find(item => item.id === selectedHistoryId) || null
 
   async function load(preferredId = '') {
     try {
@@ -158,6 +163,43 @@ export function PublishPipelinePage({ client = false }) {
     }
   }
 
+  async function openHistory(item) {
+    if (client) return
+    setSelectedHistoryId(item.id)
+    setHistoryReview(null)
+    setHistoryReviewError('')
+    if (!item.rollbackAvailable) {
+      setHistoryReviewError('This legacy version predates snapshot storage and cannot be opened or restored.')
+      return
+    }
+    try {
+      setHistoryBusy(true)
+      setHistoryReview(await api.getPublishHistoryReview(item.id))
+    } catch (error) {
+      setHistoryReviewError(error.message || 'Version could not be loaded')
+    } finally {
+      setHistoryBusy(false)
+    }
+  }
+
+  async function rollbackVersion() {
+    if (!selectedHistory || !historyReview) return
+    const message = `Restore ${selectedHistory.version || 'this version'} for ${selectedHistory.websiteName || selectedHistory.websiteId}?\n\nThis will publish a new version and also replace the current editable draft.`
+    if (!window.confirm(message)) return
+    try {
+      setHistoryBusy(true)
+      const restored = await api.rollbackPublishHistory(selectedHistory.id)
+      await load()
+      setSelectedHistoryId('')
+      setHistoryReview(null)
+      setNotice(`${restored.version} published by restoring ${selectedHistory.version || 'the selected version'}`)
+    } catch (error) {
+      setHistoryReviewError(error.message || 'Rollback failed')
+    } finally {
+      setHistoryBusy(false)
+    }
+  }
+
   return (
     <Layout client={client} title={client ? 'Updates' : 'Approvals'}>
       <section className="moduleHero card">
@@ -233,9 +275,42 @@ export function PublishPipelinePage({ client = false }) {
 
           <aside className="card approvalHistory">
             <div className="panelHead"><h2>Publish History</h2><span>{history.length}</span></div>
-            {history.length ? history.slice(0, 12).map(item => <article key={item.id}><b>{item.version || item.websiteName || item.websiteId}</b><span>{item.title || item.action || item.status || 'Published'}</span><small>{item.changedFields ?? 0} changes · {displayDate(item.publishedAt || item.createdAt)}</small></article>) : <p>No deployments yet.</p>}
+            {history.length ? history.slice(0, 20).map(item => (
+              <button className="historyVersionButton" key={item.id} onClick={() => openHistory(item)}>
+                <b>{item.version || item.websiteName || item.websiteId}</b>
+                <span>{item.title || item.action || item.status || 'Published'}</span>
+                <small>{item.changedFields ?? 0} changes · {displayDate(item.publishedAt || item.createdAt)}</small>
+                <em>{item.rollbackAvailable ? 'Review version' : 'Legacy record'}</em>
+              </button>
+            )) : <p>No deployments yet.</p>}
           </aside>
         </section>
+      )}
+
+      {!client && selectedHistoryId && (
+        <div className="versionReviewBackdrop" role="dialog" aria-modal="true" aria-label="Published version review">
+          <section className="versionReviewModal card">
+            <header>
+              <div><span>{selectedHistory?.websiteName || selectedHistory?.websiteId}</span><h2>{selectedHistory?.version || 'Published version'} · {selectedHistory?.title || selectedHistory?.action}</h2><p>Published {displayDate(selectedHistory?.publishedAt || selectedHistory?.createdAt)} by {selectedHistory?.createdBy || 'KSJ Digital'}</p></div>
+              <button onClick={() => { setSelectedHistoryId(''); setHistoryReview(null); setHistoryReviewError('') }} aria-label="Close version review">×</button>
+            </header>
+
+            {historyBusy && !historyReview ? <p className="emptyState">Loading version snapshot…</p> : historyReviewError ? <div className="approvalReviewError"><strong>Version unavailable</strong><p>{historyReviewError}</p></div> : historyReview ? (
+              <>
+                <div className="approvalStats">
+                  <article><b>{historyReview.totals?.changedFields || 0}</b><span>Changes from current live</span></article>
+                  <article><b>{historyReview.totals?.changedSections || 0}</b><span>Areas affected</span></article>
+                  <article><b>{selectedHistory?.restoredFromVersion || selectedHistory?.version}</b><span>{selectedHistory?.action === 'Rollback' ? 'Rollback source' : 'Stored version'}</span></article>
+                </div>
+                <section className="changeSummary"><h3>Version comparison</h3><div>{historyReview.summary?.length ? historyReview.summary.map(item => <span key={item.section}>{friendlyPath(item.section)} · {item.count}</span>) : <span>This version already matches the current live website</span>}</div></section>
+                <section className="versionChangeList changeList">
+                  {historyReview.changes?.length ? historyReview.changes.map(change => <article className="changeCard" key={change.path}><h4>{friendlyPath(change.path)}</h4><div className="changeColumns"><ChangeValue label="Current Live" value={change.before} /><ChangeValue label={selectedHistory?.version || 'Selected Version'} value={change.after} /></div></article>) : <p className="emptyState">No differences from the current live website.</p>}
+                </section>
+                <footer><button onClick={() => { setSelectedHistoryId(''); setHistoryReview(null) }}>Close</button><button className="danger" disabled={historyBusy || !historyReview.changes?.length} onClick={rollbackVersion}>{historyBusy ? 'Restoring…' : `Restore ${selectedHistory?.version || 'Version'}`}</button></footer>
+              </>
+            ) : null}
+          </section>
+        </div>
       )}
     </Layout>
   )
