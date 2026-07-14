@@ -57,6 +57,7 @@ const clientGroups = [
     items: [
       ['/client', 'Home'],
       ['/client/editor', 'Edit Website', 'canEdit'],
+      ['/client/branding', 'Branding', 'canManageMedia'],
       ['/client/merch', 'Merch', 'canEdit'],
       ['/client/orders', 'Orders', 'canEdit'],
     ],
