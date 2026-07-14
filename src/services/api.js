@@ -89,6 +89,7 @@ export const api = {
   replyTicket: (id, payload) =>
     request(`/support/tickets/${id}/replies`, { method: 'POST', body: JSON.stringify(payload) }),
   getPublishRequests: () => request('/publish/requests'),
+  getPublishRequestReview: id => request(`/publish/requests/${id}/review`),
   createPublishRequest: payload =>
     request('/publish/requests', { method: 'POST', body: JSON.stringify(payload) }),
   approvePublishRequest: id =>
