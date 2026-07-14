@@ -10,6 +10,7 @@ import { OwnerClientsPage } from './pages/OwnerClientsPage.jsx'
 import { ClientWebsitePage } from './pages/ClientWebsitePage.jsx'
 import { SiteSettingsPage } from './pages/SiteSettingsPage.jsx'
 import { CommerceSettingsV2Page } from './pages/CommerceSettingsV2Page.jsx'
+import { CheckoutTestPage } from './pages/CheckoutTestPage.jsx'
 import { InventoryPage } from './pages/InventoryPage.jsx'
 import { PublishPipelinePage } from './pages/PublishPipelinePage.jsx'
 import { PageBuilderPage } from './pages/PageBuilderPage.jsx'
@@ -44,6 +45,7 @@ function Workspace({ client = false, type }) {
   if (!client && type === 'inventory') return <InventoryPage />
   if (!client && type === 'orders') return <OrdersPage />
   if (!client && type === 'commerce') return <CommerceSettingsV2Page />
+  if (!client && type === 'checkout-test') return <CheckoutTestPage />
   if (!client && type === 'operations') return <OperationsPage />
   if (!client && type === 'launch') return <ReleaseCentrePage />
   if (!client && type === 'publish-requests') return <PublishPipelinePage />
