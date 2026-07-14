@@ -1,0 +1,152 @@
+.clientHome {
+  display: grid;
+  gap: 1rem;
+}
+
+.clientWelcome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1.5rem;
+}
+
+.clientWelcome h2 {
+  margin: .35rem 0 .45rem;
+  font-size: clamp(1.7rem, 3vw, 2.5rem);
+}
+
+.clientWelcome p,
+.clientSiteSummary p,
+.clientActionCard p,
+.clientUpdateCard p {
+  color: var(--muted, #9fb0ca);
+  line-height: 1.6;
+}
+
+.clientWelcomeActions,
+.clientSiteButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .65rem;
+}
+
+.clientWelcomeActions button,
+.clientSiteButtons button,
+.clientActionCard button {
+  min-height: 42px;
+}
+
+.clientSiteSummary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.25rem;
+}
+
+.clientSiteMark {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #1677ff, #8538e8);
+  color: white;
+  font-size: 1.1rem;
+  font-weight: 900;
+}
+
+.clientSiteSummary h3 { margin: 0 0 .3rem; }
+.clientSiteSummary p { margin: 0; }
+
+.clientStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  color: #42db8a;
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+.clientStatus::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.clientActionGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.clientActionCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-height: 190px;
+  padding: 1.25rem;
+}
+
+.clientActionIcon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #10264a;
+  font-size: 1.25rem;
+}
+
+.clientActionCard h3 { margin: 1rem 0 .35rem; }
+.clientActionCard p { flex: 1; margin: 0 0 1rem; }
+
+.clientBottomGrid {
+  display: grid;
+  grid-template-columns: 1.3fr .7fr;
+  gap: 1rem;
+}
+
+.clientUpdateCard,
+.clientHelpCard {
+  padding: 1.25rem;
+}
+
+.clientSimpleSteps {
+  display: grid;
+  gap: .65rem;
+  margin-top: 1rem;
+}
+
+.clientSimpleSteps span {
+  padding: .8rem 1rem;
+  border: 1px solid #243a5d;
+  border-radius: 12px;
+  background: #0b172a;
+}
+
+.sidebar nav .navGroupLabel {
+  padding: .85rem .7rem .35rem;
+  color: #7085a5;
+  font-size: .64rem;
+  font-weight: 900;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.sidebar.clientSidebar .supportBox p { margin-bottom: .75rem; }
+
+@media (max-width: 1000px) {
+  .clientActionGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .clientBottomGrid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 700px) {
+  .clientWelcome,
+  .clientSiteSummary { align-items: flex-start; flex-direction: column; }
+  .clientSiteSummary { display: flex; }
+  .clientActionGrid { grid-template-columns: 1fr; }
+}
