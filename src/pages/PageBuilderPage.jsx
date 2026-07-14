@@ -4,7 +4,17 @@ import { VisualImageControl } from '../components/VisualImageControl.jsx'
 import { api } from '../services/api.js'
 import { getAccountFromPath } from '../services/auth.js'
 import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
-import { FIELD_ACCESS, canEditField, fieldRule, getPathValue, setPathValue, updateFieldRule } from '../services/editorPolicy.js'
+import {
+  FIELD_ACCESS,
+  canEditField,
+  canManageSection,
+  fieldRule,
+  getPathValue,
+  sectionRule,
+  setPathValue,
+  updateFieldRule,
+  updateSectionRule,
+} from '../services/editorPolicy.js'
 
 function localDevelopment() {
   return ['localhost', '127.0.0.1'].includes(window.location.hostname)
@@ -27,18 +37,64 @@ function FieldInspector({ account, content, selection, value, onChange, onUpload
 
   return (
     <div className="liveFieldInspector">
-      <div className="selectedFieldTitle"><div><span>{selection.label || 'Website field'}</span><code>{selection.fieldId}</code></div><button className="inspectorClose" onClick={onClose} aria-label="Close editor">×</button></div>
-      {selection.kind === 'image' ? <VisualImageControl value={value} disabled={!editable} onUpload={onUpload} onUrlChange={onChange} /> : <label>Content{multiline ? <textarea value={value ?? ''} disabled={!editable} onChange={event => onChange(event.target.value)} /> : <input value={value ?? ''} disabled={!editable} onChange={event => onChange(event.target.value)} />}</label>}
+      <div className="selectedFieldTitle">
+        <div><span>{selection.label || 'Website field'}</span><code>{selection.fieldId}</code></div>
+        <button className="inspectorClose" onClick={onClose} aria-label="Close editor">×</button>
+      </div>
+      {selection.kind === 'image'
+        ? <VisualImageControl value={value} disabled={!editable} onUpload={onUpload} onUrlChange={onChange} />
+        : <label>Content{multiline
+          ? <textarea value={value ?? ''} disabled={!editable} onChange={event => onChange(event.target.value)} />
+          : <input value={value ?? ''} disabled={!editable} onChange={event => onChange(event.target.value)} />}</label>}
       {account?.role === 'owner' ? (
         <section className="ownerFieldControls">
           <h3>Client access</h3>
           <label>Access<select value={rule.access} onChange={event => onRuleChange({ access: event.target.value })}><option value={FIELD_ACCESS.EDITABLE}>Client editable</option><option value={FIELD_ACCESS.VIEW_ONLY}>View only</option><option value={FIELD_ACCESS.HIDDEN}>Hidden from client editor</option><option value={FIELD_ACCESS.OWNER_ONLY}>Owner only</option></select></label>
-          <label className="formCheck"><input type="checkbox" checked={rule.approvalRequired !== false} onChange={event => onRuleChange({ approvalRequired: event.target.checked })} />Changes require KSJ approval</label>
-          <label className="formCheck"><input type="checkbox" checked={rule.movable !== false} onChange={event => onRuleChange({ movable: event.target.checked })} />Client may move this section</label>
-          <label className="formCheck"><input type="checkbox" checked={rule.deletable !== false} onChange={event => onRuleChange({ deletable: event.target.checked })} />Client may remove this section</label>
-          <label>Lock reason<input value={rule.reason || ''} onChange={event => onRuleChange({ reason: event.target.value })} placeholder="Example: KSJ Digital platform credit" /></label>
+          <label className="formCheck"><input type="checkbox" checked={rule.approvalRequired !== false} onChange={event => onRuleChange({ approvalRequired: event.target.checked })} /> Changes require KSJ approval</label>
+          <label>Lock reason<input value={rule.reason || ''} onChange={event => onRuleChange({ reason: event.target.value })} placeholder="Explain why this field is locked" /></label>
         </section>
       ) : !editable && <div className="lockedFieldNotice">🔒 {rule.reason || 'This content is controlled by KSJ Digital.'}</div>}
+    </div>
+  )
+}
+
+function SectionInspector({ account, content, selection, onRuleChange, onMove, onClose }) {
+  if (!selection?.sectionId) return null
+  const rule = sectionRule(content, selection.sectionId, selection.defaultOrder || 0)
+  const manageable = canManageSection(account, content, selection.sectionId)
+  const platformOwner = account?.role === 'owner'
+  const canMove = platformOwner || (manageable && rule.movable !== false)
+  const canHide = platformOwner || manageable
+  const canRemove = platformOwner || (manageable && rule.deletable === true)
+
+  return (
+    <div className="liveFieldInspector sectionInspector">
+      <div className="selectedFieldTitle">
+        <div><span>{selection.label || 'Website section'}</span><code>{selection.sectionId}</code></div>
+        <button className="inspectorClose" onClick={onClose} aria-label="Close section controls">×</button>
+      </div>
+
+      <section className="sectionActionsPanel">
+        <h3>Section controls</h3>
+        <div className="sectionMoveActions">
+          <button disabled={!canMove} onClick={() => onMove('up')}>↑ Move Up</button>
+          <button disabled={!canMove} onClick={() => onMove('down')}>↓ Move Down</button>
+        </div>
+        <button disabled={!canHide} onClick={() => onRuleChange({ hidden: !rule.hidden })}>{rule.hidden ? 'Restore Section' : 'Hide Section'}</button>
+        <button className="danger" disabled={!canRemove} onClick={() => onRuleChange({ hidden: true, removed: true })}>Remove Section</button>
+        {!manageable && <div className="lockedFieldNotice">🔒 {rule.reason || 'This section is controlled by KSJ Digital.'}</div>}
+      </section>
+
+      {platformOwner && (
+        <section className="ownerFieldControls">
+          <h3>Client section permissions</h3>
+          <label>Access<select value={rule.access} onChange={event => onRuleChange({ access: event.target.value })}><option value={FIELD_ACCESS.EDITABLE}>Client manageable</option><option value={FIELD_ACCESS.VIEW_ONLY}>View only</option><option value={FIELD_ACCESS.HIDDEN}>Hidden from client editor</option><option value={FIELD_ACCESS.OWNER_ONLY}>Owner only</option></select></label>
+          <label className="formCheck"><input type="checkbox" checked={rule.approvalRequired !== false} onChange={event => onRuleChange({ approvalRequired: event.target.checked })} /> Changes require KSJ approval</label>
+          <label className="formCheck"><input type="checkbox" checked={rule.movable !== false} onChange={event => onRuleChange({ movable: event.target.checked })} /> Client may move this section</label>
+          <label className="formCheck"><input type="checkbox" checked={rule.deletable === true} onChange={event => onRuleChange({ deletable: event.target.checked })} /> Client may remove this section</label>
+          <label>Lock reason<input value={rule.reason || ''} onChange={event => onRuleChange({ reason: event.target.value })} placeholder="Explain why this section is locked" /></label>
+        </section>
+      )}
     </div>
   )
 }
@@ -74,8 +130,8 @@ export function PageBuilderPage({ client = false }) {
     return () => { cancelled = true }
   }, [websiteId])
 
-  function initialiseFrame() {
-    frameRef.current?.contentWindow?.postMessage({ source: 'ksj-portal-editor', type: 'initialise', content, role: account?.role }, '*')
+  function initialiseFrame(nextContent = content) {
+    frameRef.current?.contentWindow?.postMessage({ source: 'ksj-portal-editor', type: 'initialise', content: nextContent, role: account?.role }, '*')
   }
 
   useEffect(() => {
@@ -87,7 +143,8 @@ export function PageBuilderPage({ client = false }) {
         setNotice(event.data.fieldCount ? `${event.data.fieldCount} editable areas ready` : 'Editor connected')
         initialiseFrame()
       }
-      if (event.data.type === 'select-field') setSelection(event.data.field)
+      if (event.data.type === 'select-field') setSelection({ type: 'field', ...event.data.field })
+      if (event.data.type === 'select-section') setSelection({ type: 'section', ...event.data.section })
     }
     window.addEventListener('message', receive)
     return () => window.removeEventListener('message', receive)
@@ -123,17 +180,30 @@ export function PageBuilderPage({ client = false }) {
   async function save(nextContent, message) {
     if (!websiteId) return
     setSubmission(null)
-    setContent(nextContent); setNotice('Saving…')
-    try { const saved = await api.saveContent(websiteId, nextContent); setContent(saved); setNotice(message) } catch (error) { setNotice(error.message || 'Save failed') }
+    setContent(nextContent)
+    initialiseFrame(nextContent)
+    setNotice('Saving…')
+    try {
+      const saved = await api.saveContent(websiteId, nextContent)
+      setContent(saved)
+      initialiseFrame(saved)
+      setNotice(message)
+    } catch (error) {
+      setNotice(error.message || 'Save failed')
+    }
   }
+
   function patchFrame(fieldId, value, nextContent = content) {
     frameRef.current?.contentWindow?.postMessage({ source: 'ksj-portal-editor', type: 'patch-field', fieldId, value, rule: fieldRule(nextContent, fieldId) }, '*')
   }
+
   function updateSelected(value) {
     if (!selection?.fieldId || !canEditField(account, content, selection.fieldId)) return
     const next = setPathValue(content, selection.fieldId, value)
-    patchFrame(selection.fieldId, value, next); save(next, '✓ Draft saved')
+    patchFrame(selection.fieldId, value, next)
+    save(next, '✓ Draft saved')
   }
+
   async function uploadSelectedImage(file) {
     if (!file || !selection?.fieldId || !websiteId || !canEditField(account, content, selection.fieldId)) return
     setNotice('Uploading image…')
@@ -142,13 +212,35 @@ export function PageBuilderPage({ client = false }) {
       const next = setPathValue(content, selection.fieldId, asset.url)
       patchFrame(selection.fieldId, asset.url, next)
       await save(next, '✓ Image uploaded')
-    } catch (error) { setNotice(error.message || 'Image upload failed') }
+    } catch (error) {
+      setNotice(error.message || 'Image upload failed')
+    }
   }
+
   function updateRule(changes) {
     if (account?.role !== 'owner' || !selection?.fieldId) return
     const next = updateFieldRule(content, selection.fieldId, changes)
-    patchFrame(selection.fieldId, getPathValue(next, selection.fieldId), next); save(next, '✓ Client access updated')
+    patchFrame(selection.fieldId, getPathValue(next, selection.fieldId), next)
+    save(next, '✓ Client access updated')
   }
+
+  function updateSelectedSection(changes) {
+    if (!selection?.sectionId || !canManageSection(account, content, selection.sectionId)) return
+    const current = sectionRule(content, selection.sectionId, selection.defaultOrder || 0)
+    if (changes.removed === true && account?.role !== 'owner' && current.deletable !== true) return
+    const next = updateSectionRule(content, selection.sectionId, changes)
+    save(next, changes.hidden ? '✓ Section hidden' : '✓ Section settings saved')
+  }
+
+  function moveSelectedSection(direction) {
+    if (!selection?.sectionId || !canManageSection(account, content, selection.sectionId)) return
+    const current = sectionRule(content, selection.sectionId, selection.defaultOrder || 0)
+    if (account?.role !== 'owner' && current.movable === false) return
+    const step = direction === 'up' ? -10 : 10
+    const next = updateSectionRule(content, selection.sectionId, { order: Number(current.order || 0) + step })
+    save(next, direction === 'up' ? '✓ Section moved up' : '✓ Section moved down')
+  }
+
   async function submitForApproval() {
     if (!websiteId || !canRequestUpdates || submitting || submission?.type === 'success') return
     setSubmitting(true)
@@ -170,10 +262,12 @@ export function PageBuilderPage({ client = false }) {
       setSubmitting(false)
     }
   }
+
   async function toggleBrowserFullscreen() {
     if (document.fullscreenElement) await document.exitFullscreen()
     else await workspaceRef.current?.requestFullscreen()
   }
+
   function openSiteSettings() {
     location.href = client ? '/client/branding' : '/owner/branding'
   }
@@ -188,7 +282,8 @@ export function PageBuilderPage({ client = false }) {
         </header>
         <main className="editorStage">
           <div className={`editorCanvas ${device}`}>{website?.domain || website?.editorUrl || website?.previewUrl || website?.developmentEditorUrl ? <iframe key={websiteId} ref={frameRef} title={`${website.name} visual editor`} src={siteUrl(website, true)} onLoad={frameLoaded} /> : <p className="emptyState">This website does not have an editor URL configured.</p>}</div>
-          {selection && <aside className="editorInspector"><FieldInspector account={account} content={content} selection={selection} value={selectedValue} onChange={updateSelected} onUpload={uploadSelectedImage} onRuleChange={updateRule} onClose={() => setSelection(null)} /></aside>}
+          {selection?.type === 'field' && <aside className="editorInspector"><FieldInspector account={account} content={content} selection={selection} value={selectedValue} onChange={updateSelected} onUpload={uploadSelectedImage} onRuleChange={updateRule} onClose={() => setSelection(null)} /></aside>}
+          {selection?.type === 'section' && <aside className="editorInspector"><SectionInspector account={account} content={content} selection={selection} onRuleChange={updateSelectedSection} onMove={moveSelectedSection} onClose={() => setSelection(null)} /></aside>}
           {submission && <div className={`editorSubmission ${submission.type}`} role="status"><button onClick={() => setSubmission(null)} aria-label="Dismiss notification">×</button><strong>{submission.title}</strong><span>{submission.message}</span>{submission.requestId && <small>Request: {submission.requestId}</small>}</div>}
         </main>
       </div>
