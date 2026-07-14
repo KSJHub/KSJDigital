@@ -13,16 +13,23 @@ export async function getPublishedContent(websiteId) {
   })
 }
 
-export async function publishDraftContent(websiteId, metadata = {}) {
-  const draft = await readJson(paths.content(websiteId), null)
-  if (!draft) throw new Error('Website draft content was not found')
+export async function publishContentSnapshot(websiteId, snapshot, metadata = {}) {
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+    throw new Error('Website approval snapshot is invalid')
+  }
 
   const published = {
-    ...draft,
+    ...structuredClone(snapshot),
     publishedAt: new Date().toISOString(),
     publishedBy: metadata.publishedBy || 'KSJ Digital',
     publishRequestId: metadata.publishRequestId || '',
   }
   await writeJson(paths.publishedContent(websiteId), published)
   return published
+}
+
+export async function publishDraftContent(websiteId, metadata = {}) {
+  const draft = await readJson(paths.content(websiteId), null)
+  if (!draft) throw new Error('Website draft content was not found')
+  return publishContentSnapshot(websiteId, draft, metadata)
 }
