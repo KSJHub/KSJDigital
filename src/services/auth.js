@@ -78,10 +78,13 @@ export function canAccessOwner(account) {
   return account?.role === 'owner'
 }
 
-export function canEditWebsite(account, websiteName = 'TwoToneTaj') {
-  if (!account) return false
+export function canEditWebsite(account, website) {
+  if (!account || !website) return false
   if (account.role === 'owner') return true
-  return account.websiteAccess?.includes(websiteName)
+
+  const allowed = new Set([...(account.websiteIds || []), ...(account.websiteAccess || [])].map(String))
+  const identifiers = [website.id, website.name, website.domain].filter(Boolean).map(String)
+  return identifiers.some(identifier => allowed.has(identifier))
 }
 
 export function getPermissionSummary(account = {}) {
