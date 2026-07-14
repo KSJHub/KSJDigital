@@ -1,28 +1,29 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { AccessDenied } from './components/UI.jsx'
 import { canAccessOwner, getAccountFromPath, refreshSession } from './services/auth.js'
-import { PublicHomePage } from './pages/PublicHomePage.jsx'
-import { LoginPage } from './pages/LoginPage.jsx'
-import { DashboardPage } from './pages/DashboardPage.jsx'
-import { OwnerSupportPage } from './pages/OwnerSupportPage.jsx'
-import { OwnerWebsitesPage } from './pages/OwnerWebsitesPage.jsx'
-import { OwnerClientsPage } from './pages/OwnerClientsPage.jsx'
-import { ClientWebsitePage } from './pages/ClientWebsitePage.jsx'
-import { SiteSettingsPage } from './pages/SiteSettingsPage.jsx'
-import { CommerceSettingsV2Page } from './pages/CommerceSettingsV2Page.jsx'
-import { CheckoutTestPage } from './pages/CheckoutTestPage.jsx'
-import { InventoryPage } from './pages/InventoryPage.jsx'
-import { PublishPipelinePage } from './pages/PublishPipelinePage.jsx'
-import { PageBuilderPage } from './pages/PageBuilderPage.jsx'
-import { SiteEnginePage } from './pages/SiteEnginePage.jsx'
-import { MediaLibraryPage } from './pages/MediaLibraryPage.jsx'
-import { FormBuilderPage } from './pages/FormBuilderPage.jsx'
-import { MerchManagerV2Page } from './pages/MerchManagerV2Page.jsx'
-import { OrdersPage } from './pages/OrdersPage.jsx'
-import { OperationsPage } from './pages/OperationsPage.jsx'
-import { ReleaseCentrePage } from './pages/ReleaseCentrePage.jsx'
-import { SettingsPage } from './pages/SettingsPage.jsx'
-import { SupportPage } from './pages/SupportPage.jsx'
+
+const PublicHomePage = lazy(() => import('./pages/PublicHomePage.jsx').then(module => ({ default: module.PublicHomePage })))
+const LoginPage = lazy(() => import('./pages/LoginPage.jsx').then(module => ({ default: module.LoginPage })))
+const DashboardPage = lazy(() => import('./pages/DashboardPage.jsx').then(module => ({ default: module.DashboardPage })))
+const OwnerSupportPage = lazy(() => import('./pages/OwnerSupportPage.jsx').then(module => ({ default: module.OwnerSupportPage })))
+const OwnerWebsitesPage = lazy(() => import('./pages/OwnerWebsitesPage.jsx').then(module => ({ default: module.OwnerWebsitesPage })))
+const OwnerClientsPage = lazy(() => import('./pages/OwnerClientsPage.jsx').then(module => ({ default: module.OwnerClientsPage })))
+const ClientWebsitePage = lazy(() => import('./pages/ClientWebsitePage.jsx').then(module => ({ default: module.ClientWebsitePage })))
+const SiteSettingsPage = lazy(() => import('./pages/SiteSettingsPage.jsx').then(module => ({ default: module.SiteSettingsPage })))
+const CommerceSettingsV2Page = lazy(() => import('./pages/CommerceSettingsV2Page.jsx').then(module => ({ default: module.CommerceSettingsV2Page })))
+const CheckoutTestPage = lazy(() => import('./pages/CheckoutTestPage.jsx').then(module => ({ default: module.CheckoutTestPage })))
+const InventoryPage = lazy(() => import('./pages/InventoryPage.jsx').then(module => ({ default: module.InventoryPage })))
+const PublishPipelinePage = lazy(() => import('./pages/PublishPipelinePage.jsx').then(module => ({ default: module.PublishPipelinePage })))
+const PageBuilderPage = lazy(() => import('./pages/PageBuilderPage.jsx').then(module => ({ default: module.PageBuilderPage })))
+const SiteEnginePage = lazy(() => import('./pages/SiteEnginePage.jsx').then(module => ({ default: module.SiteEnginePage })))
+const MediaLibraryPage = lazy(() => import('./pages/MediaLibraryPage.jsx').then(module => ({ default: module.MediaLibraryPage })))
+const FormBuilderPage = lazy(() => import('./pages/FormBuilderPage.jsx').then(module => ({ default: module.FormBuilderPage })))
+const MerchManagerV2Page = lazy(() => import('./pages/MerchManagerV2Page.jsx').then(module => ({ default: module.MerchManagerV2Page })))
+const OrdersPage = lazy(() => import('./pages/OrdersPage.jsx').then(module => ({ default: module.OrdersPage })))
+const OperationsPage = lazy(() => import('./pages/OperationsPage.jsx').then(module => ({ default: module.OperationsPage })))
+const ReleaseCentrePage = lazy(() => import('./pages/ReleaseCentrePage.jsx').then(module => ({ default: module.ReleaseCentrePage })))
+const SettingsPage = lazy(() => import('./pages/SettingsPage.jsx').then(module => ({ default: module.SettingsPage })))
+const SupportPage = lazy(() => import('./pages/SupportPage.jsx').then(module => ({ default: module.SupportPage })))
 
 function route() { return location.pathname.replace(/\/$/, '') || '/' }
 
@@ -69,6 +70,10 @@ function Workspace({ client = false, type }) {
   return client ? <ClientWebsitePage /> : <OwnerWebsitesPage />
 }
 
+function PageLoading() {
+  return <main className="routeLoading" aria-live="polite"><div className="card"><strong>Loading workspace…</strong></div></main>
+}
+
 export default function App() {
   const path = route()
   const [account, setAccount] = useState(getAccountFromPath())
@@ -81,17 +86,20 @@ export default function App() {
     return () => { cancelled = true }
   }, [path])
 
-  if (path === '/') return <PublicHomePage />
-  if (path === '/login') return <LoginPage />
-  if (!sessionChecked || !account) return <LoginPage />
-  if (path.startsWith('/owner') && !canAccessOwner(account)) return <AccessDenied account={account} />
-  if (path === '/owner') return <DashboardPage />
-  if (path === '/client') return <DashboardPage client />
-  if (path.startsWith('/owner/')) return <Workspace type={path.split('/')[2]} />
-  if (path.startsWith('/client/')) {
+  let page
+  if (path === '/') page = <PublicHomePage />
+  else if (path === '/login') page = <LoginPage />
+  else if (!sessionChecked || !account) page = <LoginPage />
+  else if (path.startsWith('/owner') && !canAccessOwner(account)) page = <AccessDenied account={account} />
+  else if (path === '/owner') page = <DashboardPage />
+  else if (path === '/client') page = <DashboardPage client />
+  else if (path.startsWith('/owner/')) page = <Workspace type={path.split('/')[2]} />
+  else if (path.startsWith('/client/')) {
     const type = path.split('/')[2]
-    if (!canAccessClientRoute(account, type)) return <AccessDenied account={account} />
-    return <Workspace client type={type} />
-  }
-  return <PublicHomePage />
+    page = canAccessClientRoute(account, type)
+      ? <Workspace client type={type} />
+      : <AccessDenied account={account} />
+  } else page = <PublicHomePage />
+
+  return <Suspense fallback={<PageLoading />}>{page}</Suspense>
 }
