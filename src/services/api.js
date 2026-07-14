@@ -29,16 +29,13 @@ export const api = {
   deleteClient: id => request(`/clients/${id}`, { method: 'DELETE' }),
   storage: ownerId => request(`/storage/${ownerId}`),
   assets: (ownerId, websiteId) => request(`/assets/${ownerId}/${websiteId}`),
-  uploadAsset: (ownerId, websiteId, slotId, file) => {
-    const body = new FormData()
-    body.append('file', file)
-    return request(`/assets/${ownerId}/${websiteId}/${slotId}`, { method: 'POST', body })
-  },
+  uploadAsset: (ownerId, websiteId, slotId, file) => { const body = new FormData(); body.append('file', file); return request(`/assets/${ownerId}/${websiteId}/${slotId}`, { method: 'POST', body }) },
   getContent: websiteId => request(`/content/${websiteId}`),
   saveContent: (websiteId, content) => request(`/content/${websiteId}`, { method: 'PUT', body: JSON.stringify(content) }),
   getCommerceSettings: websiteId => request(`/commerce-settings/${websiteId}`),
   getCommerceReadiness: websiteId => request(`/commerce-settings/${websiteId}/readiness`),
   saveCommerceSettings: (websiteId, settings) => request(`/commerce-settings/${websiteId}`, { method: 'PUT', body: JSON.stringify(settings) }),
+  createBasketCheckout: (provider, payload) => request(`/checkout/basket/${provider}`, { method: 'POST', body: JSON.stringify(payload) }),
   getForms: websiteId => request(`/forms/${websiteId}`),
   saveForms: (websiteId, forms) => request(`/forms/${websiteId}`, { method: 'PUT', body: JSON.stringify({ forms }) }),
   createForm: (websiteId, payload = {}) => request(`/forms/${websiteId}`, { method: 'POST', body: JSON.stringify(payload) }),
