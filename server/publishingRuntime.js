@@ -1,6 +1,6 @@
 import express from 'express'
 import { starterWebsites } from './defaults.js'
-import { getPublishedContent, publishDraftContent } from './publishedContent.js'
+import { getPublishedContent, publishContentSnapshot } from './publishedContent.js'
 import { paths, readJson, readWebsiteAssets, safeName, writeJson } from './storage.js'
 
 const originalGet = express.application.get
@@ -11,8 +11,67 @@ function isPublicSiteRoute(path) {
   return path === '/api/public/sites/:websiteId'
 }
 
+function isCreateRequestRoute(path) {
+  return path === '/api/publish/requests'
+}
+
+function isReviewRoute(path) {
+  return path === '/api/publish/requests/:id/review'
+}
+
 function isApproveRoute(path) {
   return path === '/api/publish/requests/:id/approve'
+}
+
+function sessionWebsiteIds(session) {
+  if (session?.role === 'owner') return null
+  return session?.websiteIds || (session?.websiteId ? [session.websiteId] : [])
+}
+
+function hasWebsiteAccess(session, websiteId) {
+  if (session?.role === 'owner') return true
+  return new Set(sessionWebsiteIds(session) || []).has(websiteId)
+}
+
+function safePreviewValue(value) {
+  if (value === undefined) return null
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean' || value === null) return value
+  return value
+}
+
+function sameValue(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function buildDiff(before, after, path = '') {
+  if (sameValue(before, after)) return []
+
+  const beforeObject = before && typeof before === 'object'
+  const afterObject = after && typeof after === 'object'
+  if (!beforeObject || !afterObject || Array.isArray(before) !== Array.isArray(after)) {
+    return [{ path: path || 'content', before: safePreviewValue(before), after: safePreviewValue(after) }]
+  }
+
+  const keys = new Set([
+    ...Object.keys(before || {}),
+    ...Object.keys(after || {}),
+  ])
+
+  return [...keys].flatMap(key => {
+    if (['updatedAt', 'publishedAt', 'publishedBy', 'publishRequestId'].includes(key)) return []
+    const nextPath = path ? `${path}.${key}` : key
+    return buildDiff(before?.[key], after?.[key], nextPath)
+  })
+}
+
+function summariseDiff(changes = []) {
+  const groups = {}
+  changes.forEach(change => {
+    const group = change.path.split('.')[0] || 'content'
+    groups[group] = (groups[group] || 0) + 1
+  })
+  return Object.entries(groups).map(([section, count]) => ({ section, count }))
 }
 
 async function publicSiteHandler(req, res) {
@@ -38,6 +97,72 @@ async function publicSiteHandler(req, res) {
   }
 }
 
+async function createRequestHandler(req, res) {
+  try {
+    if (req.session?.role !== 'owner' && !req.session?.canRequestUpdates) {
+      return res.status(403).json({ error: 'Publish request permission required' })
+    }
+
+    const websiteId = safeName(req.body?.websiteId || req.session?.websiteId)
+    if (!websiteId || !hasWebsiteAccess(req.session, websiteId)) {
+      return res.status(403).json({ error: 'Website access denied' })
+    }
+
+    const draft = await readJson(paths.content(websiteId), null)
+    if (!draft) return res.status(404).json({ error: 'Website draft content was not found' })
+
+    const published = await getPublishedContent(websiteId)
+    const requests = await readJson(paths.requests(), [])
+    const request = {
+      id: crypto.randomUUID(),
+      status: 'Waiting Review',
+      createdAt: new Date().toISOString(),
+      ...req.body,
+      websiteId,
+      createdBy: req.session?.name || req.body?.createdBy || 'Client',
+      draftSnapshot: structuredClone(draft),
+      baselinePublishedAt: published.publishedAt || null,
+      snapshotUpdatedAt: draft.updatedAt || null,
+    }
+
+    await writeJson(paths.requests(), [request, ...requests])
+    return res.json(request)
+  } catch (error) {
+    return res.status(400).json({ error: error.message || 'Unable to create publish request' })
+  }
+}
+
+async function reviewRequestHandler(req, res) {
+  try {
+    if (req.session?.role !== 'owner') {
+      return res.status(403).json({ error: 'Owner access required' })
+    }
+
+    const requests = await readJson(paths.requests(), [])
+    const request = requests.find(item => item.id === req.params.id)
+    if (!request) return res.status(404).json({ error: 'Publish request not found' })
+
+    const published = await getPublishedContent(request.websiteId)
+    const draft = request.draftSnapshot || await readJson(paths.content(request.websiteId), null)
+    if (!draft) return res.status(404).json({ error: 'Submitted draft snapshot was not found' })
+
+    const changes = buildDiff(published, draft)
+    return res.json({
+      request: { ...request, draftSnapshot: undefined },
+      published,
+      draft,
+      changes,
+      summary: summariseDiff(changes),
+      totals: {
+        changedFields: changes.length,
+        changedSections: new Set(changes.map(change => change.path.split('.')[0])).size,
+      },
+    })
+  } catch (error) {
+    return res.status(400).json({ error: error.message || 'Unable to review website changes' })
+  }
+}
+
 async function approveRequestHandler(req, res) {
   try {
     if (req.session?.role !== 'owner') {
@@ -50,8 +175,14 @@ async function approveRequestHandler(req, res) {
     if (request.status === 'Approved') {
       return res.status(409).json({ error: 'Publish request has already been approved' })
     }
+    if (request.status === 'Rejected') {
+      return res.status(409).json({ error: 'Rejected requests cannot be approved' })
+    }
 
-    const published = await publishDraftContent(request.websiteId, {
+    const snapshot = request.draftSnapshot || await readJson(paths.content(request.websiteId), null)
+    if (!snapshot) return res.status(404).json({ error: 'Submitted draft snapshot was not found' })
+
+    const published = await publishContentSnapshot(request.websiteId, snapshot, {
       publishedBy: req.session.name,
       publishRequestId: request.id,
     })
@@ -80,18 +211,20 @@ async function approveRequestHandler(req, res) {
       ...history,
     ])
 
-    return res.json(updatedRequest)
+    return res.json({ ...updatedRequest, draftSnapshot: undefined })
   } catch (error) {
-    return res.status(400).json({ error: error.message || 'Unable to publish website draft' })
+    return res.status(400).json({ error: error.message || 'Unable to publish website snapshot' })
   }
 }
 
 express.application.get = function patchedGet(path, ...handlers) {
   if (isPublicSiteRoute(path)) return originalGet.call(this, path, publicSiteHandler)
+  if (isReviewRoute(path)) return originalGet.call(this, path, reviewRequestHandler)
   return originalGet.call(this, path, ...handlers)
 }
 
 express.application.post = function patchedPost(path, ...handlers) {
+  if (isCreateRequestRoute(path)) return originalPost.call(this, path, createRequestHandler)
   if (isApproveRoute(path)) return originalPost.call(this, path, approveRequestHandler)
   return originalPost.call(this, path, ...handlers)
 }
