@@ -39,12 +39,7 @@ async function migrateAccounts() {
       const assigned = Array.isArray(account.websiteIds) && account.websiteIds.length
         ? account.websiteIds
         : starterWebsites.map(site => site.id)
-      return normaliseAccount({
-        ...account,
-        name: PLATFORM_DISPLAY_NAME,
-        role: 'owner',
-        websiteIds: assigned,
-      })
+      return normaliseAccount({ ...account, name: PLATFORM_DISPLAY_NAME, role: 'owner', websiteIds: assigned })
     }
 
     const assigned = Array.isArray(account.websiteIds) && account.websiteIds.length
@@ -68,9 +63,15 @@ async function migrateAccounts() {
 async function migrateWebsiteIdentity() {
   const stored = await readJson(paths.websites(), null)
   const source = Array.isArray(stored) ? stored : starterWebsites
-  const migrated = source.map(site => site.id === 'ksjdigital'
-    ? { ...site, owner: PLATFORM_DISPLAY_NAME, notes: 'KSJ Digital platform website' }
-    : site)
+  const defaults = new Map(starterWebsites.map(site => [site.id, site]))
+  const migrated = source.map(site => {
+    const fallback = defaults.get(site.id) || {}
+    return {
+      ...site,
+      developmentEditorUrl: site.developmentEditorUrl || fallback.developmentEditorUrl || '',
+      ...(site.id === 'ksjdigital' ? { owner: PLATFORM_DISPLAY_NAME, notes: 'KSJ Digital platform website' } : {}),
+    }
+  })
   await writeJson(paths.websites(), migrated)
 }
 
