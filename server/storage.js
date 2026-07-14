@@ -103,6 +103,7 @@ export const paths = {
   websites: () => path.join(DATA_DIR, 'websites.json'),
   clients: () => path.join(DATA_DIR, 'clients.json'),
   content: websiteId => path.join(DATA_DIR, 'content', `${safeName(websiteId)}.json`),
+  publishedContent: websiteId => path.join(DATA_DIR, 'published-content', `${safeName(websiteId)}.json`),
   forms: websiteId => path.join(DATA_DIR, 'forms', `${safeName(websiteId)}.json`),
   tickets: () => path.join(DATA_DIR, 'support-tickets.json'),
   requests: () => path.join(DATA_DIR, 'publish-requests.json'),
