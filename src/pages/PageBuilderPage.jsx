@@ -6,8 +6,14 @@ import { getAccountFromPath } from '../services/auth.js'
 import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
 import { FIELD_ACCESS, canEditField, fieldRule, getPathValue, setPathValue, updateFieldRule } from '../services/editorPolicy.js'
 
+function localDevelopment() {
+  return ['localhost', '127.0.0.1'].includes(window.location.hostname)
+}
+
 function siteUrl(website, editor = false) {
-  const raw = website?.editorUrl || website?.previewUrl || website?.domain || ''
+  const raw = editor && localDevelopment() && website?.developmentEditorUrl
+    ? website.developmentEditorUrl
+    : website?.editorUrl || website?.previewUrl || website?.domain || ''
   const url = raw.startsWith('http') ? raw : `https://${raw}`
   if (!editor) return url
   return `${url}${url.includes('?') ? '&' : '?'}ksjEditor=1`
@@ -21,15 +27,8 @@ function FieldInspector({ account, content, selection, value, onChange, onUpload
 
   return (
     <div className="liveFieldInspector">
-      <div className="selectedFieldTitle">
-        <div><span>{selection.label || 'Website field'}</span><code>{selection.fieldId}</code></div>
-        <button className="inspectorClose" onClick={onClose} aria-label="Close editor">×</button>
-      </div>
-      {selection.kind === 'image' ? (
-        <VisualImageControl value={value} disabled={!editable} onUpload={onUpload} onUrlChange={onChange} />
-      ) : (
-        <label>Content{multiline ? <textarea value={value ?? ''} disabled={!editable} onChange={event => onChange(event.target.value)} /> : <input value={value ?? ''} disabled={!editable} onChange={event => onChange(event.target.value)} />}</label>
-      )}
+      <div className="selectedFieldTitle"><div><span>{selection.label || 'Website field'}</span><code>{selection.fieldId}</code></div><button className="inspectorClose" onClick={onClose} aria-label="Close editor">×</button></div>
+      {selection.kind === 'image' ? <VisualImageControl value={value} disabled={!editable} onUpload={onUpload} onUrlChange={onChange} /> : <label>Content{multiline ? <textarea value={value ?? ''} disabled={!editable} onChange={event => onChange(event.target.value)} /> : <input value={value ?? ''} disabled={!editable} onChange={event => onChange(event.target.value)} />}</label>}
       {account?.role === 'owner' ? (
         <section className="ownerFieldControls">
           <h3>Client access</h3>
@@ -53,6 +52,7 @@ export function PageBuilderPage({ client = false }) {
   const websiteId = website?.id
   const frameRef = useRef(null)
   const workspaceRef = useRef(null)
+  const bridgeTimerRef = useRef(null)
   const [frameReady, setFrameReady] = useState(false)
   const [content, setContent] = useState({ pages: [] })
   const [selection, setSelection] = useState(null)
@@ -80,6 +80,7 @@ export function PageBuilderPage({ client = false }) {
     function receive(event) {
       if (!event.data || event.data.source !== 'ksj-site-editor') return
       if (event.data.type === 'ready') {
+        window.clearTimeout(bridgeTimerRef.current)
         setFrameReady(true)
         setNotice(event.data.fieldCount ? `${event.data.fieldCount} editable areas ready` : 'Editor connected')
         initialiseFrame()
@@ -109,6 +110,12 @@ export function PageBuilderPage({ client = false }) {
     target?.postMessage({ source: 'ksj-portal-editor', type: 'ping' }, '*')
     window.setTimeout(initialiseFrame, 150)
     window.setTimeout(() => target?.postMessage({ source: 'ksj-portal-editor', type: 'ping' }, '*'), 700)
+    window.clearTimeout(bridgeTimerRef.current)
+    bridgeTimerRef.current = window.setTimeout(() => {
+      setNotice(localDevelopment()
+        ? `No editor bridge found at ${siteUrl(website, true)} — confirm that website's dev server is running.`
+        : 'This live website build does not yet contain the KSJ visual editor bridge.')
+    }, 3000)
   }
 
   async function save(nextContent, message) {
@@ -153,23 +160,12 @@ export function PageBuilderPage({ client = false }) {
     <Layout client={client} title={client ? 'Edit Website' : 'Website Editor'}>
       <div ref={workspaceRef} className={`editorWorkspace ${focusMode ? 'editorFocusMode' : ''} ${selection ? 'inspectorOpen' : ''}`}>
         <header className="editorTopbar">
-          <div className="editorIdentity">
-            <button className="editorBack" onClick={() => setFocusMode(false)} aria-label="Exit focus mode">←</button>
-            <div><strong>{website?.name || 'Assigned Website'}</strong><small>{notice}</small></div>
-            {account?.role === 'owner' && websites.length > 1 && <select value={websiteId || ''} onChange={event => setSelectedWebsiteId(event.target.value)}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select>}
-          </div>
+          <div className="editorIdentity"><button className="editorBack" onClick={() => setFocusMode(false)} aria-label="Exit focus mode">←</button><div><strong>{website?.name || 'Assigned Website'}</strong><small>{notice}</small></div>{account?.role === 'owner' && websites.length > 1 && <select value={websiteId || ''} onChange={event => setSelectedWebsiteId(event.target.value)}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select>}</div>
           <div className="editorDevices">{['desktop', 'tablet', 'mobile'].map(mode => <button key={mode} className={device === mode ? 'active' : ''} onClick={() => setDevice(mode)}>{mode}</button>)}</div>
-          <div className="editorActions">
-            {!focusMode && <button onClick={() => setFocusMode(true)}>Focus Editor</button>}
-            <button onClick={toggleBrowserFullscreen}>{browserFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</button>
-            <button onClick={() => window.open(siteUrl(website), '_blank')}>Preview</button>
-            {client && canRequestUpdates && <button className="primary" onClick={submitForApproval}>Submit Changes</button>}
-          </div>
+          <div className="editorActions">{!focusMode && <button onClick={() => setFocusMode(true)}>Focus Editor</button>}<button onClick={toggleBrowserFullscreen}>{browserFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</button><button onClick={() => window.open(siteUrl(website), '_blank')}>Preview</button>{client && canRequestUpdates && <button className="primary" onClick={submitForApproval}>Submit Changes</button>}</div>
         </header>
         <main className="editorStage">
-          <div className={`editorCanvas ${device}`}>
-            {website?.domain || website?.editorUrl || website?.previewUrl ? <iframe key={websiteId} ref={frameRef} title={`${website.name} visual editor`} src={siteUrl(website, true)} onLoad={frameLoaded} /> : <p className="emptyState">This website does not have a domain or editor URL configured.</p>}
-          </div>
+          <div className={`editorCanvas ${device}`}>{website?.domain || website?.editorUrl || website?.previewUrl || website?.developmentEditorUrl ? <iframe key={websiteId} ref={frameRef} title={`${website.name} visual editor`} src={siteUrl(website, true)} onLoad={frameLoaded} /> : <p className="emptyState">This website does not have an editor URL configured.</p>}</div>
           {selection && <aside className="editorInspector"><FieldInspector account={account} content={content} selection={selection} value={selectedValue} onChange={updateSelected} onUpload={uploadSelectedImage} onRuleChange={updateRule} onClose={() => setSelection(null)} /></aside>}
         </main>
       </div>
