@@ -1,18 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Layout } from '../layouts/Shell.jsx'
 import { api } from '../services/api.js'
 import { getAccountFromPath } from '../services/auth.js'
 import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
 
-const blockTypes = ['Hero', 'Text', 'Image', 'Gallery', 'Button', 'Divider', 'FAQ', 'Embed', 'Discord', 'YouTube', 'Twitch']
+const blockTypes = ['Hero', 'Text', 'Image', 'Gallery', 'Button', 'Divider', 'FAQ', 'Embed']
 
 function slugify(title = '') {
-  const slug = title
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '')
-
+  const slug = title.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
   return slug ? `/${slug}` : '/new-page'
 }
 
@@ -20,7 +15,7 @@ function orderPages(pages = []) {
   return [...pages].sort((a, b) => a.order - b.order).map((page, index) => ({ ...page, order: index + 1 }))
 }
 
-function newStarterPage() {
+function starterPage() {
   return {
     id: 'home',
     title: 'Homepage',
@@ -32,20 +27,57 @@ function newStarterPage() {
       {
         id: 'hero-1',
         type: 'Hero',
-        title: 'Homepage Hero',
-        text: 'Start editing this managed website from KSJ Digital.',
+        title: 'Welcome to your website',
+        text: 'Click this section to edit the heading, text and button.',
         button: 'Learn More',
       },
     ],
   }
 }
 
-function PreviewBlock({ block }) {
-  if (block.type === 'Divider') return <hr />
-  if (block.type === 'Button') return <button>{block.button || block.title}</button>
-  if (['Image', 'Gallery'].includes(block.type)) return <div className="builderImageMock">{block.type}</div>
-  if (['Embed', 'Discord', 'YouTube', 'Twitch'].includes(block.type)) return <div className="builderEmbedMock">{block.type} block</div>
-  return <section><span>{block.type}</span><h3>{block.title}</h3><p>{block.text}</p>{block.button && <button>{block.button}</button>}</section>
+function newBlock(type) {
+  return {
+    id: `${type.toLowerCase()}-${Date.now()}`,
+    type,
+    title: type === 'Hero' ? 'New hero section' : `New ${type.toLowerCase()}`,
+    text: type === 'Divider' ? '' : 'Click this section to edit its content.',
+    button: ['Hero', 'Button'].includes(type) ? 'Learn More' : '',
+    image: '',
+  }
+}
+
+function VisualBlock({ block, selected, canEdit, onSelect, onDragStart, onDrop }) {
+  const className = `visualBlock visual${block.type} ${selected ? 'selected' : ''}`
+
+  return (
+    <section
+      className={className}
+      draggable={canEdit}
+      onClick={() => onSelect(block.id)}
+      onDragStart={() => onDragStart(block.id)}
+      onDragOver={event => event.preventDefault()}
+      onDrop={() => onDrop(block.id)}
+    >
+      {block.type === 'Divider' ? (
+        <hr />
+      ) : ['Image', 'Gallery'].includes(block.type) ? (
+        <div className="visualImageArea">
+          {block.image ? <img src={block.image} alt={block.title || 'Website content'} /> : <span>Drop or choose an image</span>}
+          {block.type === 'Gallery' && <small>Gallery section</small>}
+        </div>
+      ) : block.type === 'Embed' ? (
+        <div className="visualEmbedArea">Embedded content</div>
+      ) : (
+        <>
+          <small>{block.type}</small>
+          {block.title && <h2>{block.title}</h2>}
+          {block.text && <p>{block.text}</p>}
+          {block.button && <button>{block.button}</button>}
+        </>
+      )}
+      {canEdit && <span className="visualEditHint">Click to edit · Drag to move</span>}
+    </section>
+  )
 }
 
 export function PageBuilderPage({ client = false }) {
@@ -54,60 +86,45 @@ export function PageBuilderPage({ client = false }) {
   const website = findClientWebsite(websites, account)
   const websiteId = website?.id
   const canEdit = account?.role === 'owner' || account?.canEdit
+  const canRequestUpdates = account?.role === 'owner' || account?.canRequestUpdates
   const [content, setContent] = useState({ pages: [] })
-  const [selectedId, setSelectedId] = useState('')
-  const [device, setDevice] = useState('Desktop')
+  const [selectedPageId, setSelectedPageId] = useState('')
+  const [selectedBlockId, setSelectedBlockId] = useState('')
+  const [device, setDevice] = useState('desktop')
   const [notice, setNotice] = useState('Loading')
-  const pages = orderPages(content.pages || [])
-  const selected = pages.find(page => page.id === selectedId) || pages[0]
+  const [draggedBlockId, setDraggedBlockId] = useState('')
+  const pages = useMemo(() => orderPages(content.pages || []), [content.pages])
+  const selectedPage = pages.find(page => page.id === selectedPageId) || pages[0]
+  const selectedBlock = selectedPage?.blocks?.find(block => block.id === selectedBlockId)
 
   useEffect(() => {
     if (!websiteId) {
       setContent({ pages: [] })
-      setSelectedId('')
       setNotice('Waiting for assigned website')
       return
     }
 
     let cancelled = false
-
-    async function loadContent() {
-      try {
-        const data = await api.getContent(websiteId)
+    api.getContent(websiteId)
+      .then(data => {
         if (cancelled) return
-        const nextPages = data.pages?.length ? data.pages : [newStarterPage()]
+        const nextPages = data.pages?.length ? data.pages : [starterPage()]
         const next = { ...data, pages: orderPages(nextPages) }
         setContent(next)
-        setSelectedId(next.pages[0]?.id || '')
-        setNotice(canEdit ? 'Ready' : 'Preview only')
-      } catch (error) {
-        if (!cancelled) setNotice(error.message)
-      }
-    }
+        setSelectedPageId(next.pages[0]?.id || '')
+        setSelectedBlockId(next.pages[0]?.blocks?.[0]?.id || '')
+        setNotice(canEdit ? 'Ready to edit' : 'Preview only')
+      })
+      .catch(error => !cancelled && setNotice(error.message))
 
-    loadContent()
-
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [canEdit, websiteId])
 
-  async function saveContent(nextContent, nextSelectedId = selectedId, message = 'Saved') {
-    if (!websiteId) {
-      setNotice('No website assigned')
-      return
-    }
-
-    if (!canEdit) {
-      setNotice('Edit permission required')
-      return
-    }
-
+  async function save(nextContent, message = 'Draft saved') {
+    if (!websiteId || !canEdit) return setNotice(!websiteId ? 'No website assigned' : 'Edit permission required')
     const ordered = { ...nextContent, pages: orderPages(nextContent.pages || []) }
     setContent(ordered)
-    setSelectedId(nextSelectedId || ordered.pages[0]?.id || '')
-    setNotice('Saving')
-
+    setNotice('Saving draft')
     try {
       const saved = await api.saveContent(websiteId, ordered)
       setContent({ ...ordered, updatedAt: saved.updatedAt })
@@ -117,144 +134,141 @@ export function PageBuilderPage({ client = false }) {
     }
   }
 
-  function updateSelected(changes) {
-    if (!selected || !canEdit) return
+  function updatePage(changes) {
+    if (!selectedPage) return
+    const nextPages = pages.map(page => page.id === selectedPage.id
+      ? { ...page, ...changes, slug: changes.title && page.slug !== '/' ? slugify(changes.title) : page.slug }
+      : page)
+    save({ ...content, pages: nextPages }, 'Page draft saved')
+  }
 
-    const nextPages = pages.map(page =>
-      page.id === selected.id
-        ? {
-            ...page,
-            ...changes,
-            slug: changes.title && page.slug !== '/' ? slugify(changes.title) : page.slug,
-          }
-        : page,
-    )
-    saveContent({ ...content, pages: nextPages }, selected.id, 'Page updated')
+  function updateBlock(changes) {
+    if (!selectedPage || !selectedBlock) return
+    const nextPages = pages.map(page => page.id === selectedPage.id
+      ? { ...page, status: client ? 'Draft' : page.status, blocks: page.blocks.map(block => block.id === selectedBlock.id ? { ...block, ...changes } : block) }
+      : page)
+    save({ ...content, pages: nextPages }, 'Section draft saved')
   }
 
   function addPage() {
-    if (!canEdit) return
     const page = {
-      id: `new-page-${Date.now()}`,
+      id: `page-${Date.now()}`,
       title: 'New Page',
       slug: '/new-page',
       status: 'Draft',
       locked: false,
       order: pages.length + 1,
-      blocks: [
-        {
-          id: `hero-${Date.now()}`,
-          type: 'Hero',
-          title: 'New Page',
-          text: 'Start writing your page content.',
-          button: 'Learn More',
-        },
-      ],
+      blocks: [newBlock('Hero')],
     }
-    saveContent({ ...content, pages: [...pages, page] }, page.id, 'Page created')
+    setSelectedPageId(page.id)
+    setSelectedBlockId(page.blocks[0].id)
+    save({ ...content, pages: [...pages, page] }, 'Page created')
   }
 
-  function duplicateSelected() {
-    if (!selected || !canEdit) return
+  function addBlock(type) {
+    if (!selectedPage) return
+    const block = newBlock(type)
+    const nextPages = pages.map(page => page.id === selectedPage.id
+      ? { ...page, status: client ? 'Draft' : page.status, blocks: [...(page.blocks || []), block] }
+      : page)
+    setSelectedBlockId(block.id)
+    save({ ...content, pages: nextPages }, `${type} section added`)
+  }
 
-    const page = {
-      ...selected,
-      id: `${selected.id}-copy-${Date.now()}`,
-      title: `${selected.title} Copy`,
-      slug: slugify(`${selected.title} Copy`),
-      status: 'Draft',
-      locked: false,
-      order: pages.length + 1,
+  function removeBlock() {
+    if (!selectedPage || !selectedBlock) return
+    const nextBlocks = selectedPage.blocks.filter(block => block.id !== selectedBlock.id)
+    const nextPages = pages.map(page => page.id === selectedPage.id ? { ...page, blocks: nextBlocks, status: 'Draft' } : page)
+    setSelectedBlockId(nextBlocks[0]?.id || '')
+    save({ ...content, pages: nextPages }, 'Section removed')
+  }
+
+  function moveBlock(targetId) {
+    if (!draggedBlockId || draggedBlockId === targetId || !selectedPage) return
+    const blocks = [...selectedPage.blocks]
+    const from = blocks.findIndex(block => block.id === draggedBlockId)
+    const to = blocks.findIndex(block => block.id === targetId)
+    if (from < 0 || to < 0) return
+    const [moved] = blocks.splice(from, 1)
+    blocks.splice(to, 0, moved)
+    const nextPages = pages.map(page => page.id === selectedPage.id ? { ...page, blocks, status: 'Draft' } : page)
+    setDraggedBlockId('')
+    save({ ...content, pages: nextPages }, 'Section order saved')
+  }
+
+  async function submitForApproval() {
+    if (!websiteId || !canRequestUpdates) return setNotice('Update request permission required')
+    setNotice('Submitting for approval')
+    try {
+      await api.createPublishRequest({
+        websiteId,
+        websiteName: website.name,
+        repository: website.repository,
+        title: `${selectedPage?.title || 'Website'} visual edits`,
+        createdBy: account?.name,
+        contentPath: `server-data/content/${websiteId}.json`,
+      })
+      setNotice('Submitted to KSJ Digital for approval')
+    } catch (error) {
+      setNotice(error.message)
     }
-    saveContent({ ...content, pages: [...pages, page] }, page.id, 'Page duplicated')
-  }
-
-  function removeSelected() {
-    if (!selected || !canEdit) return
-    if (selected.locked) return setNotice('Homepage is protected')
-    const nextPages = pages.filter(page => page.id !== selected.id)
-    saveContent({ ...content, pages: nextPages }, nextPages[0]?.id, 'Page deleted')
-  }
-
-  function movePage(pageId, direction) {
-    if (!canEdit) return
-    const index = pages.findIndex(page => page.id === pageId)
-    const nextIndex = direction === 'up' ? index - 1 : index + 1
-
-    if (index < 0 || nextIndex < 0 || nextIndex >= pages.length) return
-
-    const nextPages = [...pages]
-    const [page] = nextPages.splice(index, 1)
-    nextPages.splice(nextIndex, 0, page)
-    saveContent({ ...content, pages: nextPages }, pageId, 'Page moved')
-  }
-
-  function addNewBlock(type) {
-    if (!selected || !canEdit) return
-
-    const block = {
-      id: `${type.toLowerCase()}-${Date.now()}`,
-      type,
-      title: type,
-      text: 'New content block.',
-      button: type === 'Button' ? 'Click Here' : '',
-    }
-    const nextPages = pages.map(page =>
-      page.id === selected.id ? { ...page, blocks: [...(page.blocks || []), block] } : page,
-    )
-    saveContent({ ...content, pages: nextPages }, selected.id, `${type} block added`)
-  }
-
-  function editBlock(blockId, changes) {
-    if (!selected || !canEdit) return
-
-    const nextPages = pages.map(page =>
-      page.id === selected.id
-        ? {
-            ...page,
-            blocks: (page.blocks || []).map(block =>
-              block.id === blockId ? { ...block, ...changes } : block,
-            ),
-          }
-        : page,
-    )
-    saveContent({ ...content, pages: nextPages }, selected.id, 'Block updated')
-  }
-
-  function removeBlock(blockId) {
-    if (!selected || !canEdit) return
-
-    const nextPages = pages.map(page =>
-      page.id === selected.id
-        ? { ...page, blocks: (page.blocks || []).filter(block => block.id !== blockId) }
-        : page,
-    )
-    saveContent({ ...content, pages: nextPages }, selected.id, 'Block removed')
   }
 
   return (
-    <Layout client={client} title="Pages">
-      <section className="moduleHero card">
+    <Layout client={client} title={client ? 'Edit Website' : 'Website Editor'}>
+      <section className="visualEditorHeader card">
         <div>
-          <span>Website Builder</span>
-          <h2>{website?.name || 'Assigned Website'} Pages</h2>
-          <p>Create, organise and edit pages using safe content blocks. Changes save into KSJ Digital and can be used by the live client website.</p>
+          <span>Visual Website Editor</span>
+          <h2>{website?.name || 'Assigned Website'}</h2>
+          <p>Click any section in the preview to edit it. Drag sections to change their order.</p>
         </div>
-        <button>{notice}</button>
+        <div className="visualEditorHeaderActions">
+          <button className="secondary" onClick={() => window.open(website?.domain?.startsWith('http') ? website.domain : `https://${website?.domain}`, '_blank')}>View Live Site</button>
+          {client && canRequestUpdates && <button onClick={submitForApproval}>Submit for Approval</button>}
+          <small>{notice}</small>
+        </div>
       </section>
-      <section className="builderGrid">
-        <aside className="card builderPages">
-          <div className="panelHead"><h2>Pages</h2>{canEdit && <button onClick={addPage} disabled={!websiteId}>Create</button>}</div>
-          {pages.map(page => <article className={page.id === selectedId ? 'active' : ''} key={page.id} onClick={() => setSelectedId(page.id)}><div><b>{page.title}</b><small>{page.slug}</small></div><span>{page.status}</span>{canEdit && <div className="builderPageActions"><button onClick={event => { event.stopPropagation(); movePage(page.id, 'up') }}>↑</button><button onClick={event => { event.stopPropagation(); movePage(page.id, 'down') }}>↓</button></div>}</article>)}
-          {!pages.length && <p className="emptyState">No pages loaded from KSJ Digital yet.</p>}
+
+      <section className="visualEditorShell">
+        <aside className="card visualPagePanel">
+          <div className="panelHead"><h2>Pages</h2>{canEdit && <button onClick={addPage}>Add</button>}</div>
+          {pages.map(page => (
+            <button className={page.id === selectedPage?.id ? 'active' : ''} key={page.id} onClick={() => { setSelectedPageId(page.id); setSelectedBlockId(page.blocks?.[0]?.id || '') }}>
+              <b>{page.title}</b><small>{page.slug} · {page.status}</small>
+            </button>
+          ))}
+          <hr />
+          <h3>Add Section</h3>
+          <div className="visualBlockLibrary">
+            {blockTypes.map(type => <button key={type} disabled={!canEdit || !selectedPage} onClick={() => addBlock(type)}>{type}</button>)}
+          </div>
         </aside>
-        <section className="card builderEditor">
-          <div className="panelHead"><h2>{canEdit ? 'Edit Page' : 'Preview Page'}</h2>{canEdit && <button disabled={!selected} onClick={() => updateSelected({ status: selected.status === 'Published' ? 'Draft' : 'Published' })}>{selected?.status || 'No page'}</button>}</div>
-          {selected && <><div className="builderFields"><label>Page Title<input value={selected.title} disabled={!canEdit} onChange={event => updateSelected({ title: event.target.value })} /></label><label>Slug<input value={selected.slug} disabled /></label></div>{canEdit && <><div className="builderActions"><button onClick={duplicateSelected}>Duplicate</button><button onClick={removeSelected}>Delete</button></div><div className="blockAddBar">{blockTypes.map(type => <button key={type} onClick={() => addNewBlock(type)}>{type}</button>)}</div></>}{selected.blocks?.map(block => <article className="blockEditor" key={block.id}><div className="panelHead"><h3>{block.type}</h3>{canEdit && <button onClick={() => removeBlock(block.id)}>Remove</button>}</div><label>Title<input value={block.title || ''} disabled={!canEdit} onChange={event => editBlock(block.id, { title: event.target.value })} /></label><label>Text<textarea value={block.text || ''} disabled={!canEdit} onChange={event => editBlock(block.id, { text: event.target.value })} /></label>{block.type !== 'Text' && <label>Button / Label<input value={block.button || ''} disabled={!canEdit} onChange={event => editBlock(block.id, { button: event.target.value })} /></label>}</article>)}</>}
-        </section>
-        <aside className="card builderPreview">
-          <div className="panelHead"><h2>Live Preview</h2><select value={device} onChange={event => setDevice(event.target.value)}><option>Desktop</option><option>Tablet</option><option>Mobile</option></select></div>
-          {selected && <div className={`previewFrame ${device.toLowerCase()}`}><nav><b>{website?.logo || 'KSJ'}</b><span>{selected.slug}</span></nav>{selected.blocks?.map(block => <PreviewBlock key={block.id} block={block} />)}</div>}
+
+        <main className={`card visualCanvas ${device}`}>
+          <div className="visualCanvasToolbar">
+            <label>Page name<input value={selectedPage?.title || ''} disabled={!canEdit} onChange={event => updatePage({ title: event.target.value })} /></label>
+            <div><button className={device === 'desktop' ? 'active' : ''} onClick={() => setDevice('desktop')}>Desktop</button><button className={device === 'tablet' ? 'active' : ''} onClick={() => setDevice('tablet')}>Tablet</button><button className={device === 'mobile' ? 'active' : ''} onClick={() => setDevice('mobile')}>Mobile</button></div>
+          </div>
+          <div className="visualWebsiteFrame">
+            <nav><b>{website?.logo || website?.name?.slice(0, 3).toUpperCase() || 'SITE'}</b><span>{pages.map(page => page.title).join('   ')}</span></nav>
+            {selectedPage?.blocks?.map(block => (
+              <VisualBlock key={block.id} block={block} selected={block.id === selectedBlockId} canEdit={canEdit} onSelect={setSelectedBlockId} onDragStart={setDraggedBlockId} onDrop={moveBlock} />
+            ))}
+            {!selectedPage?.blocks?.length && <p className="emptyState">Add a section to begin editing this page.</p>}
+          </div>
+        </main>
+
+        <aside className="card visualInspector">
+          <div className="panelHead"><h2>{selectedBlock ? `Edit ${selectedBlock.type}` : 'Select a Section'}</h2>{selectedBlock && canEdit && <button onClick={removeBlock}>Remove</button>}</div>
+          {selectedBlock ? (
+            <div className="visualInspectorFields">
+              {selectedBlock.type !== 'Divider' && <label>Heading<input value={selectedBlock.title || ''} disabled={!canEdit} onChange={event => updateBlock({ title: event.target.value })} /></label>}
+              {!['Divider', 'Image', 'Gallery'].includes(selectedBlock.type) && <label>Text<textarea value={selectedBlock.text || ''} disabled={!canEdit} onChange={event => updateBlock({ text: event.target.value })} /></label>}
+              {['Hero', 'Button'].includes(selectedBlock.type) && <label>Button text<input value={selectedBlock.button || ''} disabled={!canEdit} onChange={event => updateBlock({ button: event.target.value })} /></label>}
+              {['Image', 'Gallery'].includes(selectedBlock.type) && <label>Image URL<input value={selectedBlock.image || ''} disabled={!canEdit} onChange={event => updateBlock({ image: event.target.value })} placeholder="Paste an image URL" /></label>}
+              <p>Changes appear immediately in the preview and save as a draft.</p>
+            </div>
+          ) : <p>Click a section in the website preview to edit it here.</p>}
         </aside>
       </section>
     </Layout>
