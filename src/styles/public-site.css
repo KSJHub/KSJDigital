@@ -1,0 +1,200 @@
+.publicSite {
+  min-height: 100vh;
+  background: radial-gradient(circle at 15% 20%, rgba(26, 84, 178, 0.22), transparent 33%), #020711;
+  color: #f6f9ff;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.publicHeader {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+  padding: 0.8rem 2.25rem;
+  border-bottom: 1px solid #1d2d48;
+  background: rgba(2, 7, 17, 0.94);
+  backdrop-filter: blur(16px);
+}
+
+.publicBrand {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.publicBrand img {
+  width: 54px;
+  height: 42px;
+  object-fit: cover;
+  object-position: left;
+  border-radius: 8px;
+}
+
+.publicBrand span { display: grid; }
+.publicBrand strong { font-size: 1rem; }
+.publicBrand small { color: #9eb0cb; font-size: 0.66rem; }
+
+.publicHeader nav {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.publicHeader nav button,
+.publicHeader nav a {
+  border: 0;
+  background: transparent;
+  color: #c4cde0;
+  font: inherit;
+  font-weight: 700;
+  font-size: 0.82rem;
+  padding: 0.65rem 0.8rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.publicHeader nav button:hover,
+.publicHeader nav a:hover { color: #fff; }
+
+.publicHero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
+  gap: 4rem;
+  align-items: center;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 4.8rem 2.25rem 3rem;
+}
+
+.publicHeroCopy { max-width: 760px; }
+.publicEyebrow {
+  display: inline-block;
+  color: #5aa2ff;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.publicHero h1 {
+  max-width: 720px;
+  margin: 1.1rem 0 1rem;
+  font-size: clamp(3.2rem, 6vw, 6.4rem);
+  line-height: 0.94;
+  letter-spacing: -0.055em;
+}
+
+.publicHeroCopy > p {
+  max-width: 760px;
+  margin: 0;
+  color: #b8c9e4;
+  font-size: clamp(1rem, 1.5vw, 1.2rem);
+  line-height: 1.75;
+}
+
+.publicActions { display: flex; gap: 0.85rem; margin-top: 1.8rem; }
+.publicActions button,
+.publicContact a {
+  border: 1px solid #4e8cff;
+  border-radius: 999px;
+  background: #4f8cff;
+  color: white;
+  font-weight: 800;
+  padding: 0.9rem 1.35rem;
+  text-decoration: none;
+  cursor: pointer;
+  box-shadow: 0 12px 36px rgba(55, 122, 255, 0.22);
+}
+.publicActions button.secondary { background: transparent; border-color: #283a58; box-shadow: none; }
+
+.publicPlatformCard {
+  padding: 1.2rem;
+  border: 1px solid #294064;
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(9, 22, 42, 0.96), rgba(7, 17, 33, 0.96));
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.32);
+}
+.publicLogoPanel {
+  display: grid;
+  place-items: center;
+  min-height: 240px;
+  border: 1px solid #1f3452;
+  border-radius: 18px;
+  background: #030b16;
+  overflow: hidden;
+}
+.publicLogoPanel img { width: min(88%, 430px); }
+.publicPlatformCard article {
+  margin-top: 0.9rem;
+  padding: 1rem;
+  border: 1px solid #28436a;
+  border-radius: 15px;
+  background: #0d1d36;
+}
+.publicPlatformCard article > span { color: #66a4ff; font-size: 0.7rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; }
+.publicPlatformCard h2 { margin: 0.55rem 0 0.3rem; }
+.publicPlatformCard p { margin: 0; color: #b8c9e4; line-height: 1.6; }
+.ecosystemGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-top: 0.8rem; }
+.ecosystemGrid b { padding: 0.75rem; border: 1px solid #2a4369; border-radius: 10px; background: #142440; }
+
+.publicPills {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.7rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 2.25rem 5rem;
+}
+.publicPills span { padding: 0.8rem; text-align: center; border: 1px solid #293c5d; border-radius: 999px; color: #d4dded; font-size: 0.75rem; font-weight: 800; }
+
+.publicSection { max-width: 1400px; margin: 0 auto; padding: 2rem 2.25rem 5rem; }
+.publicSection > h2,
+.publicContact h2 { margin: 0.8rem 0 1.8rem; font-size: clamp(2.4rem, 4vw, 4.3rem); letter-spacing: -0.045em; }
+.publicServiceGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.publicServiceGrid article { min-height: 190px; padding: 1.5rem; border: 1px solid #284064; border-radius: 20px; background: #081426; }
+.serviceIcon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; background: #102c57; }
+.publicServiceGrid h3 { margin: 1.1rem 0 0.65rem; font-size: 1.2rem; }
+.publicServiceGrid p { margin: 0; color: #b8c9e4; line-height: 1.7; }
+
+.publicContact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2rem;
+  max-width: 1355px;
+  margin: 0 auto 4rem;
+  padding: 2.25rem;
+  border: 1px solid #294268;
+  border-radius: 24px;
+  background: linear-gradient(135deg, #0d1e39, #07111f);
+}
+.publicContact h2 { max-width: 760px; margin-bottom: 0.7rem; }
+.publicContact p { color: #b8c9e4; }
+.publicFooter { display: flex; justify-content: space-between; gap: 1rem; padding: 1.5rem 2.25rem; border-top: 1px solid #1d2d48; color: #8fa2c1; }
+.publicFooter a { color: #a9c8ff; }
+
+@media (max-width: 900px) {
+  .publicHeader { align-items: flex-start; padding: 0.75rem 1rem; }
+  .publicHeader nav { flex-wrap: wrap; justify-content: flex-end; }
+  .publicHero { grid-template-columns: 1fr; padding: 3.5rem 1rem 2rem; }
+  .publicPills { grid-template-columns: repeat(2, 1fr); padding: 0 1rem 4rem; }
+  .publicSection { padding: 2rem 1rem 4rem; }
+  .publicServiceGrid { grid-template-columns: 1fr; }
+  .publicContact { margin: 0 1rem 3rem; flex-direction: column; align-items: flex-start; }
+}
+
+@media (max-width: 600px) {
+  .publicHeader { position: static; flex-direction: column; }
+  .publicHeader nav { justify-content: flex-start; }
+  .publicHeader nav button, .publicHeader nav a { padding: 0.45rem 0.55rem; }
+  .publicHero h1 { font-size: 3.15rem; }
+  .publicActions { flex-direction: column; align-items: stretch; }
+  .ecosystemGrid { grid-template-columns: 1fr; }
+  .publicPills { grid-template-columns: 1fr; }
+  .publicFooter { flex-direction: column; }
+}
