@@ -9,7 +9,7 @@ import { OwnerWebsitesPage } from './pages/OwnerWebsitesPage.jsx'
 import { OwnerClientsPage } from './pages/OwnerClientsPage.jsx'
 import { ClientWebsitePage } from './pages/ClientWebsitePage.jsx'
 import { SiteSettingsPage } from './pages/SiteSettingsPage.jsx'
-import { CommerceSettingsPage } from './pages/CommerceSettingsPage.jsx'
+import { CommerceSettingsV2Page } from './pages/CommerceSettingsV2Page.jsx'
 import { InventoryPage } from './pages/InventoryPage.jsx'
 import { PublishPipelinePage } from './pages/PublishPipelinePage.jsx'
 import { PageBuilderPage } from './pages/PageBuilderPage.jsx'
@@ -23,9 +23,7 @@ import { ReleaseCentrePage } from './pages/ReleaseCentrePage.jsx'
 import { SettingsPage } from './pages/SettingsPage.jsx'
 import { SupportPage } from './pages/SupportPage.jsx'
 
-function route() {
-  return location.pathname.replace(/\/$/, '') || '/'
-}
+function route() { return location.pathname.replace(/\/$/, '') || '/' }
 
 function canAccessClientRoute(account, type) {
   if (!account || account.role === 'owner') return true
@@ -45,7 +43,7 @@ function Workspace({ client = false, type }) {
   if (!client && type === 'merch') return <MerchManagerV2Page />
   if (!client && type === 'inventory') return <InventoryPage />
   if (!client && type === 'orders') return <OrdersPage />
-  if (!client && type === 'commerce') return <CommerceSettingsPage />
+  if (!client && type === 'commerce') return <CommerceSettingsV2Page />
   if (!client && type === 'operations') return <OperationsPage />
   if (!client && type === 'launch') return <ReleaseCentrePage />
   if (!client && type === 'publish-requests') return <PublishPipelinePage />
@@ -58,7 +56,7 @@ function Workspace({ client = false, type }) {
   if (client && type === 'merch') return <MerchManagerV2Page client />
   if (client && type === 'inventory') return <InventoryPage client />
   if (client && type === 'orders') return <OrdersPage client />
-  if (client && type === 'commerce') return <CommerceSettingsPage client />
+  if (client && type === 'commerce') return <CommerceSettingsV2Page client />
   if (client && type === 'operations') return <OperationsPage client />
   if (client && type === 'publish') return <PublishPipelinePage client />
   if (client && type === 'website') return <ClientWebsitePage />
@@ -77,19 +75,13 @@ export default function App() {
   useEffect(() => {
     if (path === '/' || path === '/login') return
     let cancelled = false
-    refreshSession().then(serverAccount => {
-      if (!cancelled) {
-        setAccount(serverAccount)
-        setSessionChecked(true)
-      }
-    })
+    refreshSession().then(serverAccount => { if (!cancelled) { setAccount(serverAccount); setSessionChecked(true) } })
     return () => { cancelled = true }
   }, [path])
 
   if (path === '/') return <PublicHomePage />
   if (path === '/login') return <LoginPage />
-  if (!sessionChecked) return <LoginPage />
-  if (!account) return <LoginPage />
+  if (!sessionChecked || !account) return <LoginPage />
   if (path.startsWith('/owner') && !canAccessOwner(account)) return <AccessDenied account={account} />
   if (path === '/owner') return <DashboardPage />
   if (path === '/client') return <DashboardPage client />
