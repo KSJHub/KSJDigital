@@ -7,18 +7,23 @@ function normaliseAccount(value) {
   if (!account || typeof account !== 'object') return null
 
   const role = String(account.role || '').trim().toLowerCase()
+  const platformOwner = role === 'owner' && account.id === 'morgan'
   const websiteIds = Array.isArray(account.websiteIds)
     ? account.websiteIds
     : account.websiteId
       ? [account.websiteId]
       : []
+  const displayName = platformOwner ? 'KSJ Digital' : (account.displayName || account.name)
 
   return {
     ...account,
+    name: displayName,
+    displayName,
     role,
+    roleLabel: platformOwner ? 'Platform Owner' : (account.roleLabel || 'Website Owner'),
     websiteIds,
-    websiteAccess: account.websiteAccess || websiteIds,
-    home: account.home || (role === 'owner' ? '/owner' : '/client'),
+    websiteAccess: websiteIds,
+    home: platformOwner ? '/owner' : '/client',
   }
 }
 
@@ -75,23 +80,21 @@ export function requireAccount() {
 }
 
 export function canAccessOwner(account) {
-  return account?.role === 'owner'
+  return account?.role === 'owner' && account?.id === 'morgan'
 }
 
 export function canEditWebsite(account, website) {
   if (!account || !website) return false
-  if (account.role === 'owner') return true
-
-  const allowed = new Set([...(account.websiteIds || []), ...(account.websiteAccess || [])].map(String))
-  const identifiers = [website.id, website.name, website.domain].filter(Boolean).map(String)
-  return identifiers.some(identifier => allowed.has(identifier))
+  const allowed = new Set((account.websiteIds || []).map(String))
+  return allowed.has(String(website.id))
 }
 
 export function getPermissionSummary(account = {}) {
+  const websites = Array.isArray(account.websiteIds) ? account.websiteIds : []
   return {
-    role: account.role || 'guest',
-    access: account.websiteAccess || 'No website assigned',
+    role: account.roleLabel || 'Guest',
+    access: websites.length ? websites.join(', ') : 'No website assigned',
     edit: account.canEdit ? 'Website editing enabled' : 'View only',
-    publish: account.canPublish ? 'Final approval enabled' : 'Requests approval',
+    publish: account.role === 'owner' ? 'Platform approval enabled' : 'Changes require approval',
   }
 }
