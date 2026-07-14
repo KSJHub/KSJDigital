@@ -13,7 +13,7 @@ import {
 } from '../services/editorPolicy.js'
 
 function siteUrl(website, editor = false) {
-  const raw = website?.domain || ''
+  const raw = website?.editorUrl || website?.previewUrl || website?.domain || ''
   const url = raw.startsWith('http') ? raw : `https://${raw}`
   if (!editor) return url
   const separator = url.includes('?') ? '&' : '?'
@@ -21,9 +21,7 @@ function siteUrl(website, editor = false) {
 }
 
 function FieldInspector({ account, content, selection, value, onChange, onRuleChange }) {
-  if (!selection?.fieldId) {
-    return <p>Click an editable area on the website to manage it here.</p>
-  }
+  if (!selection?.fieldId) return <p>Click an editable area on the website to manage it here.</p>
 
   const rule = fieldRule(content, selection.fieldId)
   const editable = canEditField(account, content, selection.fieldId)
@@ -35,7 +33,6 @@ function FieldInspector({ account, content, selection, value, onChange, onRuleCh
         <span>{selection.label || 'Website field'}</span>
         <code>{selection.fieldId}</code>
       </div>
-
       <label>
         Content
         {multiline ? (
@@ -57,22 +54,10 @@ function FieldInspector({ account, content, selection, value, onChange, onRuleCh
               <option value={FIELD_ACCESS.OWNER_ONLY}>Owner only</option>
             </select>
           </label>
-          <label className="formCheck">
-            <input type="checkbox" checked={rule.approvalRequired !== false} onChange={event => onRuleChange({ approvalRequired: event.target.checked })} />
-            Changes require KSJ approval
-          </label>
-          <label className="formCheck">
-            <input type="checkbox" checked={rule.movable !== false} onChange={event => onRuleChange({ movable: event.target.checked })} />
-            Client may move this section
-          </label>
-          <label className="formCheck">
-            <input type="checkbox" checked={rule.deletable !== false} onChange={event => onRuleChange({ deletable: event.target.checked })} />
-            Client may remove this section
-          </label>
-          <label>
-            Lock reason
-            <input value={rule.reason || ''} onChange={event => onRuleChange({ reason: event.target.value })} placeholder="Example: KSJ Digital platform credit" />
-          </label>
+          <label className="formCheck"><input type="checkbox" checked={rule.approvalRequired !== false} onChange={event => onRuleChange({ approvalRequired: event.target.checked })} />Changes require KSJ approval</label>
+          <label className="formCheck"><input type="checkbox" checked={rule.movable !== false} onChange={event => onRuleChange({ movable: event.target.checked })} />Client may move this section</label>
+          <label className="formCheck"><input type="checkbox" checked={rule.deletable !== false} onChange={event => onRuleChange({ deletable: event.target.checked })} />Client may remove this section</label>
+          <label>Lock reason<input value={rule.reason || ''} onChange={event => onRuleChange({ reason: event.target.value })} placeholder="Example: KSJ Digital platform credit" /></label>
         </section>
       ) : (
         !editable && <div className="lockedFieldNotice">🔒 {rule.reason || 'This content is controlled by KSJ Digital.'}</div>
@@ -84,9 +69,14 @@ function FieldInspector({ account, content, selection, value, onChange, onRuleCh
 export function PageBuilderPage({ client = false }) {
   const account = getAccountFromPath()
   const { websites } = useWebsites()
-  const website = findClientWebsite(websites, account)
+  const assignedWebsite = findClientWebsite(websites, account)
+  const [selectedWebsiteId, setSelectedWebsiteId] = useState('')
+  const website = account?.role === 'owner'
+    ? websites.find(site => site.id === selectedWebsiteId) || websites[0] || null
+    : assignedWebsite
   const websiteId = website?.id
   const frameRef = useRef(null)
+  const [frameReady, setFrameReady] = useState(false)
   const [content, setContent] = useState({ pages: [] })
   const [selection, setSelection] = useState(null)
   const [device, setDevice] = useState('desktop')
@@ -98,6 +88,12 @@ export function PageBuilderPage({ client = false }) {
   )
 
   useEffect(() => {
+    if (account?.role === 'owner' && !selectedWebsiteId && websites[0]?.id) setSelectedWebsiteId(websites[0].id)
+  }, [account?.role, selectedWebsiteId, websites])
+
+  useEffect(() => {
+    setSelection(null)
+    setFrameReady(false)
     if (!websiteId) return setNotice('Waiting for assigned website')
     let cancelled = false
     api.getContent(websiteId)
@@ -114,19 +110,24 @@ export function PageBuilderPage({ client = false }) {
     function receive(event) {
       if (!event.data || event.data.source !== 'ksj-site-editor') return
       if (event.data.type === 'ready') {
-        frameRef.current?.contentWindow?.postMessage({
-          source: 'ksj-portal-editor',
-          type: 'initialise',
-          content,
-          role: account?.role,
-        }, '*')
+        setFrameReady(true)
         setNotice('Click the website to edit')
       }
       if (event.data.type === 'select-field') setSelection(event.data.field)
     }
     window.addEventListener('message', receive)
     return () => window.removeEventListener('message', receive)
-  }, [account?.role, content])
+  }, [])
+
+  useEffect(() => {
+    if (!frameReady) return
+    frameRef.current?.contentWindow?.postMessage({
+      source: 'ksj-portal-editor',
+      type: 'initialise',
+      content,
+      role: account?.role,
+    }, '*')
+  }, [account?.role, content, frameReady])
 
   async function save(nextContent, message) {
     if (!websiteId) return
@@ -190,6 +191,9 @@ export function PageBuilderPage({ client = false }) {
           <span>{client ? 'Your live website' : 'Owner editing mode'}</span>
           <h2>{website?.name || 'Assigned Website'}</h2>
           <p>This is the real website visitors see. Click highlighted content to edit it directly.</p>
+          {account?.role === 'owner' && websites.length > 0 && (
+            <label className="ownerWebsitePicker">Website<select value={websiteId || ''} onChange={event => setSelectedWebsiteId(event.target.value)}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
+          )}
         </div>
         <div className="visualEditorHeaderActions">
           <button className="secondary" onClick={() => window.open(siteUrl(website), '_blank')}>Open Live Website</button>
@@ -202,31 +206,20 @@ export function PageBuilderPage({ client = false }) {
         <div className="card realSiteCanvas">
           <div className="visualCanvasToolbar">
             <strong>Website preview</strong>
-            <div>
-              {['desktop', 'tablet', 'mobile'].map(mode => (
-                <button key={mode} className={device === mode ? 'active' : ''} onClick={() => setDevice(mode)}>{mode}</button>
-              ))}
-            </div>
+            <div>{['desktop', 'tablet', 'mobile'].map(mode => <button key={mode} className={device === mode ? 'active' : ''} onClick={() => setDevice(mode)}>{mode}</button>)}</div>
           </div>
           <div className={`realSiteFrameWrap ${device}`}>
-            {website?.domain ? (
-              <iframe ref={frameRef} title={`${website.name} visual editor`} src={siteUrl(website, true)} />
+            {website?.domain || website?.editorUrl || website?.previewUrl ? (
+              <iframe key={websiteId} ref={frameRef} title={`${website.name} visual editor`} src={siteUrl(website, true)} />
             ) : (
-              <p className="emptyState">This website does not have a domain configured.</p>
+              <p className="emptyState">This website does not have a domain or editor URL configured.</p>
             )}
           </div>
         </div>
 
         <aside className="card visualInspector realSiteInspector">
           <div className="panelHead"><h2>{selection?.label || 'Edit Website'}</h2>{selection?.locked && <span>🔒</span>}</div>
-          <FieldInspector
-            account={account}
-            content={content}
-            selection={selection}
-            value={selectedValue}
-            onChange={updateSelected}
-            onRuleChange={updateRule}
-          />
+          <FieldInspector account={account} content={content} selection={selection} value={selectedValue} onChange={updateSelected} onRuleChange={updateRule} />
         </aside>
       </section>
     </Layout>
