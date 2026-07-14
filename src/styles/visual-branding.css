@@ -1,0 +1,326 @@
+.visualBrandHero {
+  align-items: center;
+}
+
+.visualBrandActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: .65rem;
+}
+
+.visualBrandActions select,
+.visualBrandActions button {
+  min-height: 42px;
+}
+
+.visualBrandGrid {
+  display: grid;
+  grid-template-columns: minmax(440px, .9fr) minmax(520px, 1.1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.visualBrandControls,
+.visualBrandPreviewPanel {
+  display: grid;
+  gap: 1rem;
+}
+
+.visualBrandControls > section {
+  display: grid;
+  gap: .85rem;
+  padding: 1rem;
+  border: 1px solid var(--line, #22304a);
+  border-radius: 16px;
+  background: rgba(8, 18, 34, .55);
+}
+
+.brandDropZone {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  gap: .8rem;
+  align-items: center;
+  padding: .8rem;
+  border: 1px dashed #35517d;
+  border-radius: 14px;
+  transition: .18s ease;
+}
+
+.brandDropZone.dragging {
+  border-color: #5b8cff;
+  background: rgba(55, 115, 255, .1);
+  transform: translateY(-1px);
+}
+
+.brandDropZone select {
+  grid-column: 2 / -1;
+}
+
+.brandDropPreview {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  overflow: hidden;
+  border: 1px solid #263b5f;
+  border-radius: 12px;
+  background: #050b15;
+}
+
+.brandDropPreview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.brandDropPreview span,
+.brandDropZone small {
+  color: #91a5c5;
+}
+
+.brandUploadButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 .85rem;
+  border: 1px solid #35517d;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.brandUploadButton input {
+  display: none;
+}
+
+.brandFieldGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .8rem;
+}
+
+.brandFieldGrid input[type='color'] {
+  width: 100%;
+  min-height: 44px;
+  padding: .2rem;
+}
+
+.brandNavList {
+  display: grid;
+  gap: .65rem;
+}
+
+.brandNavList article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: .65rem;
+  align-items: end;
+  padding: .75rem;
+  border: 1px solid #263b5f;
+  border-radius: 12px;
+}
+
+.brandNavList article > div {
+  display: flex;
+  gap: .35rem;
+}
+
+.visualBrandPreviewPanel {
+  position: sticky;
+  top: 1rem;
+}
+
+.brandWebsitePreview {
+  --brand-primary: #157bff;
+  --brand-secondary: #9434e8;
+  --brand-background: #05070d;
+  --brand-text: #ffffff;
+  --brand-radius: 18px;
+  --brand-font: Inter;
+  overflow: hidden;
+  min-height: 680px;
+  border: 1px solid #263b5f;
+  border-radius: 18px;
+  background: var(--brand-background);
+  color: var(--brand-text);
+  font-family: var(--brand-font), sans-serif;
+}
+
+.brandAnnouncement {
+  padding: .55rem 1rem;
+  text-align: center;
+  background: linear-gradient(90deg, var(--brand-primary), var(--brand-secondary));
+  color: white;
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+.brandWebsitePreview header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.2rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--brand-text) 18%, transparent);
+}
+
+.brandWebsitePreview.full-width header {
+  padding-inline: 2rem;
+}
+
+.brandWebsitePreview.minimal header {
+  border-bottom: 0;
+}
+
+.brandPreviewLogo {
+  display: flex;
+  align-items: center;
+  min-width: 72px;
+  min-height: 36px;
+}
+
+.brandPreviewLogo img {
+  max-width: 150px;
+  max-height: 46px;
+  object-fit: contain;
+}
+
+.brandPreviewLogo b {
+  color: var(--brand-primary);
+}
+
+.brandWebsitePreview nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 1rem;
+  font-size: .75rem;
+  font-weight: 800;
+}
+
+.brandWebsitePreview main {
+  display: grid;
+  place-items: center;
+  min-height: 360px;
+  padding: 4rem 2rem;
+  text-align: center;
+  background:
+    radial-gradient(circle at 50% 100%, color-mix(in srgb, var(--brand-secondary) 38%, transparent), transparent 46%),
+    radial-gradient(circle at 20% 20%, color-mix(in srgb, var(--brand-primary) 28%, transparent), transparent 35%);
+}
+
+.brandWebsitePreview main > span {
+  color: var(--brand-primary);
+  font-size: .72rem;
+  font-weight: 900;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+}
+
+.brandWebsitePreview h1 {
+  margin: .7rem 0;
+  font-size: clamp(2.6rem, 5vw, 5rem);
+  letter-spacing: -.05em;
+}
+
+.brandWebsitePreview main p {
+  max-width: 560px;
+  opacity: .8;
+}
+
+.brandWebsitePreview main button {
+  margin-top: 1rem;
+  padding: .85rem 1.25rem;
+  border: 1px solid var(--brand-primary);
+  border-radius: var(--brand-radius);
+  color: white;
+  font-weight: 800;
+}
+
+.brandWebsitePreview main button.gradient {
+  background: linear-gradient(90deg, var(--brand-primary), var(--brand-secondary));
+}
+
+.brandWebsitePreview main button.solid {
+  background: var(--brand-primary);
+}
+
+.brandWebsitePreview main button.outline {
+  background: transparent;
+  color: var(--brand-text);
+}
+
+.brandPreviewCards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .75rem;
+  padding: 1rem;
+}
+
+.brandPreviewCards article {
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--brand-text) 16%, transparent);
+  border-radius: var(--brand-radius);
+  background: color-mix(in srgb, var(--brand-text) 5%, transparent);
+}
+
+.brandPreviewCards p {
+  margin-bottom: 0;
+  opacity: .75;
+  font-size: .82rem;
+  line-height: 1.55;
+}
+
+.brandWebsitePreview footer {
+  padding: 1rem 1.25rem;
+  border-top: 1px solid color-mix(in srgb, var(--brand-text) 16%, transparent);
+  text-align: center;
+  opacity: .8;
+}
+
+.brandWebsitePreview footer.columns {
+  text-align: left;
+  padding-block: 2rem;
+}
+
+.brandWebsitePreview footer.minimal {
+  border-top: 0;
+  font-size: .75rem;
+}
+
+@media (max-width: 1180px) {
+  .visualBrandGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .visualBrandPreviewPanel {
+    position: static;
+  }
+}
+
+@media (max-width: 720px) {
+  .brandFieldGrid,
+  .brandPreviewCards {
+    grid-template-columns: 1fr;
+  }
+
+  .brandDropZone,
+  .brandNavList article {
+    grid-template-columns: 1fr;
+  }
+
+  .brandDropZone select {
+    grid-column: auto;
+  }
+
+  .brandWebsitePreview header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .brandWebsitePreview nav {
+    justify-content: flex-start;
+  }
+}
