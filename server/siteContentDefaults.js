@@ -26,6 +26,9 @@ export const starterSiteContent = {
       twitchChannel: 'twotonetaj',
       youtubeChannelId: 'UC54tVexRR4IXeXpzg2Dq1UA',
     },
+    engine: {
+      pageBlocks: {},
+    },
     home: {
       heroTitle: 'TwoToneTaj',
       heroText: 'TwoToneTaj, an average gamer with a passion for games, a pure heart, good laughs, and an awesome community.',
@@ -124,5 +127,5 @@ export const starterSiteContent = {
 }
 
 export function getStarterSiteContent(websiteId) {
-  return starterSiteContent[websiteId] || { pages: [] }
+  return starterSiteContent[websiteId] || { engine: { pageBlocks: {} }, pages: [] }
 }
