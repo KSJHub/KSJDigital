@@ -22,9 +22,7 @@ export function useWebsites() {
     refresh()
 
     function update(event) {
-      if (Array.isArray(event.detail)) {
-        setWebsites(event.detail)
-      }
+      if (Array.isArray(event.detail)) setWebsites(event.detail)
     }
 
     window.addEventListener('ksj-websites-updated', update)
@@ -35,6 +33,8 @@ export function useWebsites() {
 }
 
 export function findClientWebsite(websites, account) {
-  const siteId = account?.websiteId || account?.websiteIds?.[0] || 'twotonetaj'
-  return websites.find(site => site.id === siteId) || null
+  if (!Array.isArray(websites) || !websites.length) return null
+  const siteIds = account?.websiteIds || (account?.websiteId ? [account.websiteId] : [])
+  if (account?.role === 'owner') return websites[0] || null
+  return websites.find(site => siteIds.includes(site.id)) || null
 }
