@@ -12,6 +12,9 @@ function isRequestListRoute(path) { return path === '/api/publish/requests' }
 function isCreateRequestRoute(path) { return path === '/api/publish/requests' }
 function isReviewRoute(path) { return path === '/api/publish/requests/:id/review' }
 function isApproveRoute(path) { return path === '/api/publish/requests/:id/approve' }
+function isHistoryListRoute(path) { return path === '/api/publish/history' }
+function isHistoryReviewRoute(path) { return path === '/api/publish/history/:id/review' }
+function isHistoryRollbackRoute(path) { return path === '/api/publish/history/:id/rollback' }
 
 function sessionWebsiteIds(session) {
   if (session?.role === 'owner') return null
@@ -26,6 +29,11 @@ function hasWebsiteAccess(session, websiteId) {
 function withoutSnapshot(request) {
   const { draftSnapshot, ...safeRequest } = request
   return safeRequest
+}
+
+function withoutHistorySnapshot(item) {
+  const { snapshot, previousSnapshot, ...safeItem } = item
+  return { ...safeItem, rollbackAvailable: Boolean(snapshot) }
 }
 
 function safePreviewValue(value) {
@@ -182,6 +190,8 @@ async function approveRequestHandler(req, res) {
       createdBy: req.session.name,
       submittedBy: request.createdBy || 'Client',
       changedFields,
+      snapshot: structuredClone(published),
+      previousSnapshot: structuredClone(currentPublished),
     }, ...history])
     return res.json(withoutSnapshot(updatedRequest))
   } catch (error) {
@@ -189,16 +199,112 @@ async function approveRequestHandler(req, res) {
   }
 }
 
+async function listHistoryHandler(req, res) {
+  try {
+    const history = await readJson(paths.history(), [])
+    const visible = req.session?.role === 'owner'
+      ? history
+      : history.filter(item => hasWebsiteAccess(req.session, item.websiteId))
+    return res.json(visible.map(withoutHistorySnapshot))
+  } catch (error) {
+    return res.status(400).json({ error: error.message || 'Unable to load publish history' })
+  }
+}
+
+async function reviewHistoryHandler(req, res) {
+  try {
+    if (req.session?.role !== 'owner') return res.status(403).json({ error: 'Owner access required' })
+    const history = await readJson(paths.history(), [])
+    const item = history.find(entry => entry.id === req.params.id)
+    if (!item) return res.status(404).json({ error: 'Published version not found' })
+    if (!item.snapshot) return res.status(409).json({ error: 'This legacy history entry does not contain a restorable snapshot' })
+    const current = await getPublishedContent(item.websiteId)
+    const changes = buildDiff(current, item.snapshot)
+    return res.json({
+      history: withoutHistorySnapshot(item),
+      current,
+      snapshot: item.snapshot,
+      changes,
+      summary: summariseDiff(changes),
+      totals: {
+        changedFields: changes.length,
+        changedSections: new Set(changes.map(change => change.path.split('.')[0])).size,
+      },
+    })
+  } catch (error) {
+    return res.status(400).json({ error: error.message || 'Unable to review published version' })
+  }
+}
+
+async function rollbackHistoryHandler(req, res) {
+  try {
+    if (req.session?.role !== 'owner') return res.status(403).json({ error: 'Owner access required' })
+    const history = await readJson(paths.history(), [])
+    const item = history.find(entry => entry.id === req.params.id)
+    if (!item) return res.status(404).json({ error: 'Published version not found' })
+    if (!item.snapshot) return res.status(409).json({ error: 'This legacy history entry cannot be restored because no snapshot was stored' })
+
+    const currentPublished = await getPublishedContent(item.websiteId)
+    if (sameValue(currentPublished, item.snapshot)) {
+      return res.status(409).json({ error: `${item.version || 'This version'} is already live` })
+    }
+
+    const version = nextVersion(history, item.websiteId)
+    const rollbackId = crypto.randomUUID()
+    const published = await publishContentSnapshot(item.websiteId, item.snapshot, {
+      publishedBy: req.session.name,
+      publishRequestId: rollbackId,
+    })
+    const syncedDraft = {
+      ...structuredClone(item.snapshot),
+      updatedAt: new Date().toISOString(),
+    }
+    delete syncedDraft.publishedAt
+    delete syncedDraft.publishedBy
+    delete syncedDraft.publishRequestId
+    await writeJson(paths.content(item.websiteId), syncedDraft)
+
+    const createdAt = new Date().toISOString()
+    const changedFields = buildDiff(currentPublished, item.snapshot).length
+    const rollbackEntry = {
+      id: rollbackId,
+      websiteId: item.websiteId,
+      websiteName: item.websiteName || item.websiteId,
+      requestId: '',
+      action: 'Rollback',
+      status: 'Published',
+      version,
+      title: `Restored ${item.version || 'previous version'}`,
+      restoredFromHistoryId: item.id,
+      restoredFromVersion: item.version || '',
+      createdAt,
+      publishedAt: published.publishedAt,
+      createdBy: req.session.name,
+      submittedBy: 'KSJ Digital',
+      changedFields,
+      snapshot: structuredClone(published),
+      previousSnapshot: structuredClone(currentPublished),
+    }
+    await writeJson(paths.history(), [rollbackEntry, ...history])
+    return res.json(withoutHistorySnapshot(rollbackEntry))
+  } catch (error) {
+    return res.status(400).json({ error: error.message || 'Unable to restore published version' })
+  }
+}
+
 express.application.get = function patchedGet(path, ...handlers) {
   if (isPublicSiteRoute(path)) return originalGet.call(this, path, publicSiteHandler)
   if (isRequestListRoute(path)) return originalGet.call(this, path, listRequestsHandler)
   if (isReviewRoute(path)) return originalGet.call(this, path, reviewRequestHandler)
+  if (isHistoryListRoute(path)) return originalGet.call(this, path, listHistoryHandler)
+  if (isHistoryReviewRoute(path)) return originalGet.call(this, path, reviewHistoryHandler)
   return originalGet.call(this, path, ...handlers)
 }
 
 express.application.post = function patchedPost(path, ...handlers) {
   if (isCreateRequestRoute(path)) return originalPost.call(this, path, createRequestHandler)
   if (isApproveRoute(path)) return originalPost.call(this, path, approveRequestHandler)
+  if (isHistoryRollbackRoute(path)) return originalPost.call(this, path, rollbackHistoryHandler)
   return originalPost.call(this, path, ...handlers)
 }
 
