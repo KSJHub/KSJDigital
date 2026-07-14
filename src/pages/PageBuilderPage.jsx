@@ -16,6 +16,8 @@ import {
   updateSectionRule,
 } from '../services/editorPolicy.js'
 
+const MAX_HISTORY = 50
+
 function localDevelopment() {
   return ['localhost', '127.0.0.1'].includes(window.location.hostname)
 }
@@ -27,6 +29,10 @@ function siteUrl(website, editor = false) {
   const url = raw.startsWith('http') ? raw : `https://${raw}`
   if (!editor) return url
   return `${url}${url.includes('?') ? '&' : '?'}ksjEditor=1`
+}
+
+function sameContent(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right)
 }
 
 function FieldInspector({ account, content, selection, value, onChange, onUpload, onRuleChange, onClose }) {
@@ -109,6 +115,9 @@ export function PageBuilderPage({ client = false }) {
   const frameRef = useRef(null)
   const workspaceRef = useRef(null)
   const bridgeTimerRef = useRef(null)
+  const historyRef = useRef([])
+  const historyIndexRef = useRef(-1)
+  const historyBusyRef = useRef(false)
   const [frameReady, setFrameReady] = useState(false)
   const [content, setContent] = useState({ pages: [] })
   const [selection, setSelection] = useState(null)
@@ -118,15 +127,49 @@ export function PageBuilderPage({ client = false }) {
   const [browserFullscreen, setBrowserFullscreen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submission, setSubmission] = useState(null)
+  const [historyState, setHistoryState] = useState({ index: -1, length: 0 })
   const canRequestUpdates = account?.role === 'owner' || account?.canRequestUpdates
   const selectedValue = useMemo(() => selection?.fieldId ? getPathValue(content, selection.fieldId) ?? selection.value ?? '' : '', [content, selection])
+  const canUndo = historyState.index > 0
+  const canRedo = historyState.index >= 0 && historyState.index < historyState.length - 1
+
+  function updateHistoryState() {
+    setHistoryState({ index: historyIndexRef.current, length: historyRef.current.length })
+  }
+
+  function resetHistory(snapshot) {
+    historyRef.current = [structuredClone(snapshot)]
+    historyIndexRef.current = 0
+    updateHistoryState()
+  }
+
+  function recordHistory(snapshot) {
+    if (historyBusyRef.current) return
+    const current = historyRef.current[historyIndexRef.current]
+    if (current && sameContent(current, snapshot)) return
+    const retained = historyRef.current.slice(0, historyIndexRef.current + 1)
+    retained.push(structuredClone(snapshot))
+    if (retained.length > MAX_HISTORY) retained.splice(0, retained.length - MAX_HISTORY)
+    historyRef.current = retained
+    historyIndexRef.current = retained.length - 1
+    updateHistoryState()
+  }
 
   useEffect(() => { if (account?.role === 'owner' && !selectedWebsiteId && websites[0]?.id) setSelectedWebsiteId(websites[0].id) }, [account?.role, selectedWebsiteId, websites])
   useEffect(() => {
     setSelection(null); setFrameReady(false); setSubmission(null)
+    historyRef.current = []
+    historyIndexRef.current = -1
+    updateHistoryState()
     if (!websiteId) return setNotice('Waiting for assigned website')
     let cancelled = false
-    api.getContent(websiteId).then(data => { if (!cancelled) { setContent(data); setNotice('Website ready') } }).catch(error => !cancelled && setNotice(error.message || 'Website unavailable'))
+    api.getContent(websiteId).then(data => {
+      if (!cancelled) {
+        setContent(data)
+        resetHistory(data)
+        setNotice('Website ready')
+      }
+    }).catch(error => !cancelled && setNotice(error.message || 'Website unavailable'))
     return () => { cancelled = true }
   }, [websiteId])
 
@@ -157,10 +200,24 @@ export function PageBuilderPage({ client = false }) {
     return () => document.removeEventListener('fullscreenchange', changed)
   }, [])
   useEffect(() => {
-    function closeInspector(event) { if (event.key === 'Escape' && selection) setSelection(null) }
-    window.addEventListener('keydown', closeInspector)
-    return () => window.removeEventListener('keydown', closeInspector)
-  }, [selection])
+    function keyboard(event) {
+      if (event.key === 'Escape' && selection) {
+        setSelection(null)
+        return
+      }
+      if (!(event.ctrlKey || event.metaKey)) return
+      const key = event.key.toLowerCase()
+      if (key === 'z' && !event.shiftKey) {
+        event.preventDefault()
+        undo()
+      } else if (key === 'y' || (key === 'z' && event.shiftKey)) {
+        event.preventDefault()
+        redo()
+      }
+    }
+    window.addEventListener('keydown', keyboard)
+    return () => window.removeEventListener('keydown', keyboard)
+  }, [selection, canUndo, canRedo])
 
   function frameLoaded() {
     setFrameReady(false)
@@ -177,8 +234,9 @@ export function PageBuilderPage({ client = false }) {
     }, 3000)
   }
 
-  async function save(nextContent, message) {
-    if (!websiteId) return
+  async function save(nextContent, message, { addHistory = true } = {}) {
+    if (!websiteId) return false
+    if (addHistory) recordHistory(nextContent)
     setSubmission(null)
     setContent(nextContent)
     initialiseFrame(nextContent)
@@ -188,9 +246,36 @@ export function PageBuilderPage({ client = false }) {
       setContent(saved)
       initialiseFrame(saved)
       setNotice(message)
+      return true
     } catch (error) {
       setNotice(error.message || 'Save failed')
+      return false
     }
+  }
+
+  async function applyHistory(index, message) {
+    if (historyBusyRef.current || index < 0 || index >= historyRef.current.length) return
+    historyBusyRef.current = true
+    const previousIndex = historyIndexRef.current
+    const snapshot = structuredClone(historyRef.current[index])
+    historyIndexRef.current = index
+    updateHistoryState()
+    const saved = await save(snapshot, message, { addHistory: false })
+    if (!saved) {
+      historyIndexRef.current = previousIndex
+      updateHistoryState()
+    }
+    historyBusyRef.current = false
+  }
+
+  function undo() {
+    if (!canUndo) return
+    applyHistory(historyIndexRef.current - 1, '↶ Previous draft restored')
+  }
+
+  function redo() {
+    if (!canRedo) return
+    applyHistory(historyIndexRef.current + 1, '↷ Draft change restored')
   }
 
   function patchFrame(fieldId, value, nextContent = content) {
@@ -278,7 +363,15 @@ export function PageBuilderPage({ client = false }) {
         <header className="editorTopbar">
           <div className="editorIdentity"><button className="editorBack" onClick={() => setFocusMode(false)} aria-label="Exit focus mode">←</button><div><strong>{website?.name || 'Assigned Website'}</strong><small>{notice}</small></div>{account?.role === 'owner' && websites.length > 1 && <select value={websiteId || ''} onChange={event => setSelectedWebsiteId(event.target.value)}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select>}</div>
           <div className="editorDevices">{['desktop', 'tablet', 'mobile'].map(mode => <button key={mode} className={device === mode ? 'active' : ''} onClick={() => setDevice(mode)}>{mode}</button>)}</div>
-          <div className="editorActions">{!focusMode && <button onClick={() => setFocusMode(true)}>Focus Editor</button>}<button onClick={openSiteSettings}>Site Settings</button><button onClick={toggleBrowserFullscreen}>{browserFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</button><button onClick={() => window.open(siteUrl(website), '_blank')}>Preview</button>{client && canRequestUpdates && <button className="primary" disabled={submitting || submission?.type === 'success'} onClick={submitForApproval}>{submitting ? 'Submitting…' : submission?.type === 'success' ? 'Submitted' : 'Submit Changes'}</button>}</div>
+          <div className="editorActions">
+            <button disabled={!canUndo} onClick={undo} title="Undo (Ctrl+Z)">↶ Undo</button>
+            <button disabled={!canRedo} onClick={redo} title="Redo (Ctrl+Y)">↷ Redo</button>
+            {!focusMode && <button onClick={() => setFocusMode(true)}>Focus Editor</button>}
+            <button onClick={openSiteSettings}>Site Settings</button>
+            <button onClick={toggleBrowserFullscreen}>{browserFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</button>
+            <button onClick={() => window.open(siteUrl(website), '_blank')}>Preview</button>
+            {client && canRequestUpdates && <button className="primary" disabled={submitting || submission?.type === 'success'} onClick={submitForApproval}>{submitting ? 'Submitting…' : submission?.type === 'success' ? 'Submitted' : 'Submit Changes'}</button>}
+          </div>
         </header>
         <main className="editorStage">
           <div className={`editorCanvas ${device}`}>{website?.domain || website?.editorUrl || website?.previewUrl || website?.developmentEditorUrl ? <iframe key={websiteId} ref={frameRef} title={`${website.name} visual editor`} src={siteUrl(website, true)} onLoad={frameLoaded} /> : <p className="emptyState">This website does not have an editor URL configured.</p>}</div>
