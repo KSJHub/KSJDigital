@@ -60,12 +60,14 @@ export function PageBuilderPage({ client = false }) {
   const [notice, setNotice] = useState('Loading website')
   const [focusMode, setFocusMode] = useState(true)
   const [browserFullscreen, setBrowserFullscreen] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [submission, setSubmission] = useState(null)
   const canRequestUpdates = account?.role === 'owner' || account?.canRequestUpdates
   const selectedValue = useMemo(() => selection?.fieldId ? getPathValue(content, selection.fieldId) ?? selection.value ?? '' : '', [content, selection])
 
   useEffect(() => { if (account?.role === 'owner' && !selectedWebsiteId && websites[0]?.id) setSelectedWebsiteId(websites[0].id) }, [account?.role, selectedWebsiteId, websites])
   useEffect(() => {
-    setSelection(null); setFrameReady(false)
+    setSelection(null); setFrameReady(false); setSubmission(null)
     if (!websiteId) return setNotice('Waiting for assigned website')
     let cancelled = false
     api.getContent(websiteId).then(data => { if (!cancelled) { setContent(data); setNotice('Website ready') } }).catch(error => !cancelled && setNotice(error.message || 'Website unavailable'))
@@ -120,6 +122,7 @@ export function PageBuilderPage({ client = false }) {
 
   async function save(nextContent, message) {
     if (!websiteId) return
+    setSubmission(null)
     setContent(nextContent); setNotice('Saving…')
     try { const saved = await api.saveContent(websiteId, nextContent); setContent(saved); setNotice(message) } catch (error) { setNotice(error.message || 'Save failed') }
   }
@@ -147,13 +150,32 @@ export function PageBuilderPage({ client = false }) {
     patchFrame(selection.fieldId, getPathValue(next, selection.fieldId), next); save(next, '✓ Client access updated')
   }
   async function submitForApproval() {
-    if (!websiteId || !canRequestUpdates) return setNotice('Update request permission required')
+    if (!websiteId || !canRequestUpdates || submitting || submission?.type === 'success') return
+    setSubmitting(true)
     setNotice('Submitting…')
-    try { await api.createPublishRequest({ websiteId, websiteName: website.name, repository: website.repository, title: 'Visual website edits', createdBy: account?.displayName || account?.name, contentPath: `server-data/content/${websiteId}.json` }); setNotice('✓ Submitted for approval') } catch (error) { setNotice(error.message || 'Submission failed') }
+    setSubmission(null)
+    try {
+      const result = await api.createPublishRequest({ websiteId, websiteName: website.name, repository: website.repository, title: 'Visual website edits', createdBy: account?.displayName || account?.name, contentPath: `server-data/content/${websiteId}.json` })
+      setNotice('✓ Submitted for approval')
+      setSubmission({
+        type: 'success',
+        title: result.duplicate ? 'Already waiting for review' : 'Changes submitted successfully',
+        message: result.duplicate ? 'This exact draft was already submitted. No duplicate request was created.' : 'KSJ Digital can now review the exact version you submitted.',
+        requestId: result.id,
+      })
+    } catch (error) {
+      setNotice('Submission failed')
+      setSubmission({ type: 'error', title: 'Could not submit changes', message: error.message || 'Please try again.' })
+    } finally {
+      setSubmitting(false)
+    }
   }
   async function toggleBrowserFullscreen() {
     if (document.fullscreenElement) await document.exitFullscreen()
     else await workspaceRef.current?.requestFullscreen()
+  }
+  function openSiteSettings() {
+    location.href = client ? '/client/branding' : '/owner/branding'
   }
 
   return (
@@ -162,11 +184,12 @@ export function PageBuilderPage({ client = false }) {
         <header className="editorTopbar">
           <div className="editorIdentity"><button className="editorBack" onClick={() => setFocusMode(false)} aria-label="Exit focus mode">←</button><div><strong>{website?.name || 'Assigned Website'}</strong><small>{notice}</small></div>{account?.role === 'owner' && websites.length > 1 && <select value={websiteId || ''} onChange={event => setSelectedWebsiteId(event.target.value)}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select>}</div>
           <div className="editorDevices">{['desktop', 'tablet', 'mobile'].map(mode => <button key={mode} className={device === mode ? 'active' : ''} onClick={() => setDevice(mode)}>{mode}</button>)}</div>
-          <div className="editorActions">{!focusMode && <button onClick={() => setFocusMode(true)}>Focus Editor</button>}<button onClick={toggleBrowserFullscreen}>{browserFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</button><button onClick={() => window.open(siteUrl(website), '_blank')}>Preview</button>{client && canRequestUpdates && <button className="primary" onClick={submitForApproval}>Submit Changes</button>}</div>
+          <div className="editorActions">{!focusMode && <button onClick={() => setFocusMode(true)}>Focus Editor</button>}<button onClick={openSiteSettings}>Site Settings</button><button onClick={toggleBrowserFullscreen}>{browserFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</button><button onClick={() => window.open(siteUrl(website), '_blank')}>Preview</button>{client && canRequestUpdates && <button className="primary" disabled={submitting || submission?.type === 'success'} onClick={submitForApproval}>{submitting ? 'Submitting…' : submission?.type === 'success' ? 'Submitted' : 'Submit Changes'}</button>}</div>
         </header>
         <main className="editorStage">
           <div className={`editorCanvas ${device}`}>{website?.domain || website?.editorUrl || website?.previewUrl || website?.developmentEditorUrl ? <iframe key={websiteId} ref={frameRef} title={`${website.name} visual editor`} src={siteUrl(website, true)} onLoad={frameLoaded} /> : <p className="emptyState">This website does not have an editor URL configured.</p>}</div>
           {selection && <aside className="editorInspector"><FieldInspector account={account} content={content} selection={selection} value={selectedValue} onChange={updateSelected} onUpload={uploadSelectedImage} onRuleChange={updateRule} onClose={() => setSelection(null)} /></aside>}
+          {submission && <div className={`editorSubmission ${submission.type}`} role="status"><button onClick={() => setSubmission(null)} aria-label="Dismiss notification">×</button><strong>{submission.title}</strong><span>{submission.message}</span>{submission.requestId && <small>Request: {submission.requestId}</small>}</div>}
         </main>
       </div>
     </Layout>
