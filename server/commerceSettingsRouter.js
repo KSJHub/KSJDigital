@@ -38,7 +38,7 @@ function money(value, fallback = 0) {
   return Number.isFinite(number) ? Math.max(0, Math.round(number * 100) / 100) : fallback
 }
 
-function wholeNumber(value, fallback) {
+function wholeNumber(value, fallback = 0) {
   const number = Number(value)
   return Number.isFinite(number) ? Math.max(0, Math.round(number)) : fallback
 }
@@ -55,8 +55,8 @@ function sanitiseDiscountCodes(input = []) {
     type: item.type === 'fixed' ? 'fixed' : 'percent',
     value: money(item.value),
     minimumSpend: money(item.minimumSpend),
-    maxUses: wholeNumber(item.maxUses, 0),
-    uses: wholeNumber(item.uses, 0),
+    maxUses: wholeNumber(item.maxUses),
+    uses: wholeNumber(item.uses),
     expiresAt: clean(item.expiresAt),
     active: item.active !== false,
   })).filter(item => item.code)
@@ -69,11 +69,8 @@ export function normaliseOrderPrefix(value = '') {
 function suggestedOrderPrefix(name = '', id = '') {
   const source = String(name || id).replace(/[^A-Za-z0-9 ]/g, ' ').trim()
   const words = source.split(/\s+/).filter(Boolean)
-  if (words.length > 1) {
-    return normaliseOrderPrefix(words.map(word => word[0]).join('')).slice(0, 3) || 'WEB'
-  }
-  const compact = normaliseOrderPrefix(source)
-  return compact.slice(-3) || 'WEB'
+  if (words.length > 1) return normaliseOrderPrefix(words.map(word => word[0]).join('')).slice(0, 3) || 'WEB'
+  return normaliseOrderPrefix(source).slice(-3) || 'WEB'
 }
 
 function uniquePrefix(base, used) {
@@ -89,11 +86,7 @@ function uniquePrefix(base, used) {
 
 function sanitise(input = {}) {
   const minimumDays = wholeNumber(input.estimatedDeliveryMinDays, DEFAULTS.estimatedDeliveryMinDays)
-  const maximumDays = Math.max(
-    minimumDays,
-    wholeNumber(input.estimatedDeliveryMaxDays, DEFAULTS.estimatedDeliveryMaxDays),
-  )
-
+  const maximumDays = Math.max(minimumDays, wholeNumber(input.estimatedDeliveryMaxDays, DEFAULTS.estimatedDeliveryMaxDays))
   return {
     ...DEFAULTS,
     stripeEnabled: input.stripeEnabled === true,
@@ -125,130 +118,61 @@ function sanitise(input = {}) {
 }
 
 export function calculateShipping(settings = {}, product = {}, quantity = 1) {
-  const safeSettings = sanitise(settings)
-  const safeQuantity = Math.max(1, Number(quantity) || 1)
-  const subtotal = money(Number(product.priceGBP || 0) * safeQuantity)
-
-  if (product.fulfilment === 'digital') {
-    return { amount: 0, label: 'Digital delivery', minimumDays: 0, maximumDays: 0, free: true }
-  }
-
-  if (!safeSettings.shippingEnabled) {
-    return { amount: 0, label: 'Delivery included', minimumDays: 0, maximumDays: 0, free: true }
-  }
-
-  const qualifiesForFreeShipping =
-    safeSettings.freeShippingEnabled && subtotal >= safeSettings.freeShippingThreshold
-
-  return {
-    amount: qualifiesForFreeShipping ? 0 : safeSettings.standardShippingRate,
-    label: qualifiesForFreeShipping ? 'Free UK Delivery' : safeSettings.standardShippingLabel,
-    minimumDays: safeSettings.estimatedDeliveryMinDays,
-    maximumDays: safeSettings.estimatedDeliveryMaxDays,
-    free: qualifiesForFreeShipping || safeSettings.standardShippingRate === 0,
-  }
+  const safe = sanitise(settings)
+  const subtotal = money(Number(product.priceGBP || 0) * Math.max(1, Number(quantity) || 1))
+  if (product.fulfilment === 'digital') return { amount: 0, label: 'Digital delivery', minimumDays: 0, maximumDays: 0, free: true }
+  if (!safe.shippingEnabled) return { amount: 0, label: 'Delivery included', minimumDays: 0, maximumDays: 0, free: true }
+  const free = safe.freeShippingEnabled && subtotal >= safe.freeShippingThreshold
+  return { amount: free ? 0 : safe.standardShippingRate, label: free ? 'Free UK Delivery' : safe.standardShippingLabel, minimumDays: safe.estimatedDeliveryMinDays, maximumDays: safe.estimatedDeliveryMaxDays, free: free || safe.standardShippingRate === 0 }
 }
 
 export function calculateTax(settings = {}, productSubtotal = 0, shippingAmount = 0) {
-  const safeSettings = sanitise(settings)
-  const productGrossOrNet = money(productSubtotal)
-  const shippingGrossOrNet = money(shippingAmount)
-
-  if (!safeSettings.taxEnabled || safeSettings.taxRate <= 0) {
-    return {
-      enabled: false,
-      label: safeSettings.taxLabel,
-      rate: 0,
-      included: false,
-      productNet: productGrossOrNet,
-      shippingNet: shippingGrossOrNet,
-      amount: 0,
-      total: money(productGrossOrNet + shippingGrossOrNet),
-      number: '',
-    }
-  }
-
-  const rate = safeSettings.taxRate / 100
-  const taxableShipping = safeSettings.taxShipping ? shippingGrossOrNet : 0
-  const exemptShipping = safeSettings.taxShipping ? 0 : shippingGrossOrNet
-
-  if (safeSettings.pricesIncludeTax) {
-    const productNet = money(productGrossOrNet / (1 + rate))
+  const safe = sanitise(settings)
+  const products = money(productSubtotal)
+  const shipping = money(shippingAmount)
+  if (!safe.taxEnabled || safe.taxRate <= 0) return { enabled: false, label: safe.taxLabel, rate: 0, included: false, productNet: products, shippingNet: shipping, amount: 0, total: money(products + shipping), number: '' }
+  const rate = safe.taxRate / 100
+  const taxableShipping = safe.taxShipping ? shipping : 0
+  const exemptShipping = safe.taxShipping ? 0 : shipping
+  if (safe.pricesIncludeTax) {
+    const productNet = money(products / (1 + rate))
     const shippingNet = money(taxableShipping / (1 + rate))
-    const amount = money(productGrossOrNet + taxableShipping - productNet - shippingNet)
-    return {
-      enabled: true,
-      label: safeSettings.taxLabel,
-      rate: safeSettings.taxRate,
-      included: true,
-      productNet,
-      shippingNet: money(shippingNet + exemptShipping),
-      amount,
-      total: money(productGrossOrNet + shippingGrossOrNet),
-      number: safeSettings.taxNumber,
-    }
+    const amount = money(products + taxableShipping - productNet - shippingNet)
+    return { enabled: true, label: safe.taxLabel, rate: safe.taxRate, included: true, productNet, shippingNet: money(shippingNet + exemptShipping), amount, total: money(products + shipping), number: safe.taxNumber }
   }
-
-  const amount = money((productGrossOrNet + taxableShipping) * rate)
-  return {
-    enabled: true,
-    label: safeSettings.taxLabel,
-    rate: safeSettings.taxRate,
-    included: false,
-    productNet: productGrossOrNet,
-    shippingNet: shippingGrossOrNet,
-    amount,
-    total: money(productGrossOrNet + shippingGrossOrNet + amount),
-    number: safeSettings.taxNumber,
-  }
+  const amount = money((products + taxableShipping) * rate)
+  return { enabled: true, label: safe.taxLabel, rate: safe.taxRate, included: false, productNet: products, shippingNet: shipping, amount, total: money(products + shipping + amount), number: safe.taxNumber }
 }
 
 export function resolveDiscount(settings = {}, suppliedCode = '', subtotal = 0) {
   const code = normaliseDiscountCode(suppliedCode)
   const safeSubtotal = money(subtotal)
   if (!code) return { code: '', amount: 0, valid: false, reason: '' }
-
   const record = sanitise(settings).discountCodes.find(item => item.code === code)
   if (!record || !record.active) throw new Error('Discount code is invalid')
-  if (record.expiresAt && new Date(record.expiresAt).getTime() < Date.now()) {
-    throw new Error('Discount code has expired')
-  }
-  if (record.maxUses > 0 && record.uses >= record.maxUses) {
-    throw new Error('Discount code usage limit has been reached')
-  }
-  if (safeSubtotal < record.minimumSpend) {
-    throw new Error(`Discount code requires a minimum spend of £${record.minimumSpend.toFixed(2)}`)
-  }
-
-  const amount = record.type === 'fixed'
-    ? Math.min(safeSubtotal, record.value)
-    : money(safeSubtotal * Math.min(100, record.value) / 100)
-
-  return {
-    code,
-    amount,
-    valid: amount > 0,
-    type: record.type,
-    value: record.value,
-  }
+  if (record.expiresAt && new Date(record.expiresAt).getTime() < Date.now()) throw new Error('Discount code has expired')
+  if (record.maxUses > 0 && record.uses >= record.maxUses) throw new Error('Discount code usage limit has been reached')
+  if (safeSubtotal < record.minimumSpend) throw new Error(`Discount code requires a minimum spend of £${record.minimumSpend.toFixed(2)}`)
+  const amount = record.type === 'fixed' ? Math.min(safeSubtotal, record.value) : money(safeSubtotal * Math.min(100, record.value) / 100)
+  return { code, amount, valid: amount > 0, type: record.type, value: record.value }
 }
 
 export async function recordDiscountUse(websiteId, suppliedCode = '') {
   const code = normaliseDiscountCode(suppliedCode)
   if (!code) return
-  const path = paths.commerceSettings(safeName(websiteId))
-  const current = sanitise(await readJson(path, {}))
-  const discountCodes = current.discountCodes.map(item =>
-    item.code === code ? { ...item, uses: item.uses + 1 } : item,
-  )
-  await writeJson(path, { ...current, discountCodes })
+  const file = paths.commerceSettings(safeName(websiteId))
+  const current = sanitise(await readJson(file, {}))
+  await writeJson(file, { ...current, discountCodes: current.discountCodes.map(item => item.code === code ? { ...item, uses: item.uses + 1 } : item) })
 }
 
-function validateHttpsUrl(value, label, required = false) {
+function validReturnUrl(value, label, required = false) {
   if (!value && !required) return null
   if (!value) return `${label} is required`
   try {
-    return new URL(value).protocol === 'https:' ? null : `${label} must use HTTPS`
+    const url = new URL(value)
+    const local = ['localhost', '127.0.0.1'].includes(url.hostname)
+    if (url.protocol === 'https:' || (process.env.NODE_ENV !== 'production' && local && url.protocol === 'http:')) return null
+    return `${label} must use HTTPS${process.env.NODE_ENV !== 'production' ? ' or local HTTP during development' : ''}`
   } catch {
     return `${label} is invalid`
   }
@@ -257,44 +181,33 @@ function validateHttpsUrl(value, label, required = false) {
 function validate(settings) {
   const errors = []
   if (settings.stripeEnabled) {
-    errors.push(validateHttpsUrl(settings.successUrl, 'Stripe success URL', true))
-    errors.push(validateHttpsUrl(settings.cancelUrl, 'Checkout cancel URL', true))
+    errors.push(validReturnUrl(settings.successUrl, 'Stripe success URL', true))
+    errors.push(validReturnUrl(settings.cancelUrl, 'Checkout cancel URL', true))
   }
   if (settings.paypalEnabled) {
-    errors.push(validateHttpsUrl(settings.paypalReturnUrl, 'PayPal return URL', true))
-    errors.push(validateHttpsUrl(settings.cancelUrl, 'Checkout cancel URL', true))
+    errors.push(validReturnUrl(settings.paypalReturnUrl, 'PayPal return URL', true))
+    errors.push(validReturnUrl(settings.cancelUrl, 'Checkout cancel URL', true))
   }
   if (settings.discordWebhookUrl) {
-    const error = validateHttpsUrl(settings.discordWebhookUrl, 'Discord webhook URL')
+    const error = validReturnUrl(settings.discordWebhookUrl, 'Discord webhook URL')
     if (error) errors.push(error)
     else {
       const host = new URL(settings.discordWebhookUrl).hostname
-      if (!host.endsWith('discord.com') && !host.endsWith('discordapp.com')) {
-        errors.push('Discord webhook must use an official Discord domain')
-      }
+      if (!host.endsWith('discord.com') && !host.endsWith('discordapp.com')) errors.push('Discord webhook must use an official Discord domain')
     }
   }
-  if ((settings.stripeEnabled || settings.paypalEnabled) && !settings.orderEmail) {
-    errors.push('Order notification email is required')
-  }
-  if (settings.shippingEnabled && !settings.standardShippingLabel) {
-    errors.push('Standard shipping label is required')
-  }
+  if ((settings.stripeEnabled || settings.paypalEnabled) && !settings.orderEmail) errors.push('Order notification email is required')
+  if (settings.shippingEnabled && !settings.standardShippingLabel) errors.push('Standard shipping label is required')
   if (settings.taxEnabled && !settings.taxLabel) errors.push('Tax label is required')
   if (settings.taxEnabled && settings.taxRate <= 0) errors.push('Tax rate must be greater than zero')
-
   const codes = new Set()
-  for (const discount of settings.discountCodes) {
+  settings.discountCodes.forEach(discount => {
     if (codes.has(discount.code)) errors.push(`Discount code ${discount.code} is duplicated`)
     codes.add(discount.code)
     if (discount.value <= 0) errors.push(`Discount code ${discount.code} must have a value above zero`)
-    if (discount.type === 'percent' && discount.value > 100) {
-      errors.push(`Discount code ${discount.code} cannot exceed 100%`)
-    }
-    if (discount.expiresAt && Number.isNaN(new Date(discount.expiresAt).getTime())) {
-      errors.push(`Discount code ${discount.code} has an invalid expiry date`)
-    }
-  }
+    if (discount.type === 'percent' && discount.value > 100) errors.push(`Discount code ${discount.code} cannot exceed 100%`)
+    if (discount.expiresAt && Number.isNaN(new Date(discount.expiresAt).getTime())) errors.push(`Discount code ${discount.code} has an invalid expiry date`)
+  })
   return errors.filter(Boolean)
 }
 
@@ -315,9 +228,27 @@ function canAccessWebsite(session, websiteId) {
   return (session.websiteIds || []).includes(websiteId)
 }
 
+async function readiness(websiteId) {
+  const id = safeName(websiteId)
+  const settings = await getCommerceSettings(id)
+  const content = await readJson(paths.content(id), {})
+  const products = Array.isArray(content.merch?.products) ? content.merch.products : []
+  const enabledProducts = products.filter(product => product.checkout?.enabled === true && product.availability === 'available')
+  const checks = [
+    { id: 'catalogue', label: 'At least one checkout-ready product', ready: enabledProducts.length > 0, detail: `${enabledProducts.length} ready of ${products.length} products` },
+    { id: 'returns', label: 'Checkout return URLs', ready: validate(settings).filter(error => /URL|required/.test(error)).length === 0, detail: settings.successUrl || settings.paypalReturnUrl || 'Not configured' },
+    { id: 'orders', label: 'Order notification email', ready: Boolean(settings.orderEmail), detail: settings.orderEmail || 'Not configured' },
+    { id: 'stripe', label: 'Stripe environment', ready: !settings.stripeEnabled || Boolean(process.env.STRIPE_SECRET_KEY), detail: settings.stripeEnabled ? (process.env.STRIPE_SECRET_KEY ? 'Secret key configured' : 'STRIPE_SECRET_KEY missing') : 'Disabled' },
+    { id: 'stripe-webhook', label: 'Stripe webhook', ready: !settings.stripeEnabled || Boolean(process.env.STRIPE_WEBHOOK_SECRET), detail: settings.stripeEnabled ? (process.env.STRIPE_WEBHOOK_SECRET ? 'Webhook secret configured' : 'STRIPE_WEBHOOK_SECRET missing') : 'Disabled' },
+    { id: 'paypal', label: 'PayPal environment', ready: !settings.paypalEnabled || Boolean(process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET), detail: settings.paypalEnabled ? (process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET ? `${process.env.PAYPAL_ENVIRONMENT === 'live' ? 'Live' : 'Sandbox'} credentials configured` : 'PayPal credentials missing') : 'Disabled' },
+    { id: 'paypal-webhook', label: 'PayPal webhook', ready: !settings.paypalEnabled || Boolean(process.env.PAYPAL_WEBHOOK_ID), detail: settings.paypalEnabled ? (process.env.PAYPAL_WEBHOOK_ID ? 'Webhook ID configured' : 'PAYPAL_WEBHOOK_ID missing') : 'Disabled' },
+    { id: 'discord', label: 'Discord order notifications', ready: !settings.discordWebhookUrl || /^https:\/\/(?:[^/]+\.)?(?:discord\.com|discordapp\.com)\//i.test(settings.discordWebhookUrl), detail: settings.discordWebhookUrl ? 'Webhook configured' : 'Optional' },
+  ]
+  return { websiteId: id, ready: checks.every(check => check.ready), checks, providers: { stripe: settings.stripeEnabled, paypal: settings.paypalEnabled }, productCount: products.length, readyProductCount: enabledProducts.length }
+}
+
 export function createWebsiteOrderPrefixGuard() {
   const router = express.Router()
-
   router.get('/', async (_req, _res, next) => {
     const websites = await readJson(paths.websites(), [])
     const used = new Set(websites.map(site => normaliseOrderPrefix(site.orderPrefix)).filter(Boolean))
@@ -332,63 +263,35 @@ export function createWebsiteOrderPrefixGuard() {
     if (changed) await writeJson(paths.websites(), nextWebsites)
     next()
   })
-
   async function validatePrefix(req, res, next) {
     const websites = await readJson(paths.websites(), [])
     const existing = websites.find(site => site.id === req.params.id)
-    const requested = req.body?.orderPrefix
-    const prefix = normaliseOrderPrefix(
-      requested || existing?.orderPrefix || suggestedOrderPrefix(req.body?.name, req.params.id),
-    )
-
-    if (prefix.length < 2) {
-      return res.status(400).json({ error: 'Order prefix must contain 2–6 letters or numbers' })
-    }
-
-    const duplicate = websites.find(
-      site => site.id !== req.params.id && normaliseOrderPrefix(site.orderPrefix) === prefix,
-    )
-    if (duplicate) {
-      return res.status(400).json({ error: `Order prefix ${prefix} is already used by ${duplicate.name}` })
-    }
-
+    const prefix = normaliseOrderPrefix(req.body?.orderPrefix || existing?.orderPrefix || suggestedOrderPrefix(req.body?.name, req.params.id))
+    if (prefix.length < 2) return res.status(400).json({ error: 'Order prefix must contain 2–6 letters or numbers' })
+    const duplicate = websites.find(site => site.id !== req.params.id && normaliseOrderPrefix(site.orderPrefix) === prefix)
+    if (duplicate) return res.status(400).json({ error: `Order prefix ${prefix} is already used by ${duplicate.name}` })
     req.body = { ...(req.body || {}), orderPrefix: prefix }
     next()
   }
-
-  router.post('/', async (req, res, next) => {
-    req.params.id = safeName(req.body?.name || 'new-website')
-    return validatePrefix(req, res, next)
-  })
+  router.post('/', async (req, res, next) => { req.params.id = safeName(req.body?.name || 'new-website'); return validatePrefix(req, res, next) })
   router.patch('/:id', validatePrefix)
-
   return router
 }
 
 export function createCommerceSettingsRouter() {
   const router = express.Router()
-
+  router.get('/:websiteId/readiness', async (req, res) => {
+    if (!canAccessWebsite(req.session, req.params.websiteId)) return res.status(403).json({ error: 'Website access denied' })
+    res.json(await readiness(req.params.websiteId))
+  })
   router.get('/:websiteId', async (req, res) => {
-    if (!canAccessWebsite(req.session, req.params.websiteId)) {
-      return res.status(403).json({ error: 'Website access denied' })
-    }
+    if (!canAccessWebsite(req.session, req.params.websiteId)) return res.status(403).json({ error: 'Website access denied' })
     res.json(await getCommerceSettings(req.params.websiteId))
   })
-
   router.put('/:websiteId', async (req, res) => {
-    if (!canAccessWebsite(req.session, req.params.websiteId)) {
-      return res.status(403).json({ error: 'Website access denied' })
-    }
-    if (req.session.role !== 'owner' && !req.session.canEdit) {
-      return res.status(403).json({ error: 'Edit permission required' })
-    }
-
-    try {
-      res.json(await saveSettings(req.params.websiteId, req.body || {}))
-    } catch (error) {
-      res.status(400).json({ error: error.message })
-    }
+    if (!canAccessWebsite(req.session, req.params.websiteId)) return res.status(403).json({ error: 'Website access denied' })
+    if (req.session.role !== 'owner' && !req.session.canEdit) return res.status(403).json({ error: 'Edit permission required' })
+    try { res.json(await saveSettings(req.params.websiteId, req.body || {})) } catch (error) { res.status(400).json({ error: error.message }) }
   })
-
   return router
 }
