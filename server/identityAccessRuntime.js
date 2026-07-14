@@ -36,11 +36,14 @@ async function migrateAccounts() {
   const source = Array.isArray(stored) ? stored : starterClients
   const migrated = source.map(account => {
     if (account.id === PLATFORM_ACCOUNT_ID) {
+      const assigned = Array.isArray(account.websiteIds) && account.websiteIds.length
+        ? account.websiteIds
+        : starterWebsites.map(site => site.id)
       return normaliseAccount({
         ...account,
         name: PLATFORM_DISPLAY_NAME,
         role: 'owner',
-        websiteIds: starterWebsites.map(site => site.id),
+        websiteIds: assigned,
       })
     }
 
@@ -55,7 +58,7 @@ async function migrateAccounts() {
       role: 'client',
       roleLabel: account.roleLabel === 'Viewer' ? 'Viewer' : 'Website Owner',
       access: account.access === 'Read only' ? 'Read only' : 'Full website access',
-      websiteIds: assigned.filter(id => id !== 'ksjdigital' || account.id === PLATFORM_ACCOUNT_ID),
+      websiteIds: assigned.filter(id => id !== 'ksjdigital'),
     })
   })
 
