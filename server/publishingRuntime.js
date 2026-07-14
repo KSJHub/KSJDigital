@@ -134,6 +134,20 @@ async function createRequestHandler(req, res) {
 
     const published = await getPublishedContent(websiteId)
     const requests = await readJson(paths.requests(), [])
+    const existing = requests.find(request =>
+      request.websiteId === websiteId &&
+      request.status === 'Waiting Review' &&
+      sameValue(request.draftSnapshot, draft),
+    )
+
+    if (existing) {
+      return res.json({
+        ...withoutSnapshot(existing),
+        duplicate: true,
+        message: 'This exact draft is already waiting for review.',
+      })
+    }
+
     const request = {
       id: crypto.randomUUID(),
       status: 'Waiting Review',
