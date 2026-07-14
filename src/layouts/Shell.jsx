@@ -17,7 +17,7 @@ function clientItemAllowed(account, permission) {
 const ownerGroups = [
   { label: 'Overview', items: [['/owner', 'Dashboard'], ['/owner/websites', 'Websites'], ['/owner/clients', 'Website Access']] },
   { label: 'Website Management', items: [['/owner/editor', 'Website Editor'], ['/owner/branding', 'Branding'], ['/owner/forms', 'Forms'], ['/owner/merch', 'Merch']] },
-  { label: 'Commerce', items: [['/owner/inventory', 'Inventory'], ['/owner/orders', 'Orders'], ['/owner/commerce', 'Payments']] },
+  { label: 'Commerce', items: [['/owner/inventory', 'Inventory'], ['/owner/orders', 'Orders'], ['/owner/commerce', 'Payments'], ['/owner/checkout-test', 'Checkout Test']] },
   { label: 'Operations', items: [['/owner/publish-requests', 'Approvals'], ['/owner/support', 'Support'], ['/owner/operations', 'Operations'], ['/owner/settings', 'Settings']] },
 ]
 
