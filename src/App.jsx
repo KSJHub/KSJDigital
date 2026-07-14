@@ -16,7 +16,7 @@ import { PageBuilderPage } from './pages/PageBuilderPage.jsx'
 import { SiteEnginePage } from './pages/SiteEnginePage.jsx'
 import { MediaLibraryPage } from './pages/MediaLibraryPage.jsx'
 import { FormBuilderPage } from './pages/FormBuilderPage.jsx'
-import { MerchManagerPage } from './pages/MerchManagerPage.jsx'
+import { MerchManagerV2Page } from './pages/MerchManagerV2Page.jsx'
 import { OrdersPage } from './pages/OrdersPage.jsx'
 import { OperationsPage } from './pages/OperationsPage.jsx'
 import { ReleaseCentrePage } from './pages/ReleaseCentrePage.jsx'
@@ -42,7 +42,7 @@ function Workspace({ client = false, type }) {
   if (!client && type === 'branding') return <SiteSettingsPage />
   if (!client && type === 'engine') return <SiteEnginePage />
   if (!client && type === 'forms') return <FormBuilderPage />
-  if (!client && type === 'merch') return <MerchManagerPage />
+  if (!client && type === 'merch') return <MerchManagerV2Page />
   if (!client && type === 'inventory') return <InventoryPage />
   if (!client && type === 'orders') return <OrdersPage />
   if (!client && type === 'commerce') return <CommerceSettingsPage />
@@ -55,7 +55,7 @@ function Workspace({ client = false, type }) {
   if (client && type === 'branding') return <SiteSettingsPage client />
   if (client && type === 'engine') return <SiteEnginePage client />
   if (client && type === 'forms') return <FormBuilderPage client />
-  if (client && type === 'merch') return <MerchManagerPage client />
+  if (client && type === 'merch') return <MerchManagerV2Page client />
   if (client && type === 'inventory') return <InventoryPage client />
   if (client && type === 'orders') return <OrdersPage client />
   if (client && type === 'commerce') return <CommerceSettingsPage client />
