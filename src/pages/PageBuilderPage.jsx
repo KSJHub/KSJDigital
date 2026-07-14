@@ -52,14 +52,12 @@ function editorPages(content = {}) {
     .filter(item => item.visible !== false && item.external !== true && typeof item.target === 'string' && item.target.startsWith('/'))
     .sort((left, right) => Number(left.order || 0) - Number(right.order || 0))
     .map(item => ({ label: item.label || item.target, target: item.target }))
-
   const result = managed.length ? managed : FALLBACK_PAGES.slice(0, 6)
   const optional = [
     content.contactPage && { label: 'Contact', target: '/contact' },
     content.privacy && { label: 'Privacy', target: '/privacy' },
     content.terms && { label: 'Terms', target: '/terms' },
   ].filter(Boolean)
-
   return [...result, ...optional].filter((page, index, pages) => pages.findIndex(item => item.target === page.target) === index)
 }
 
@@ -68,7 +66,6 @@ function FieldInspector({ account, content, selection, value, onChange, onUpload
   const rule = fieldRule(content, selection.fieldId)
   const editable = canEditField(account, content, selection.fieldId)
   const multiline = selection.kind === 'textarea' || String(value || '').length > 80
-
   return (
     <div className="liveFieldInspector">
       <div className="selectedFieldTitle">
@@ -100,7 +97,6 @@ function SectionInspector({ account, content, selection, onRuleChange, onMove, o
   const canMove = platformOwner || (manageable && rule.movable !== false)
   const canHide = platformOwner || manageable
   const canRemove = platformOwner || (manageable && rule.deletable === true)
-
   return (
     <div className="liveFieldInspector sectionInspector">
       <div className="selectedFieldTitle">
@@ -109,6 +105,7 @@ function SectionInspector({ account, content, selection, onRuleChange, onMove, o
       </div>
       <section className="sectionActionsPanel">
         <h3>Section controls</h3>
+        <p className="sectionDragHint">Drag this section directly in the website preview, or use the buttons below.</p>
         <div className="sectionMoveActions">
           <button disabled={!canMove} onClick={() => onMove('up')}>↑ Move Up</button>
           <button disabled={!canMove} onClick={() => onMove('down')}>↓ Move Down</button>
@@ -122,7 +119,7 @@ function SectionInspector({ account, content, selection, onRuleChange, onMove, o
           <h3>Client section permissions</h3>
           <label>Access<select value={rule.access} onChange={event => onRuleChange({ access: event.target.value })}><option value={FIELD_ACCESS.EDITABLE}>Client manageable</option><option value={FIELD_ACCESS.VIEW_ONLY}>View only</option><option value={FIELD_ACCESS.HIDDEN}>Hidden from client editor</option><option value={FIELD_ACCESS.OWNER_ONLY}>Owner only</option></select></label>
           <label className="formCheck"><input type="checkbox" checked={rule.approvalRequired !== false} onChange={event => onRuleChange({ approvalRequired: event.target.checked })} /> Changes require KSJ approval</label>
-          <label className="formCheck"><input type="checkbox" checked={rule.movable !== false} onChange={event => onRuleChange({ movable: event.target.checked })} /> Client may move this section</label>
+          <label className="formCheck"><input type="checkbox" checked={rule.movable !== false} onChange={event => onRuleChange({ movable: event.target.checked })} /> Client may drag or move this section</label>
           <label className="formCheck"><input type="checkbox" checked={rule.deletable === true} onChange={event => onRuleChange({ deletable: event.target.checked })} /> Client may remove this section</label>
           <label>Lock reason<input value={rule.reason || ''} onChange={event => onRuleChange({ reason: event.target.value })} placeholder="Explain why this section is locked" /></label>
         </section>
@@ -143,11 +140,12 @@ export function PageBuilderPage({ client = false }) {
   const bridgeTimerRef = useRef(null)
   const inlineSaveTimerRef = useRef(null)
   const inlineDraftRef = useRef(null)
+  const contentRef = useRef({ pages: [] })
   const historyRef = useRef([])
   const historyIndexRef = useRef(-1)
   const historyBusyRef = useRef(false)
   const [frameReady, setFrameReady] = useState(false)
-  const [content, setContent] = useState({ pages: [] })
+  const [content, setContentState] = useState({ pages: [] })
   const [selection, setSelection] = useState(null)
   const [device, setDevice] = useState('desktop')
   const [currentPath, setCurrentPath] = useState('/')
@@ -162,6 +160,11 @@ export function PageBuilderPage({ client = false }) {
   const pages = useMemo(() => editorPages(content), [content])
   const canUndo = historyState.index > 0
   const canRedo = historyState.index >= 0 && historyState.index < historyState.length - 1
+
+  function setContent(next) {
+    contentRef.current = next
+    setContentState(next)
+  }
 
   function updateHistoryState() {
     setHistoryState({ index: historyIndexRef.current, length: historyRef.current.length })
@@ -185,7 +188,9 @@ export function PageBuilderPage({ client = false }) {
     updateHistoryState()
   }
 
-  useEffect(() => { if (account?.role === 'owner' && !selectedWebsiteId && websites[0]?.id) setSelectedWebsiteId(websites[0].id) }, [account?.role, selectedWebsiteId, websites])
+  useEffect(() => {
+    if (account?.role === 'owner' && !selectedWebsiteId && websites[0]?.id) setSelectedWebsiteId(websites[0].id)
+  }, [account?.role, selectedWebsiteId, websites])
 
   useEffect(() => {
     setSelection(null)
@@ -197,19 +202,21 @@ export function PageBuilderPage({ client = false }) {
     historyRef.current = []
     historyIndexRef.current = -1
     updateHistoryState()
-    if (!websiteId) return setNotice('Waiting for assigned website')
+    if (!websiteId) {
+      setNotice('Waiting for assigned website')
+      return undefined
+    }
     let cancelled = false
     api.getContent(websiteId).then(data => {
-      if (!cancelled) {
-        setContent(data)
-        resetHistory(data)
-        setNotice('Website ready')
-      }
+      if (cancelled) return
+      setContent(data)
+      resetHistory(data)
+      setNotice('Website ready')
     }).catch(error => !cancelled && setNotice(error.message || 'Website unavailable'))
     return () => { cancelled = true }
   }, [websiteId])
 
-  function initialiseFrame(nextContent = content) {
+  function initialiseFrame(nextContent = contentRef.current) {
     frameRef.current?.contentWindow?.postMessage({ source: 'ksj-portal-editor', type: 'initialise', content: nextContent, role: account?.role }, '*')
   }
 
@@ -241,8 +248,8 @@ export function PageBuilderPage({ client = false }) {
   }
 
   function queueInlineEdit(field) {
-    if (!field?.fieldId || !canEditField(account, content, field.fieldId)) return
-    const source = inlineDraftRef.current || content
+    if (!field?.fieldId || !canEditField(account, contentRef.current, field.fieldId)) return
+    const source = inlineDraftRef.current || contentRef.current
     const next = setPathValue(source, field.fieldId, field.value)
     inlineDraftRef.current = next
     setSelection({ type: 'field', ...field })
@@ -250,6 +257,20 @@ export function PageBuilderPage({ client = false }) {
     setNotice('Editing…')
     window.clearTimeout(inlineSaveTimerRef.current)
     inlineSaveTimerRef.current = window.setTimeout(() => flushInlineDraft(), INLINE_SAVE_DELAY)
+  }
+
+  async function reorderSections(sourceSection, targetSection) {
+    if (!sourceSection?.sectionId || !targetSection?.sectionId || sourceSection.sectionId === targetSection.sectionId) return
+    const current = inlineDraftRef.current || contentRef.current
+    if (!canManageSection(account, current, sourceSection.sectionId) || !canManageSection(account, current, targetSection.sectionId)) return
+    const sourceRule = sectionRule(current, sourceSection.sectionId, sourceSection.defaultOrder || 0)
+    const targetRule = sectionRule(current, targetSection.sectionId, targetSection.defaultOrder || 0)
+    if (account?.role !== 'owner' && (sourceRule.movable === false || targetRule.movable === false)) return
+    await flushInlineDraft('✓ Text saved before moving section')
+    let next = updateSectionRule(contentRef.current, sourceSection.sectionId, { order: Number(targetRule.order ?? targetSection.order ?? targetSection.defaultOrder ?? 0) })
+    next = updateSectionRule(next, targetSection.sectionId, { order: Number(sourceRule.order ?? sourceSection.order ?? sourceSection.defaultOrder ?? 0) })
+    setSelection({ type: 'section', ...sourceSection })
+    await save(next, '✓ Section order saved')
   }
 
   useEffect(() => {
@@ -261,21 +282,24 @@ export function PageBuilderPage({ client = false }) {
         setCurrentPath(event.data.pathname || '/')
         if (event.data.type === 'page-change') setSelection(null)
         setNotice(event.data.fieldCount ? `${event.data.fieldCount} editable areas ready` : 'Editor connected')
-        initialiseFrame(inlineDraftRef.current || content)
+        initialiseFrame(inlineDraftRef.current || contentRef.current)
       }
       if (event.data.type === 'select-field') setSelection({ type: 'field', ...event.data.field })
       if (event.data.type === 'select-section') setSelection({ type: 'section', ...event.data.section })
+      if (event.data.type === 'section-reorder') reorderSections(event.data.sourceSection, event.data.targetSection)
       if (event.data.type === 'inline-change') queueInlineEdit(event.data.field)
       if (event.data.type === 'inline-commit') {
         queueInlineEdit(event.data.field)
-        flushInlineDraft('✓ Inline edit saved')
+        window.setTimeout(() => flushInlineDraft('✓ Inline edit saved'), 0)
       }
     }
     window.addEventListener('message', receive)
     return () => window.removeEventListener('message', receive)
   })
 
-  useEffect(() => { if (frameReady && !inlineDraftRef.current) initialiseFrame() }, [account?.role, content, frameReady])
+  useEffect(() => {
+    if (frameReady && !inlineDraftRef.current) initialiseFrame()
+  }, [account?.role, content, frameReady])
 
   useEffect(() => {
     function changed() { setBrowserFullscreen(document.fullscreenElement === workspaceRef.current) }
@@ -352,32 +376,30 @@ export function PageBuilderPage({ client = false }) {
   }
 
   function undo() {
-    if (!canUndo) return
-    applyHistory(historyIndexRef.current - 1, '↶ Previous draft restored')
+    if (canUndo) applyHistory(historyIndexRef.current - 1, '↶ Previous draft restored')
   }
 
   function redo() {
-    if (!canRedo) return
-    applyHistory(historyIndexRef.current + 1, '↷ Draft change restored')
+    if (canRedo) applyHistory(historyIndexRef.current + 1, '↷ Draft change restored')
   }
 
-  function patchFrame(fieldId, value, nextContent = content) {
+  function patchFrame(fieldId, value, nextContent = contentRef.current) {
     frameRef.current?.contentWindow?.postMessage({ source: 'ksj-portal-editor', type: 'patch-field', fieldId, value, rule: fieldRule(nextContent, fieldId) }, '*')
   }
 
   function updateSelected(value) {
-    if (!selection?.fieldId || !canEditField(account, content, selection.fieldId)) return
-    const next = setPathValue(content, selection.fieldId, value)
+    if (!selection?.fieldId || !canEditField(account, contentRef.current, selection.fieldId)) return
+    const next = setPathValue(contentRef.current, selection.fieldId, value)
     patchFrame(selection.fieldId, value, next)
     save(next, '✓ Draft saved')
   }
 
   async function uploadSelectedImage(file) {
-    if (!file || !selection?.fieldId || !websiteId || !canEditField(account, content, selection.fieldId)) return
+    if (!file || !selection?.fieldId || !websiteId || !canEditField(account, contentRef.current, selection.fieldId)) return
     setNotice('Uploading image…')
     try {
       const asset = await api.uploadAsset(website.owner || website.id, websiteId, selection.fieldId, file)
-      const next = setPathValue(content, selection.fieldId, asset.url)
+      const next = setPathValue(contentRef.current, selection.fieldId, asset.url)
       patchFrame(selection.fieldId, asset.url, next)
       await save(next, '✓ Image uploaded')
     } catch (error) {
@@ -387,26 +409,24 @@ export function PageBuilderPage({ client = false }) {
 
   function updateRule(changes) {
     if (account?.role !== 'owner' || !selection?.fieldId) return
-    const next = updateFieldRule(content, selection.fieldId, changes)
+    const next = updateFieldRule(contentRef.current, selection.fieldId, changes)
     patchFrame(selection.fieldId, getPathValue(next, selection.fieldId), next)
     save(next, '✓ Client access updated')
   }
 
   function updateSelectedSection(changes) {
-    if (!selection?.sectionId || !canManageSection(account, content, selection.sectionId)) return
-    const current = sectionRule(content, selection.sectionId, selection.defaultOrder || 0)
+    if (!selection?.sectionId || !canManageSection(account, contentRef.current, selection.sectionId)) return
+    const current = sectionRule(contentRef.current, selection.sectionId, selection.defaultOrder || 0)
     if (changes.removed === true && account?.role !== 'owner' && current.deletable !== true) return
-    const next = updateSectionRule(content, selection.sectionId, changes)
-    save(next, changes.hidden ? '✓ Section hidden' : '✓ Section settings saved')
+    save(updateSectionRule(contentRef.current, selection.sectionId, changes), changes.hidden ? '✓ Section hidden' : '✓ Section settings saved')
   }
 
   function moveSelectedSection(direction) {
-    if (!selection?.sectionId || !canManageSection(account, content, selection.sectionId)) return
-    const current = sectionRule(content, selection.sectionId, selection.defaultOrder || 0)
+    if (!selection?.sectionId || !canManageSection(account, contentRef.current, selection.sectionId)) return
+    const current = sectionRule(contentRef.current, selection.sectionId, selection.defaultOrder || 0)
     if (account?.role !== 'owner' && current.movable === false) return
     const step = direction === 'up' ? -10 : 10
-    const next = updateSectionRule(content, selection.sectionId, { order: Number(current.order || 0) + step })
-    save(next, direction === 'up' ? '✓ Section moved up' : '✓ Section moved down')
+    save(updateSectionRule(contentRef.current, selection.sectionId, { order: Number(current.order || 0) + step }), direction === 'up' ? '✓ Section moved up' : '✓ Section moved down')
   }
 
   async function submitForApproval() {
