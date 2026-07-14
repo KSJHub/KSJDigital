@@ -1,0 +1,21 @@
+.approvalQueue > button:has(.requestStatus.superseded) {
+  display: none;
+}
+
+.requestStatus.superseded {
+  border-color: #48566d;
+  background: #111927;
+  color: #93a0b4;
+}
+
+.approvalReview .emptyState {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  border: 1px dashed #2a3e5d;
+  border-radius: 14px;
+  background: #07101d;
+  color: #9fb0c8;
+  text-align: center;
+}
