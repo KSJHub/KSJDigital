@@ -17,6 +17,7 @@ import {
 } from '../services/editorPolicy.js'
 
 const MAX_HISTORY = 50
+const INLINE_SAVE_DELAY = 650
 
 function localDevelopment() {
   return ['localhost', '127.0.0.1'].includes(window.location.hostname)
@@ -79,7 +80,6 @@ function SectionInspector({ account, content, selection, onRuleChange, onMove, o
         <div><span>{selection.label || 'Website section'}</span><code>{selection.sectionId}</code></div>
         <button className="inspectorClose" onClick={onClose} aria-label="Close section controls">×</button>
       </div>
-
       <section className="sectionActionsPanel">
         <h3>Section controls</h3>
         <div className="sectionMoveActions">
@@ -90,7 +90,6 @@ function SectionInspector({ account, content, selection, onRuleChange, onMove, o
         <button className="danger" disabled={!canRemove} onClick={() => onRuleChange({ hidden: true, removed: true })}>Remove Section</button>
         {!manageable && <div className="lockedFieldNotice">🔒 {rule.reason || 'This section is controlled by KSJ Digital.'}</div>}
       </section>
-
       {platformOwner && (
         <section className="ownerFieldControls">
           <h3>Client section permissions</h3>
@@ -115,6 +114,8 @@ export function PageBuilderPage({ client = false }) {
   const frameRef = useRef(null)
   const workspaceRef = useRef(null)
   const bridgeTimerRef = useRef(null)
+  const inlineSaveTimerRef = useRef(null)
+  const inlineDraftRef = useRef(null)
   const historyRef = useRef([])
   const historyIndexRef = useRef(-1)
   const historyBusyRef = useRef(false)
@@ -156,8 +157,13 @@ export function PageBuilderPage({ client = false }) {
   }
 
   useEffect(() => { if (account?.role === 'owner' && !selectedWebsiteId && websites[0]?.id) setSelectedWebsiteId(websites[0].id) }, [account?.role, selectedWebsiteId, websites])
+
   useEffect(() => {
-    setSelection(null); setFrameReady(false); setSubmission(null)
+    setSelection(null)
+    setFrameReady(false)
+    setSubmission(null)
+    window.clearTimeout(inlineSaveTimerRef.current)
+    inlineDraftRef.current = null
     historyRef.current = []
     historyIndexRef.current = -1
     updateHistoryState()
@@ -177,6 +183,45 @@ export function PageBuilderPage({ client = false }) {
     frameRef.current?.contentWindow?.postMessage({ source: 'ksj-portal-editor', type: 'initialise', content: nextContent, role: account?.role }, '*')
   }
 
+  async function save(nextContent, message, { addHistory = true } = {}) {
+    if (!websiteId) return false
+    if (addHistory) recordHistory(nextContent)
+    setSubmission(null)
+    setContent(nextContent)
+    initialiseFrame(nextContent)
+    setNotice('Saving…')
+    try {
+      const saved = await api.saveContent(websiteId, nextContent)
+      setContent(saved)
+      initialiseFrame(saved)
+      setNotice(message)
+      return true
+    } catch (error) {
+      setNotice(error.message || 'Save failed')
+      return false
+    }
+  }
+
+  async function flushInlineDraft(message = '✓ Draft autosaved') {
+    window.clearTimeout(inlineSaveTimerRef.current)
+    const draft = inlineDraftRef.current
+    if (!draft) return true
+    inlineDraftRef.current = null
+    return save(draft, message)
+  }
+
+  function queueInlineEdit(field) {
+    if (!field?.fieldId || !canEditField(account, content, field.fieldId)) return
+    const source = inlineDraftRef.current || content
+    const next = setPathValue(source, field.fieldId, field.value)
+    inlineDraftRef.current = next
+    setSelection({ type: 'field', ...field })
+    setSubmission(null)
+    setNotice('Editing…')
+    window.clearTimeout(inlineSaveTimerRef.current)
+    inlineSaveTimerRef.current = window.setTimeout(() => flushInlineDraft(), INLINE_SAVE_DELAY)
+  }
+
   useEffect(() => {
     function receive(event) {
       if (!event.data || event.data.source !== 'ksj-site-editor') return
@@ -188,17 +233,24 @@ export function PageBuilderPage({ client = false }) {
       }
       if (event.data.type === 'select-field') setSelection({ type: 'field', ...event.data.field })
       if (event.data.type === 'select-section') setSelection({ type: 'section', ...event.data.section })
+      if (event.data.type === 'inline-change') queueInlineEdit(event.data.field)
+      if (event.data.type === 'inline-commit') {
+        queueInlineEdit(event.data.field)
+        flushInlineDraft('✓ Inline edit saved')
+      }
     }
     window.addEventListener('message', receive)
     return () => window.removeEventListener('message', receive)
   })
 
-  useEffect(() => { if (frameReady) initialiseFrame() }, [account?.role, content, frameReady])
+  useEffect(() => { if (frameReady && !inlineDraftRef.current) initialiseFrame() }, [account?.role, content, frameReady])
+
   useEffect(() => {
     function changed() { setBrowserFullscreen(document.fullscreenElement === workspaceRef.current) }
     document.addEventListener('fullscreenchange', changed)
     return () => document.removeEventListener('fullscreenchange', changed)
   }, [])
+
   useEffect(() => {
     function keyboard(event) {
       if (event.key === 'Escape' && selection) {
@@ -234,27 +286,9 @@ export function PageBuilderPage({ client = false }) {
     }, 3000)
   }
 
-  async function save(nextContent, message, { addHistory = true } = {}) {
-    if (!websiteId) return false
-    if (addHistory) recordHistory(nextContent)
-    setSubmission(null)
-    setContent(nextContent)
-    initialiseFrame(nextContent)
-    setNotice('Saving…')
-    try {
-      const saved = await api.saveContent(websiteId, nextContent)
-      setContent(saved)
-      initialiseFrame(saved)
-      setNotice(message)
-      return true
-    } catch (error) {
-      setNotice(error.message || 'Save failed')
-      return false
-    }
-  }
-
   async function applyHistory(index, message) {
     if (historyBusyRef.current || index < 0 || index >= historyRef.current.length) return
+    await flushInlineDraft()
     historyBusyRef.current = true
     const previousIndex = historyIndexRef.current
     const snapshot = structuredClone(historyRef.current[index])
@@ -332,6 +366,7 @@ export function PageBuilderPage({ client = false }) {
     setNotice('Submitting…')
     setSubmission(null)
     try {
+      await flushInlineDraft('✓ Draft saved before submission')
       const result = await api.createPublishRequest({ websiteId, websiteName: website.name, repository: website.repository, title: 'Visual website edits', createdBy: account?.displayName || account?.name, contentPath: `server-data/content/${websiteId}.json` })
       setNotice('✓ Submitted for approval')
       setSubmission({
