@@ -8,7 +8,7 @@ import { OwnerSupportPage } from './pages/OwnerSupportPage.jsx'
 import { OwnerWebsitesPage } from './pages/OwnerWebsitesPage.jsx'
 import { OwnerClientsPage } from './pages/OwnerClientsPage.jsx'
 import { ClientWebsitePage } from './pages/ClientWebsitePage.jsx'
-import { BrandCentrePage } from './pages/BrandCentrePage.jsx'
+import { SiteSettingsPage } from './pages/SiteSettingsPage.jsx'
 import { CommerceSettingsPage } from './pages/CommerceSettingsPage.jsx'
 import { InventoryPage } from './pages/InventoryPage.jsx'
 import { PublishPipelinePage } from './pages/PublishPipelinePage.jsx'
@@ -39,7 +39,7 @@ function canAccessClientRoute(account, type) {
 function Workspace({ client = false, type }) {
   if (!client && type === 'websites') return <OwnerWebsitesPage />
   if (!client && type === 'clients') return <OwnerClientsPage />
-  if (!client && type === 'branding') return <BrandCentrePage />
+  if (!client && type === 'branding') return <SiteSettingsPage />
   if (!client && type === 'engine') return <SiteEnginePage />
   if (!client && type === 'forms') return <FormBuilderPage />
   if (!client && type === 'merch') return <MerchManagerPage />
@@ -52,7 +52,7 @@ function Workspace({ client = false, type }) {
   if (!client && type === 'support') return <OwnerSupportPage />
   if (!client && type === 'editor') return <PageBuilderPage />
   if (!client && type === 'media') return <MediaLibraryPage />
-  if (client && type === 'branding') return <BrandCentrePage client />
+  if (client && type === 'branding') return <SiteSettingsPage client />
   if (client && type === 'engine') return <SiteEnginePage client />
   if (client && type === 'forms') return <FormBuilderPage client />
   if (client && type === 'merch') return <MerchManagerPage client />
@@ -76,28 +76,21 @@ export default function App() {
 
   useEffect(() => {
     if (path === '/' || path === '/login') return
-
     let cancelled = false
-
     refreshSession().then(serverAccount => {
       if (!cancelled) {
         setAccount(serverAccount)
         setSessionChecked(true)
       }
     })
-
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [path])
 
   if (path === '/') return <PublicHomePage />
   if (path === '/login') return <LoginPage />
   if (!sessionChecked) return <LoginPage />
   if (!account) return <LoginPage />
-  if (path.startsWith('/owner') && !canAccessOwner(account)) {
-    return <AccessDenied account={account} />
-  }
+  if (path.startsWith('/owner') && !canAccessOwner(account)) return <AccessDenied account={account} />
   if (path === '/owner') return <DashboardPage />
   if (path === '/client') return <DashboardPage client />
   if (path.startsWith('/owner/')) return <Workspace type={path.split('/')[2]} />
