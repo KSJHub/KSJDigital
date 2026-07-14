@@ -63,4 +63,6 @@ export const api = {
   approvePublishRequest: id => request(`/publish/requests/${id}/approve`, { method: 'POST', body: JSON.stringify({}) }),
   rejectPublishRequest: (id, reason = '') => request(`/publish/requests/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }),
   getPublishHistory: () => request('/publish/history'),
+  getPublishHistoryReview: id => request(`/publish/history/${id}/review`),
+  rollbackPublishHistory: id => request(`/publish/history/${id}/rollback`, { method: 'POST', body: JSON.stringify({}) }),
 }
