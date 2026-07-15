@@ -17,6 +17,7 @@ function normaliseClient(client = {}) {
     status: client.status || 'Draft',
     access: platformOwner ? 'Platform administration' : (client.access || 'Full website access'),
     canEdit: client.canEdit ?? true,
+    canManagePages: client.canManagePages ?? false,
     canManageMedia: client.canManageMedia ?? true,
     canRequestUpdates: client.canRequestUpdates ?? true,
     canViewSupport: client.canViewSupport ?? true,
@@ -66,6 +67,11 @@ export function OwnerClientsPage() {
       role: 'client',
       roleLabel: 'Website Owner',
       access: 'Full website access',
+      canEdit: true,
+      canManagePages: false,
+      canManageMedia: true,
+      canRequestUpdates: true,
+      canViewSupport: true,
     }
 
     try {
@@ -159,7 +165,8 @@ export function OwnerClientsPage() {
           </div>
 
           <div className="permissionGrid">
-            <label><input type="checkbox" checked={!!form.canEdit} disabled={platformAccount} onChange={event => updateForm({ canEdit: event.target.checked })} />Can edit website</label>
+            <label><input type="checkbox" checked={!!form.canEdit} disabled={platformAccount} onChange={event => updateForm({ canEdit: event.target.checked })} />Can edit page content</label>
+            <label><input type="checkbox" checked={!!form.canManagePages} disabled={platformAccount} onChange={event => updateForm({ canManagePages: event.target.checked })} />Can create and manage pages</label>
             <label><input type="checkbox" checked={!!form.canManageMedia} disabled={platformAccount} onChange={event => updateForm({ canManageMedia: event.target.checked })} />Can manage branding and media</label>
             <label><input type="checkbox" checked={!!form.canRequestUpdates} disabled={platformAccount} onChange={event => updateForm({ canRequestUpdates: event.target.checked })} />Can submit changes</label>
             <label><input type="checkbox" checked={!!form.canViewSupport} disabled={platformAccount} onChange={event => updateForm({ canViewSupport: event.target.checked })} />Can use support</label>
@@ -189,6 +196,7 @@ export function OwnerClientsPage() {
           <div className="ruleGrid">
             <span>{form.name || 'User'} can access: {websiteNameList(websites, form.websiteIds)}</span>
             <span>Role: {form.role}</span>
+            <span>Page management: {form.canManagePages ? 'Enabled' : 'Disabled'}</span>
             <span>Status: {form.status || 'Draft'}</span>
           </div>
         </section>
