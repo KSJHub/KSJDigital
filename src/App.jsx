@@ -30,7 +30,8 @@ function route() { return location.pathname.replace(/\/$/, '') || '/' }
 function canAccessClientRoute(account, type) {
   if (!account || account.role === 'owner') return true
   if (['editor', 'engine', 'forms', 'merch', 'inventory', 'orders', 'commerce'].includes(type)) return !!account.canEdit
-  if (['media', 'branding'].includes(type)) return !!account.canManageMedia
+  if (type === 'branding') return !!account.canManageMedia || !!account.canManagePages
+  if (type === 'media') return !!account.canManageMedia
   if (type === 'publish') return !!account.canRequestUpdates
   if (type === 'support') return !!account.canViewSupport
   return true
