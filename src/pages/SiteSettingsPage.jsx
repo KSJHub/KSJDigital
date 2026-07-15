@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Layout } from '../layouts/Shell.jsx'
+import { PageSeoPanel } from '../components/PageSeoPanel.jsx'
 import { api } from '../services/api.js'
 import { getAccountFromPath } from '../services/auth.js'
 import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
@@ -73,12 +74,13 @@ export function SiteSettingsPage({ client = false }) {
   const [saving, setSaving] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [newPageName, setNewPageName] = useState('')
+  const [selectedSeoPageId, setSelectedSeoPageId] = useState('')
   const platformOwner = account?.role === 'owner'
   const canManageBranding = platformOwner || account?.canManageMedia === true
   const canManagePages = platformOwner || account?.canManagePages === true
   const canManage = canManageBranding || canManagePages
   const canRequestUpdates = platformOwner || account?.canRequestUpdates
-  const imageAssets = useMemo(() => assets.filter(asset => asset.type?.startsWith('image/')), [assets])
+  const imageAssets = useMemo(() => assets.filter(asset => asset.type?.startsWith('image/')).map(asset => ({ ...asset, resolvedUrl: assetUrl(asset) })), [assets])
 
   useEffect(() => {
     if (!websiteId && website?.id) setWebsiteId(website.id)
@@ -91,16 +93,18 @@ export function SiteSettingsPage({ client = false }) {
     const target = websites.find(site => site.id === websiteId) || website
     Promise.all([
       api.getContent(websiteId),
-      canManageBranding ? api.assets(ownerId(target, account), websiteId).catch(() => []) : Promise.resolve([]),
+      canManage ? api.assets(ownerId(target, account), websiteId).catch(() => []) : Promise.resolve([]),
     ]).then(([nextContent, nextAssets]) => {
       if (cancelled) return
+      const nextSettings = normalise(nextContent, target)
       setContent(nextContent)
-      setSettings(normalise(nextContent, target))
+      setSettings(nextSettings)
       setAssets(nextAssets)
+      setSelectedSeoPageId(current => nextSettings.pages.some(page => page.id === current) ? current : (nextSettings.pages[0]?.id || ''))
       setNotice(canManage ? 'Ready' : 'View only')
     }).catch(error => !cancelled && setNotice(error.message || 'Settings unavailable'))
     return () => { cancelled = true }
-  }, [account?.id, canManage, canManageBranding, websiteId])
+  }, [account?.id, canManage, websiteId])
 
   async function persist(nextSettings, message = 'Settings saved', contentChanges = {}, scope = 'branding') {
     const allowed = scope === 'pages' ? canManagePages : canManageBranding
@@ -130,8 +134,10 @@ export function SiteSettingsPage({ client = false }) {
     setNotice('Saving…')
     try {
       const saved = await api.saveContent(websiteId, nextContent)
+      const savedSettings = normalise(saved, website)
       setContent(saved)
-      setSettings(normalise(saved, website))
+      setSettings(savedSettings)
+      setSelectedSeoPageId(current => savedSettings.pages.some(page => page.id === current) ? current : (savedSettings.pages[0]?.id || ''))
       setNotice(`✓ ${message}`)
       return true
     } catch (error) {
@@ -166,10 +172,13 @@ export function SiteSettingsPage({ client = false }) {
     const name = newPageName.trim()
     if (!name) return
     const slug = uniqueSlug(name, settings.pages)
-    const page = { id: makeId(), slug, label: name, eyebrow: 'New Page', title: name, intro: 'Add an introduction, then build this page with managed sections.', visible: true }
+    const page = { id: makeId(), slug, label: name, eyebrow: 'New Page', title: name, intro: 'Add an introduction, then build this page with managed sections.', visible: true, seo: { title: '', description: '', image: '', noIndex: false } }
     const navigation = [...settings.navigation, { id: `page-${page.id}`, pageId: page.id, customPage: true, label: name, target: `/${slug}`, visible: true, external: false, order: settings.navigation.length + 1 }]
     const saved = await persist({ ...settings, pages: [...settings.pages, page], navigation }, 'New page created', {}, 'pages')
-    if (saved) setNewPageName('')
+    if (saved) {
+      setNewPageName('')
+      setSelectedSeoPageId(page.id)
+    }
   }
 
   function updateCustomPage(pageId, changes, message = 'Page saved') {
@@ -179,6 +188,14 @@ export function SiteSettingsPage({ client = false }) {
     const pages = settings.pages.map(item => item.id === pageId ? { ...item, ...changes } : item)
     const navigation = settings.navigation.map(item => item.pageId === pageId ? { ...item, label: changes.label ?? item.label, visible: changes.visible ?? item.visible } : item)
     persist({ ...settings, pages, navigation }, message, {}, 'pages')
+  }
+
+  function updatePageSeo(pageId, seo, message = 'SEO settings saved', save = true) {
+    if (!canManagePages) return
+    const pages = settings.pages.map(page => page.id === pageId ? { ...page, seo } : page)
+    const nextSettings = { ...settings, pages }
+    setSettings(nextSettings)
+    if (save) persist(nextSettings, message || 'SEO settings saved', {}, 'pages')
   }
 
   function renamePageSlug(pageId, rawSlug) {
@@ -206,11 +223,11 @@ export function SiteSettingsPage({ client = false }) {
     if (!source) return
     const label = `${source.label || source.title || 'Page'} Copy`
     const slug = uniqueSlug(label, settings.pages)
-    const copy = { ...structuredClone(source), id: makeId(), slug, label, title: label, visible: false }
+    const copy = { ...structuredClone(source), id: makeId(), slug, label, title: label, visible: false, seo: { ...(source.seo || {}), title: '', noIndex: true } }
     const navigation = [...settings.navigation, { id: `page-${copy.id}`, pageId: copy.id, customPage: true, label, target: `/${slug}`, visible: false, external: false, order: settings.navigation.length + 1 }]
     const pageBlocks = { ...(content.engine?.pageBlocks || {}) }
     pageBlocks[slug] = structuredClone(pageBlocks[source.slug] || []).map(block => ({ ...block, id: makeId('block') }))
-    persist({ ...settings, pages: [...settings.pages, copy], navigation }, 'Page duplicated as hidden draft', { engine: { ...(content.engine || {}), pageBlocks } }, 'pages')
+    persist({ ...settings, pages: [...settings.pages, copy], navigation }, 'Page duplicated as hidden draft', { engine: { ...(content.engine || {}), pageBlocks } }, 'pages').then(saved => { if (saved) setSelectedSeoPageId(copy.id) })
   }
 
   function deleteCustomPage(pageId) {
@@ -242,7 +259,7 @@ export function SiteSettingsPage({ client = false }) {
     if (!canManageBranding) return
     const asset = imageAssets.find(item => item.id === assetId)
     if (!asset) return
-    const url = assetUrl(asset)
+    const url = asset.resolvedUrl || assetUrl(asset)
     if (slotId === 'primaryLogo') persist({ ...settings, brand: { ...settings.brand, primaryLogo: url }, branding: { ...settings.branding, primaryLogo: url } }, 'Primary logo selected')
     else updateGroup('branding', { [slotId]: url }, `${slotId} selected`)
   }
@@ -274,7 +291,9 @@ export function SiteSettingsPage({ client = false }) {
             <section className="card settingsGroup"><div className="panelHead"><h2>Header & Footer</h2><span>{canManageBranding ? 'Global layout' : '🔒 Locked'}</span></div><div className="settingsFields twoColumns"><label>Header Style<select value={settings.branding.headerStyle} onChange={event => updateGroup('branding', { headerStyle: event.target.value }, 'Header style saved')}><option>Contained</option><option>Full Width</option><option>Minimal</option></select></label><label>Footer Style<select value={settings.branding.footerStyle} onChange={event => updateGroup('branding', { footerStyle: event.target.value }, 'Footer style saved')}><option>Simple</option><option>Columns</option><option>Minimal</option></select></label><label>Announcement<input value={settings.globals.announcement} onChange={event => setSettings(current => ({ ...current, globals: { ...current.globals, announcement: event.target.value } }))} onBlur={() => persist(settings, 'Announcement saved')} /></label><label>Footer Text<input value={settings.globals.footerText} onChange={event => setSettings(current => ({ ...current, globals: { ...current.globals, footerText: event.target.value } }))} onBlur={() => persist(settings, 'Footer text saved')} /></label></div><label className="formCheck"><input type="checkbox" checked={settings.branding.showAnnouncement} onChange={event => updateGroup('branding', { showAnnouncement: event.target.checked }, 'Announcement visibility saved')} /> Show announcement bar</label></section>
           </fieldset>
 
-          <section className={`card settingsGroup pageManagerGroup ${canManagePages ? '' : 'permissionLocked'}`}><div className="panelHead"><h2>Pages & Navigation</h2><span>{canManagePages ? 'Create, duplicate, rename, hide, reorder' : '🔒 Locked by KSJ Digital'}</span></div><div className="newPageRow"><label>New page name<input disabled={!canManagePages} value={newPageName} onChange={event => setNewPageName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') createPage() }} placeholder="Sponsors, FAQ, Events…" /></label><button onClick={createPage} disabled={!canManagePages || !newPageName.trim() || saving}>＋ Create Page</button></div><div className="siteNavigationList">{sortedNavigation(settings.navigation).map(item => { const page = item.pageId ? settings.pages.find(entry => entry.id === item.pageId) : null; return <article key={item.id} className={page ? 'customPageRow' : ''}><label>Label<input disabled={!canManagePages} value={item.label} onChange={event => setSettings(current => ({ ...current, navigation: current.navigation.map(entry => entry.id === item.id ? { ...entry, label: event.target.value } : entry), pages: page ? current.pages.map(entry => entry.id === page.id ? { ...entry, label: event.target.value } : entry) : current.pages }))} onBlur={() => persist(settings, page ? 'Page name saved' : 'Navigation label saved', {}, 'pages')} /></label>{page && <label>Page URL<div className="slugInput"><span>/</span><input disabled={!canManagePages} defaultValue={page.slug} onBlur={event => renamePageSlug(page.id, event.target.value)} /></div></label>}<label className="formCheck"><input disabled={!canManagePages} type="checkbox" checked={item.visible !== false} onChange={event => page ? updateCustomPage(page.id, { visible: event.target.checked }, 'Page visibility saved') : updateNavigation(item.id, { visible: event.target.checked })} /> Visible</label><div className="navigationActions"><button disabled={!canManagePages} onClick={() => moveNavigation(item.id, 'up')} title="Move up">↑</button><button disabled={!canManagePages} onClick={() => moveNavigation(item.id, 'down')} title="Move down">↓</button>{page && <button disabled={!canManagePages} onClick={() => duplicateCustomPage(page.id)} title="Duplicate page">⧉</button>}{page && <button disabled={!canManagePages} className="danger" onClick={() => deleteCustomPage(page.id)} title="Delete page">×</button>}</div></article> })}</div><small className="pageManagerHelp">{canManagePages ? 'Duplicated pages are hidden by default and copy every managed section with fresh IDs.' : 'You can view the page structure, but KSJ Digital has not enabled page management for this account.'}</small></section>
+          <section className={`card settingsGroup pageManagerGroup ${canManagePages ? '' : 'permissionLocked'}`}><div className="panelHead"><h2>Pages & Navigation</h2><span>{canManagePages ? 'Create, duplicate, rename, hide, reorder' : '🔒 Locked by KSJ Digital'}</span></div><div className="newPageRow"><label>New page name<input disabled={!canManagePages} value={newPageName} onChange={event => setNewPageName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') createPage() }} placeholder="Sponsors, FAQ, Events…" /></label><button onClick={createPage} disabled={!canManagePages || !newPageName.trim() || saving}>＋ Create Page</button></div><div className="siteNavigationList">{sortedNavigation(settings.navigation).map(item => { const page = item.pageId ? settings.pages.find(entry => entry.id === item.pageId) : null; return <article key={item.id} className={page ? 'customPageRow' : ''}><label>Label<input disabled={!canManagePages} value={item.label} onChange={event => setSettings(current => ({ ...current, navigation: current.navigation.map(entry => entry.id === item.id ? { ...entry, label: event.target.value } : entry), pages: page ? current.pages.map(entry => entry.id === page.id ? { ...entry, label: event.target.value } : entry) : current.pages }))} onBlur={() => persist(settings, page ? 'Page name saved' : 'Navigation label saved', {}, 'pages')} /></label>{page && <label>Page URL<div className="slugInput"><span>/</span><input disabled={!canManagePages} defaultValue={page.slug} onBlur={event => renamePageSlug(page.id, event.target.value)} /></div></label>}<label className="formCheck"><input disabled={!canManagePages} type="checkbox" checked={item.visible !== false} onChange={event => page ? updateCustomPage(page.id, { visible: event.target.checked }, 'Page visibility saved') : updateNavigation(item.id, { visible: event.target.checked })} /> Visible</label><div className="navigationActions"><button disabled={!canManagePages} onClick={() => moveNavigation(item.id, 'up')} title="Move up">↑</button><button disabled={!canManagePages} onClick={() => moveNavigation(item.id, 'down')} title="Move down">↓</button>{page && <button disabled={!canManagePages} onClick={() => duplicateCustomPage(page.id)} title="Duplicate page">⧉</button>}{page && <button disabled={!canManagePages} className="danger" onClick={() => deleteCustomPage(page.id)} title="Delete page">×</button>}</div></article> })}</div><small className="pageManagerHelp">{canManagePages ? 'Duplicated pages are hidden and excluded from search by default.' : 'You can view the page structure, but KSJ Digital has not enabled page management for this account.'}</small></section>
+
+          <PageSeoPanel pages={settings.pages} selectedPageId={selectedSeoPageId} onSelectPage={setSelectedSeoPageId} onUpdateSeo={updatePageSeo} imageAssets={imageAssets} website={website} canManagePages={canManagePages} saving={saving} />
 
           <fieldset className="settingsPermissionGroup" disabled={!canManageBranding}>
             <section className="card settingsGroup"><div className="panelHead"><h2>Socials & Contact</h2><span>{canManageBranding ? 'One place' : '🔒 Locked'}</span></div><div className="settingsFields twoColumns">{Object.keys(defaults.socials).map(key => <label key={key}>{key[0].toUpperCase() + key.slice(1)}<input value={settings.socials[key]} onChange={event => setSettings(current => ({ ...current, socials: { ...current.socials, [key]: event.target.value } }))} onBlur={() => persist(settings, `${key} link saved`)} /></label>)}<label>Support Email<input type="email" value={settings.contact.supportEmail} onChange={event => setSettings(current => ({ ...current, contact: { ...current.contact, supportEmail: event.target.value } }))} onBlur={() => persist(settings, 'Support email saved')} /></label><label>Business Email<input type="email" value={settings.contact.businessEmail} onChange={event => setSettings(current => ({ ...current, contact: { ...current.contact, businessEmail: event.target.value } }))} onBlur={() => persist(settings, 'Business email saved')} /></label></div></section>
