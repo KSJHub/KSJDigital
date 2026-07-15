@@ -19,6 +19,7 @@ export const api = {
   login: payload => request('/login', { method: 'POST', body: JSON.stringify(payload) }),
   logout: () => request('/logout', { method: 'POST', body: JSON.stringify({}) }),
   me: () => request('/me'),
+  sessionAccess: () => request('/session-access'),
   getWebsites: () => request('/websites'),
   createWebsite: payload => request('/websites', { method: 'POST', body: JSON.stringify(payload) }),
   updateWebsite: (id, payload) => request(`/websites/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
