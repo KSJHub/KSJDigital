@@ -171,228 +171,181 @@ async function migrateStarterCredentials() {
 
 await migrateStarterCredentials()
 
+function mountPublicRoutes(app, originalUse) {
+  originalUse.call(app, '/api/checkout/reservations/:id/release', async (req, res) => {
+    try {
+      const released = await releaseStockReservation(req.params.id)
+      res.json({ released })
+    } catch (error) {
+      res.status(400).json({ error: error.message })
+    }
+  })
+
+  originalUse.call(app, '/api/checkout/stripe/start', async (req, res, next) => {
+    if (req.method !== 'GET' || req.path !== '/') return next()
+    try {
+      await assertProductCheckoutAccess({ websiteId: req.query.websiteId, productId: req.query.productId, provider: 'stripe' })
+      const session = await createStripeCheckoutSession({
+        websiteId: req.query.websiteId,
+        productId: req.query.productId,
+        quantity: req.query.quantity,
+        variant: { size: req.query.size, colour: req.query.colour },
+        discountCode: req.query.discountCode,
+      })
+      res.redirect(303, session.url)
+    } catch (error) {
+      res.status(400).send(`Unable to start Stripe checkout: ${error.message}`)
+    }
+  })
+
+  originalUse.call(app, '/api/checkout/stripe/session', express.json({ limit: '1mb' }), async (req, res, next) => {
+    if (req.method !== 'POST' || req.path !== '/') return next()
+    try {
+      await assertProductCheckoutAccess({ websiteId: req.body?.websiteId, productId: req.body?.productId, provider: 'stripe' })
+      res.json(await createStripeCheckoutSession(req.body || {}))
+    } catch (error) {
+      res.status(400).json({ error: error.message })
+    }
+  })
+
+  originalUse.call(app, '/api/checkout/stripe/sessions/:id/complete', async (req, res) => {
+    try {
+      const result = await processStripeCheckoutCompleted({ data: { object: { id: req.params.id } } })
+      res.json({ ...result, completed: true })
+    } catch (error) {
+      res.status(400).json({ error: error.message })
+    }
+  })
+
+  originalUse.call(app, '/api/checkout/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res, next) => {
+    try {
+      const event = verifyStripeWebhook(req.body, req.headers['stripe-signature'])
+      if (event.type !== 'checkout.session.completed' && event.type !== 'checkout.session.async_payment_succeeded') return next()
+      try {
+        await completeBasketStripeSession(event.data?.object?.id)
+        return res.json({ received: true, basket: true })
+      } catch (error) {
+        if (isBasketMiss(error)) return next()
+        throw error
+      }
+    } catch (error) {
+      return res.status(400).json({ error: error.message })
+    }
+  })
+
+  originalUse.call(app, '/api/checkout/paypal/start', async (req, res, next) => {
+    if (req.method !== 'GET' || req.path !== '/') return next()
+    try {
+      await assertProductCheckoutAccess({ websiteId: req.query.websiteId, productId: req.query.productId, provider: 'paypal' })
+      const order = await createPayPalOrder({
+        websiteId: req.query.websiteId,
+        productId: req.query.productId,
+        quantity: req.query.quantity,
+        variant: { size: req.query.size, colour: req.query.colour },
+        discountCode: req.query.discountCode,
+      })
+      if (!order.approvalUrl) throw new Error('PayPal approval URL was not returned')
+      res.redirect(303, order.approvalUrl)
+    } catch (error) {
+      res.status(400).send(`Unable to start PayPal checkout: ${error.message}`)
+    }
+  })
+
+  originalUse.call(app, '/api/checkout/paypal/orders', express.json({ limit: '1mb' }), async (req, res, next) => {
+    if (req.method !== 'POST' || req.path !== '/') return next()
+    try {
+      await assertProductCheckoutAccess({ websiteId: req.body?.websiteId, productId: req.body?.productId, provider: 'paypal' })
+      res.json(await createPayPalOrder(req.body || {}))
+    } catch (error) {
+      res.status(400).json({ error: error.message })
+    }
+  })
+
+  originalUse.call(app, '/api/checkout/paypal/webhook', express.json({ limit: '1mb' }), async (req, res, next) => {
+    try {
+      const verified = await verifyPayPalWebhook(req.headers, req.body)
+      if (!verified) return res.status(400).json({ error: 'PayPal webhook verification failed' })
+      if (req.body?.event_type !== 'CHECKOUT.ORDER.APPROVED') return next()
+      try {
+        await captureBasketPayPalOrder(req.body.resource?.id)
+        return res.json({ received: true, basket: true })
+      } catch (error) {
+        if (isBasketMiss(error)) return next()
+        throw error
+      }
+    } catch (error) {
+      return res.status(400).json({ error: error.message })
+    }
+  })
+
+  originalUse.call(app, '/api/checkout/stripe', createStripeRouter())
+  originalUse.call(app, '/api/checkout/paypal', express.json({ limit: '1mb' }), createPayPalRouter())
+
+  originalUse.call(app, '/api/public/sites/:websiteId', async (req, res, next) => {
+    if (req.method !== 'GET' || req.path !== '/') return next()
+    const websiteId = safeName(req.params.websiteId)
+    const websites = await readJson(paths.websites(), starterWebsites)
+    const website = websites.find(site => safeName(site.id) === websiteId)
+    if (!website) return res.status(404).json({ error: 'Website not found' })
+    const defaultContent = getStarterSiteContent(websiteId)
+    const storedContent = await readJson(paths.content(websiteId), null)
+    const content = storedContent ? { ...defaultContent, ...storedContent } : defaultContent
+    const assets = await readWebsiteAssets(websiteId)
+    res.setHeader('Cache-Control', 'no-store')
+    res.json({ website, content, assets, publishedAt: content.updatedAt || null })
+  })
+
+  originalUse.call(app, '/api/public/orders', createPublicOrdersRouter())
+}
+
+function mountProtectedRoutes(app, originalUse) {
+  originalUse.call(app, '/api', createLiveSessionAccessMiddleware())
+  originalUse.call(app, '/api/websites', createWebsiteOrderPrefixGuard())
+  originalUse.call(app, '/api/orders', createDispatchRouter())
+  originalUse.call(app, '/api/orders', createOrdersRouter())
+  originalUse.call(app, '/api/order-refunds', createRefundRouter())
+  originalUse.call(app, '/api/inventory', createInventoryRouter())
+  originalUse.call(app, '/api/commerce-settings', createCommerceSettingsRouter())
+}
+
 const originalUse = express.application.use
 const originalPost = express.application.post
-let useCalls = 0
-let checkoutMounted = false
-let publicOrdersMounted = false
-let publicSitesMounted = false
-let protectedCommerceMounted = false
+let publicRoutesMounted = false
+let protectedRoutesMounted = false
 let assetServingMounted = false
 let assetUploadMounted = false
 
-express.application.post = function patchedPost(...args) {
+express.application.post = function guardedPost(...args) {
   if (args[0] === '/api/assets/:ownerId/:websiteId/:slotId' && args.length >= 3) {
     return originalPost.call(this, args[0], args[1], validateUploadedAsset, ...args.slice(2))
   }
   return originalPost.apply(this, args)
 }
 
-express.application.use = function patchedUse(...args) {
-  useCalls += 1
+express.application.use = function routeAwareUse(...args) {
+  const mountPath = typeof args[0] === 'string' ? args[0] : ''
+  const middleware = mountPath ? args[1] : args[0]
 
-  if (!assetServingMounted && useCalls === 4) {
+  if (!publicRoutesMounted && middleware?.name === 'jsonParser') {
+    publicRoutesMounted = true
+    mountPublicRoutes(this, originalUse)
+  }
+
+  if (!assetServingMounted && mountPath === '/assets') {
     assetServingMounted = true
     originalUse.call(this, '/assets', assetServingGuard)
   }
 
-  if (!checkoutMounted && useCalls === 2) {
-    checkoutMounted = true
-
-    originalUse.call(this, '/api/checkout/reservations/:id/release', async (req, res) => {
-      try {
-        const released = await releaseStockReservation(req.params.id)
-        res.json({ released })
-      } catch (error) {
-        res.status(400).json({ error: error.message })
-      }
-    })
-
-    originalUse.call(this, '/api/checkout/stripe/start', async (req, res, next) => {
-      if (req.method !== 'GET' || req.path !== '/') return next()
-      try {
-        await assertProductCheckoutAccess({
-          websiteId: req.query.websiteId,
-          productId: req.query.productId,
-          provider: 'stripe',
-        })
-        const session = await createStripeCheckoutSession({
-          websiteId: req.query.websiteId,
-          productId: req.query.productId,
-          quantity: req.query.quantity,
-          variant: { size: req.query.size, colour: req.query.colour },
-          discountCode: req.query.discountCode,
-        })
-        res.redirect(303, session.url)
-      } catch (error) {
-        res.status(400).send(`Unable to start Stripe checkout: ${error.message}`)
-      }
-    })
-
-    originalUse.call(
-      this,
-      '/api/checkout/stripe/session',
-      express.json({ limit: '1mb' }),
-      async (req, res, next) => {
-        if (req.method !== 'POST' || req.path !== '/') return next()
-        try {
-          await assertProductCheckoutAccess({
-            websiteId: req.body?.websiteId,
-            productId: req.body?.productId,
-            provider: 'stripe',
-          })
-          res.json(await createStripeCheckoutSession(req.body || {}))
-        } catch (error) {
-          res.status(400).json({ error: error.message })
-        }
-      },
-    )
-
-    originalUse.call(this, '/api/checkout/stripe/sessions/:id/complete', async (req, res) => {
-      try {
-        const result = await processStripeCheckoutCompleted({ data: { object: { id: req.params.id } } })
-        res.json({ ...result, completed: true })
-      } catch (error) {
-        res.status(400).json({ error: error.message })
-      }
-    })
-
-    originalUse.call(
-      this,
-      '/api/checkout/stripe/webhook',
-      express.raw({ type: 'application/json' }),
-      async (req, res, next) => {
-        try {
-          const event = verifyStripeWebhook(req.body, req.headers['stripe-signature'])
-          if (event.type !== 'checkout.session.completed' && event.type !== 'checkout.session.async_payment_succeeded') {
-            return next()
-          }
-          try {
-            await completeBasketStripeSession(event.data?.object?.id)
-            return res.json({ received: true, basket: true })
-          } catch (error) {
-            if (isBasketMiss(error)) return next()
-            throw error
-          }
-        } catch (error) {
-          return res.status(400).json({ error: error.message })
-        }
-      },
-    )
-
-    originalUse.call(this, '/api/checkout/paypal/start', async (req, res, next) => {
-      if (req.method !== 'GET' || req.path !== '/') return next()
-      try {
-        await assertProductCheckoutAccess({
-          websiteId: req.query.websiteId,
-          productId: req.query.productId,
-          provider: 'paypal',
-        })
-        const order = await createPayPalOrder({
-          websiteId: req.query.websiteId,
-          productId: req.query.productId,
-          quantity: req.query.quantity,
-          variant: { size: req.query.size, colour: req.query.colour },
-          discountCode: req.query.discountCode,
-        })
-        if (!order.approvalUrl) throw new Error('PayPal approval URL was not returned')
-        res.redirect(303, order.approvalUrl)
-      } catch (error) {
-        res.status(400).send(`Unable to start PayPal checkout: ${error.message}`)
-      }
-    })
-
-    originalUse.call(
-      this,
-      '/api/checkout/paypal/orders',
-      express.json({ limit: '1mb' }),
-      async (req, res, next) => {
-        if (req.method !== 'POST' || req.path !== '/') return next()
-        try {
-          await assertProductCheckoutAccess({
-            websiteId: req.body?.websiteId,
-            productId: req.body?.productId,
-            provider: 'paypal',
-          })
-          res.json(await createPayPalOrder(req.body || {}))
-        } catch (error) {
-          res.status(400).json({ error: error.message })
-        }
-      },
-    )
-
-    originalUse.call(
-      this,
-      '/api/checkout/paypal/webhook',
-      express.json({ limit: '1mb' }),
-      async (req, res, next) => {
-        try {
-          const verified = await verifyPayPalWebhook(req.headers, req.body)
-          if (!verified) return res.status(400).json({ error: 'PayPal webhook verification failed' })
-          if (req.body?.event_type !== 'CHECKOUT.ORDER.APPROVED') return next()
-          try {
-            await captureBasketPayPalOrder(req.body.resource?.id)
-            return res.json({ received: true, basket: true })
-          } catch (error) {
-            if (isBasketMiss(error)) return next()
-            throw error
-          }
-        } catch (error) {
-          return res.status(400).json({ error: error.message })
-        }
-      },
-    )
-
-    originalUse.call(this, '/api/checkout/stripe', createStripeRouter())
-    originalUse.call(
-      this,
-      '/api/checkout/paypal',
-      express.json({ limit: '1mb' }),
-      createPayPalRouter(),
-    )
-  }
-
-  if (!publicSitesMounted && useCalls === 2) {
-    publicSitesMounted = true
-    originalUse.call(this, '/api/public/sites/:websiteId', async (req, res, next) => {
-      if (req.method !== 'GET' || req.path !== '/') return next()
-
-      const websiteId = safeName(req.params.websiteId)
-      const websites = await readJson(paths.websites(), starterWebsites)
-      const website = websites.find(site => safeName(site.id) === websiteId)
-      if (!website) return res.status(404).json({ error: 'Website not found' })
-
-      const defaultContent = getStarterSiteContent(websiteId)
-      const storedContent = await readJson(paths.content(websiteId), null)
-      const content = storedContent ? { ...defaultContent, ...storedContent } : defaultContent
-      const assets = await readWebsiteAssets(websiteId)
-
-      res.setHeader('Cache-Control', 'no-store')
-      res.json({ website, content, assets, publishedAt: content.updatedAt || null })
-    })
-  }
-
-  const result = originalUse.apply(this, args)
-
-  if (!publicOrdersMounted && useCalls === 2) {
-    publicOrdersMounted = true
-    originalUse.call(this, '/api/public/orders', createPublicOrdersRouter())
-  }
-
-  if (!assetUploadMounted && useCalls === 5) {
+  if (!assetUploadMounted && mountPath === '/api') {
     assetUploadMounted = true
     originalUse.call(this, '/api/assets', assetUploadGuard)
   }
 
-  if (!protectedCommerceMounted && useCalls === 5) {
-    protectedCommerceMounted = true
-    originalUse.call(this, '/api', createLiveSessionAccessMiddleware())
-    originalUse.call(this, '/api/websites', createWebsiteOrderPrefixGuard())
-    originalUse.call(this, '/api/orders', createDispatchRouter())
-    originalUse.call(this, '/api/orders', createOrdersRouter())
-    originalUse.call(this, '/api/order-refunds', createRefundRouter())
-    originalUse.call(this, '/api/inventory', createInventoryRouter())
-    originalUse.call(this, '/api/commerce-settings', createCommerceSettingsRouter())
+  const result = originalUse.apply(this, args)
+
+  if (!protectedRoutesMounted && mountPath === '/api' && middleware?.name === 'requireSession') {
+    protectedRoutesMounted = true
+    mountProtectedRoutes(this, originalUse)
   }
 
   return result
