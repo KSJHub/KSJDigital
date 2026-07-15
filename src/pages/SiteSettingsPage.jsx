@@ -6,7 +6,6 @@ import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
 
 const ASSET_BASE = import.meta.env.VITE_KSJ_ASSET_URL || 'http://localhost:4174'
 const PROTECTED_SLUGS = new Set(['', 'about', 'content', 'community', 'merch', 'contact', 'privacy', 'terms', 'track-order'])
-
 const defaults = {
   brand: { name: '', tagline: '', shortTagline: '', communityName: '', primaryLogo: '', supportCredit: 'Website by KSJ Digital' },
   branding: { favicon: '', socialIcon: '', headerStyle: 'Contained', footerStyle: 'Simple', showAnnouncement: false },
@@ -50,9 +49,9 @@ function slugify(value = '') {
 
 function uniqueSlug(base, pages) {
   const clean = slugify(base) || 'new-page'
+  const used = new Set(pages.map(page => page.slug))
   let candidate = clean
   let number = 2
-  const used = new Set(pages.map(page => page.slug))
   while (used.has(candidate) || PROTECTED_SLUGS.has(candidate)) candidate = `${clean}-${number++}`
   return candidate
 }
@@ -168,13 +167,9 @@ export function SiteSettingsPage({ client = false }) {
   function updateCustomPage(pageId, changes, message = 'Page saved') {
     const page = settings.pages.find(item => item.id === pageId)
     if (!page) return
-    const nextPages = settings.pages.map(item => item.id === pageId ? { ...item, ...changes } : item)
-    const nextNavigation = settings.navigation.map(item => item.pageId === pageId ? {
-      ...item,
-      label: changes.label ?? item.label,
-      visible: changes.visible ?? item.visible,
-    } : item)
-    persist({ ...settings, pages: nextPages, navigation: nextNavigation }, message)
+    const pages = settings.pages.map(item => item.id === pageId ? { ...item, ...changes } : item)
+    const navigation = settings.navigation.map(item => item.pageId === pageId ? { ...item, label: changes.label ?? item.label, visible: changes.visible ?? item.visible } : item)
+    persist({ ...settings, pages, navigation }, message)
   }
 
   function renamePageSlug(pageId, rawSlug) {
@@ -185,15 +180,26 @@ export function SiteSettingsPage({ client = false }) {
       setNotice('That page URL is unavailable')
       return
     }
-    const oldSlug = page.slug
     const pages = settings.pages.map(item => item.id === pageId ? { ...item, slug: requested } : item)
     const navigation = settings.navigation.map(item => item.pageId === pageId ? { ...item, target: `/${requested}` } : item)
     const pageBlocks = { ...(content.engine?.pageBlocks || {}) }
-    if (oldSlug !== requested && pageBlocks[oldSlug]) {
-      pageBlocks[requested] = pageBlocks[oldSlug]
-      delete pageBlocks[oldSlug]
+    if (page.slug !== requested && pageBlocks[page.slug]) {
+      pageBlocks[requested] = pageBlocks[page.slug]
+      delete pageBlocks[page.slug]
     }
     persist({ ...settings, pages, navigation }, 'Page URL saved', { engine: { ...(content.engine || {}), pageBlocks } })
+  }
+
+  function duplicateCustomPage(pageId) {
+    const source = settings.pages.find(item => item.id === pageId)
+    if (!source) return
+    const label = `${source.label || source.title || 'Page'} Copy`
+    const slug = uniqueSlug(label, settings.pages)
+    const copy = { ...structuredClone(source), id: makeId(), slug, label, title: label, visible: false }
+    const navigation = [...settings.navigation, { id: `page-${copy.id}`, pageId: copy.id, customPage: true, label, target: `/${slug}`, visible: false, external: false, order: settings.navigation.length + 1 }]
+    const pageBlocks = { ...(content.engine?.pageBlocks || {}) }
+    pageBlocks[slug] = structuredClone(pageBlocks[source.slug] || []).map(block => ({ ...block, id: makeId('block') }))
+    persist({ ...settings, pages: [...settings.pages, copy], navigation }, 'Page duplicated as hidden draft', { engine: { ...(content.engine || {}), pageBlocks } })
   }
 
   function deleteCustomPage(pageId) {
@@ -246,73 +252,17 @@ export function SiteSettingsPage({ client = false }) {
 
   return (
     <Layout client={client} title="Site Settings">
-      <section className="moduleHero card siteSettingsHero">
-        <div><span>Site-wide Management</span><h2>{website?.name || 'Assigned Website'}</h2><p>Manage identity, pages, navigation, header, footer, contact details, social links and global appearance.</p></div>
-        <div className="siteSettingsActions">{platformOwner && websites.length > 1 && <select value={websiteId} onChange={event => setWebsiteId(event.target.value)}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select>}{canRequestUpdates && <button onClick={submitForApproval} disabled={submitting}>{submitting ? 'Submitting…' : 'Submit Settings'}</button>}<span>{notice}</span></div>
-      </section>
-
+      <section className="moduleHero card siteSettingsHero"><div><span>Site-wide Management</span><h2>{website?.name || 'Assigned Website'}</h2><p>Manage identity, pages, navigation, header, footer, contact details, social links and global appearance.</p></div><div className="siteSettingsActions">{platformOwner && websites.length > 1 && <select value={websiteId} onChange={event => setWebsiteId(event.target.value)}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select>}{canRequestUpdates && <button onClick={submitForApproval} disabled={submitting}>{submitting ? 'Submitting…' : 'Submit Settings'}</button>}<span>{notice}</span></div></section>
       <section className="siteSettingsGrid">
         <div className="siteSettingsControls">
-          <section className="card settingsGroup">
-            <div className="panelHead"><h2>Website Identity</h2><span>Header & footer</span></div>
-            <div className="settingsFields twoColumns">
-              <label>Website Name<input value={settings.brand.name} onChange={event => setSettings(current => ({ ...current, brand: { ...current.brand, name: event.target.value } }))} onBlur={() => persist(settings, 'Website name saved')} /></label>
-              <label>Community Name<input value={settings.brand.communityName} onChange={event => setSettings(current => ({ ...current, brand: { ...current.brand, communityName: event.target.value } }))} onBlur={() => persist(settings, 'Community name saved')} /></label>
-              <label>Tagline<input value={settings.brand.tagline} onChange={event => setSettings(current => ({ ...current, brand: { ...current.brand, tagline: event.target.value } }))} onBlur={() => persist(settings, 'Tagline saved')} /></label>
-              <label>Short Tagline<input value={settings.brand.shortTagline} onChange={event => setSettings(current => ({ ...current, brand: { ...current.brand, shortTagline: event.target.value } }))} onBlur={() => persist(settings, 'Short tagline saved')} /></label>
-            </div>
-            <label className="lockedSetting">KSJ Digital Credit<input value={settings.brand.supportCredit} disabled={!platformOwner} onChange={event => setSettings(current => ({ ...current, brand: { ...current.brand, supportCredit: event.target.value } }))} onBlur={() => platformOwner && persist(settings, 'Platform credit saved')} /><small>{platformOwner ? 'Platform-controlled field.' : '🔒 Controlled by KSJ Digital.'}</small></label>
-          </section>
-
-          <section className="card settingsGroup">
-            <div className="panelHead"><h2>Logos & Browser Images</h2><span>Upload once</span></div>
-            <div className="assetSettingsGrid">{[['primaryLogo', 'Primary Logo'], ['favicon', 'Favicon'], ['socialIcon', 'Social Share Image']].map(([slotId, label]) => { const value = slotId === 'primaryLogo' ? settings.brand.primaryLogo : settings.branding[slotId]; return <article key={slotId} className="assetSetting"><div className="assetSettingPreview">{value ? <img src={value} alt={label} /> : <span>No image</span>}</div><b>{label}</b><label>Upload<input type="file" accept="image/*,.ico" onChange={event => upload(slotId, event.target.files?.[0])} /></label><select value="" onChange={event => chooseAsset(slotId, event.target.value)}><option value="">Use media library</option>{imageAssets.map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></article> })}</div>
-          </section>
-
-          <section className="card settingsGroup">
-            <div className="panelHead"><h2>Header & Footer</h2><span>Global layout</span></div>
-            <div className="settingsFields twoColumns">
-              <label>Header Style<select value={settings.branding.headerStyle} onChange={event => updateGroup('branding', { headerStyle: event.target.value }, 'Header style saved')}><option>Contained</option><option>Full Width</option><option>Minimal</option></select></label>
-              <label>Footer Style<select value={settings.branding.footerStyle} onChange={event => updateGroup('branding', { footerStyle: event.target.value }, 'Footer style saved')}><option>Simple</option><option>Columns</option><option>Minimal</option></select></label>
-              <label>Announcement<input value={settings.globals.announcement} onChange={event => setSettings(current => ({ ...current, globals: { ...current.globals, announcement: event.target.value } }))} onBlur={() => persist(settings, 'Announcement saved')} /></label>
-              <label>Footer Text<input value={settings.globals.footerText} onChange={event => setSettings(current => ({ ...current, globals: { ...current.globals, footerText: event.target.value } }))} onBlur={() => persist(settings, 'Footer text saved')} /></label>
-            </div>
-            <label className="formCheck"><input type="checkbox" checked={settings.branding.showAnnouncement} onChange={event => updateGroup('branding', { showAnnouncement: event.target.checked }, 'Announcement visibility saved')} /> Show announcement bar</label>
-          </section>
-
-          <section className="card settingsGroup pageManagerGroup">
-            <div className="panelHead"><h2>Pages & Navigation</h2><span>Create, rename, hide, reorder</span></div>
-            <div className="newPageRow"><label>New page name<input value={newPageName} onChange={event => setNewPageName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') createPage() }} placeholder="Sponsors, FAQ, Events…" /></label><button onClick={createPage} disabled={!newPageName.trim() || saving}>＋ Create Page</button></div>
-            <div className="siteNavigationList">{sortedNavigation(settings.navigation).map(item => {
-              const page = item.pageId ? settings.pages.find(entry => entry.id === item.pageId) : null
-              return <article key={item.id} className={page ? 'customPageRow' : ''}>
-                <label>Label<input value={item.label} onChange={event => setSettings(current => ({ ...current, navigation: current.navigation.map(entry => entry.id === item.id ? { ...entry, label: event.target.value } : entry), pages: page ? current.pages.map(entry => entry.id === page.id ? { ...entry, label: event.target.value } : entry) : current.pages }))} onBlur={() => persist(settings, page ? 'Page name saved' : 'Navigation label saved')} /></label>
-                {page && <label>Page URL<div className="slugInput"><span>/</span><input defaultValue={page.slug} onBlur={event => renamePageSlug(page.id, event.target.value)} /></div></label>}
-                <label className="formCheck"><input type="checkbox" checked={item.visible !== false} onChange={event => page ? updateCustomPage(page.id, { visible: event.target.checked }, 'Page visibility saved') : updateNavigation(item.id, { visible: event.target.checked })} /> Visible</label>
-                <div className="navigationActions"><button onClick={() => moveNavigation(item.id, 'up')} title="Move up">↑</button><button onClick={() => moveNavigation(item.id, 'down')} title="Move down">↓</button>{page && <button className="danger" onClick={() => deleteCustomPage(page.id)} title="Delete page">×</button>}</div>
-              </article>
-            })}</div>
-            <small className="pageManagerHelp">Built-in pages can be renamed, hidden and reordered. Custom pages can also change URL or be deleted. Page content is edited in Website Editor.</small>
-          </section>
-
-          <section className="card settingsGroup">
-            <div className="panelHead"><h2>Socials & Contact</h2><span>One place</span></div>
-            <div className="settingsFields twoColumns">{Object.keys(defaults.socials).map(key => <label key={key}>{key[0].toUpperCase() + key.slice(1)}<input value={settings.socials[key]} onChange={event => setSettings(current => ({ ...current, socials: { ...current.socials, [key]: event.target.value } }))} onBlur={() => persist(settings, `${key} link saved`)} /></label>)}<label>Support Email<input type="email" value={settings.contact.supportEmail} onChange={event => setSettings(current => ({ ...current, contact: { ...current.contact, supportEmail: event.target.value } }))} onBlur={() => persist(settings, 'Support email saved')} /></label><label>Business Email<input type="email" value={settings.contact.businessEmail} onChange={event => setSettings(current => ({ ...current, contact: { ...current.contact, businessEmail: event.target.value } }))} onBlur={() => persist(settings, 'Business email saved')} /></label></div>
-          </section>
-
-          <section className="card settingsGroup">
-            <div className="panelHead"><h2>Global Appearance</h2><span>Whole website</span></div>
-            <div className="settingsFields threeColumns"><label>Primary<input type="color" value={settings.theme.primary} onChange={event => updateGroup('theme', { primary: event.target.value }, 'Primary colour saved')} /></label><label>Secondary<input type="color" value={settings.theme.secondary} onChange={event => updateGroup('theme', { secondary: event.target.value }, 'Secondary colour saved')} /></label><label>Background<input type="color" value={settings.theme.background} onChange={event => updateGroup('theme', { background: event.target.value }, 'Background saved')} /></label><label>Text<input type="color" value={settings.theme.text} onChange={event => updateGroup('theme', { text: event.target.value }, 'Text colour saved')} /></label><label>Font<select value={settings.theme.font} onChange={event => updateGroup('theme', { font: event.target.value }, 'Font saved')}><option>Inter</option><option>Arial</option><option>Georgia</option><option>Verdana</option><option>Trebuchet MS</option></select></label><label>Roundness<input type="range" min="0" max="32" value={settings.theme.radius} onChange={event => updateGroup('theme', { radius: Number(event.target.value) }, 'Corner roundness saved')} /></label></div>
-          </section>
+          <section className="card settingsGroup"><div className="panelHead"><h2>Website Identity</h2><span>Header & footer</span></div><div className="settingsFields twoColumns"><label>Website Name<input value={settings.brand.name} onChange={event => setSettings(current => ({ ...current, brand: { ...current.brand, name: event.target.value } }))} onBlur={() => persist(settings, 'Website name saved')} /></label><label>Community Name<input value={settings.brand.communityName} onChange={event => setSettings(current => ({ ...current, brand: { ...current.brand, communityName: event.target.value } }))} onBlur={() => persist(settings, 'Community name saved')} /></label><label>Tagline<input value={settings.brand.tagline} onChange={event => setSettings(current => ({ ...current, brand: { ...current.brand, tagline: event.target.value } }))} onBlur={() => persist(settings, 'Tagline saved')} /></label><label>Short Tagline<input value={settings.brand.shortTagline} onChange={event => setSettings(current => ({ ...current, brand: { ...current.brand, shortTagline: event.target.value } }))} onBlur={() => persist(settings, 'Short tagline saved')} /></label></div><label className="lockedSetting">KSJ Digital Credit<input value={settings.brand.supportCredit} disabled={!platformOwner} onChange={event => setSettings(current => ({ ...current, brand: { ...current.brand, supportCredit: event.target.value } }))} onBlur={() => platformOwner && persist(settings, 'Platform credit saved')} /><small>{platformOwner ? 'Platform-controlled field.' : '🔒 Controlled by KSJ Digital.'}</small></label></section>
+          <section className="card settingsGroup"><div className="panelHead"><h2>Logos & Browser Images</h2><span>Upload once</span></div><div className="assetSettingsGrid">{[['primaryLogo', 'Primary Logo'], ['favicon', 'Favicon'], ['socialIcon', 'Social Share Image']].map(([slotId, label]) => { const value = slotId === 'primaryLogo' ? settings.brand.primaryLogo : settings.branding[slotId]; return <article key={slotId} className="assetSetting"><div className="assetSettingPreview">{value ? <img src={value} alt={label} /> : <span>No image</span>}</div><b>{label}</b><label>Upload<input type="file" accept="image/*,.ico" onChange={event => upload(slotId, event.target.files?.[0])} /></label><select value="" onChange={event => chooseAsset(slotId, event.target.value)}><option value="">Use media library</option>{imageAssets.map(asset => <option key={asset.id} value={asset.id}>{asset.name}</option>)}</select></article> })}</div></section>
+          <section className="card settingsGroup"><div className="panelHead"><h2>Header & Footer</h2><span>Global layout</span></div><div className="settingsFields twoColumns"><label>Header Style<select value={settings.branding.headerStyle} onChange={event => updateGroup('branding', { headerStyle: event.target.value }, 'Header style saved')}><option>Contained</option><option>Full Width</option><option>Minimal</option></select></label><label>Footer Style<select value={settings.branding.footerStyle} onChange={event => updateGroup('branding', { footerStyle: event.target.value }, 'Footer style saved')}><option>Simple</option><option>Columns</option><option>Minimal</option></select></label><label>Announcement<input value={settings.globals.announcement} onChange={event => setSettings(current => ({ ...current, globals: { ...current.globals, announcement: event.target.value } }))} onBlur={() => persist(settings, 'Announcement saved')} /></label><label>Footer Text<input value={settings.globals.footerText} onChange={event => setSettings(current => ({ ...current, globals: { ...current.globals, footerText: event.target.value } }))} onBlur={() => persist(settings, 'Footer text saved')} /></label></div><label className="formCheck"><input type="checkbox" checked={settings.branding.showAnnouncement} onChange={event => updateGroup('branding', { showAnnouncement: event.target.checked }, 'Announcement visibility saved')} /> Show announcement bar</label></section>
+          <section className="card settingsGroup pageManagerGroup"><div className="panelHead"><h2>Pages & Navigation</h2><span>Create, duplicate, rename, hide, reorder</span></div><div className="newPageRow"><label>New page name<input value={newPageName} onChange={event => setNewPageName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') createPage() }} placeholder="Sponsors, FAQ, Events…" /></label><button onClick={createPage} disabled={!newPageName.trim() || saving}>＋ Create Page</button></div><div className="siteNavigationList">{sortedNavigation(settings.navigation).map(item => { const page = item.pageId ? settings.pages.find(entry => entry.id === item.pageId) : null; return <article key={item.id} className={page ? 'customPageRow' : ''}><label>Label<input value={item.label} onChange={event => setSettings(current => ({ ...current, navigation: current.navigation.map(entry => entry.id === item.id ? { ...entry, label: event.target.value } : entry), pages: page ? current.pages.map(entry => entry.id === page.id ? { ...entry, label: event.target.value } : entry) : current.pages }))} onBlur={() => persist(settings, page ? 'Page name saved' : 'Navigation label saved')} /></label>{page && <label>Page URL<div className="slugInput"><span>/</span><input defaultValue={page.slug} onBlur={event => renamePageSlug(page.id, event.target.value)} /></div></label>}<label className="formCheck"><input type="checkbox" checked={item.visible !== false} onChange={event => page ? updateCustomPage(page.id, { visible: event.target.checked }, 'Page visibility saved') : updateNavigation(item.id, { visible: event.target.checked })} /> Visible</label><div className="navigationActions"><button onClick={() => moveNavigation(item.id, 'up')} title="Move up">↑</button><button onClick={() => moveNavigation(item.id, 'down')} title="Move down">↓</button>{page && <button onClick={() => duplicateCustomPage(page.id)} title="Duplicate page">⧉</button>}{page && <button className="danger" onClick={() => deleteCustomPage(page.id)} title="Delete page">×</button>}</div></article> })}</div><small className="pageManagerHelp">Duplicated pages are hidden by default and copy every managed section with fresh IDs.</small></section>
+          <section className="card settingsGroup"><div className="panelHead"><h2>Socials & Contact</h2><span>One place</span></div><div className="settingsFields twoColumns">{Object.keys(defaults.socials).map(key => <label key={key}>{key[0].toUpperCase() + key.slice(1)}<input value={settings.socials[key]} onChange={event => setSettings(current => ({ ...current, socials: { ...current.socials, [key]: event.target.value } }))} onBlur={() => persist(settings, `${key} link saved`)} /></label>)}<label>Support Email<input type="email" value={settings.contact.supportEmail} onChange={event => setSettings(current => ({ ...current, contact: { ...current.contact, supportEmail: event.target.value } }))} onBlur={() => persist(settings, 'Support email saved')} /></label><label>Business Email<input type="email" value={settings.contact.businessEmail} onChange={event => setSettings(current => ({ ...current, contact: { ...current.contact, businessEmail: event.target.value } }))} onBlur={() => persist(settings, 'Business email saved')} /></label></div></section>
+          <section className="card settingsGroup"><div className="panelHead"><h2>Global Appearance</h2><span>Whole website</span></div><div className="settingsFields threeColumns"><label>Primary<input type="color" value={settings.theme.primary} onChange={event => updateGroup('theme', { primary: event.target.value }, 'Primary colour saved')} /></label><label>Secondary<input type="color" value={settings.theme.secondary} onChange={event => updateGroup('theme', { secondary: event.target.value }, 'Secondary colour saved')} /></label><label>Background<input type="color" value={settings.theme.background} onChange={event => updateGroup('theme', { background: event.target.value }, 'Background saved')} /></label><label>Text<input type="color" value={settings.theme.text} onChange={event => updateGroup('theme', { text: event.target.value }, 'Text colour saved')} /></label><label>Font<select value={settings.theme.font} onChange={event => updateGroup('theme', { font: event.target.value }, 'Font saved')}><option>Inter</option><option>Arial</option><option>Georgia</option><option>Verdana</option><option>Trebuchet MS</option></select></label><label>Roundness<input type="range" min="0" max="32" value={settings.theme.radius} onChange={event => updateGroup('theme', { radius: Number(event.target.value) }, 'Corner roundness saved')} /></label></div></section>
         </div>
-
-        <aside className="card siteSettingsPreview">
-          <div className="panelHead"><h2>Global Preview</h2><span>Site-wide only</span></div>
-          {settings.branding.showAnnouncement && <div className="settingsAnnouncement">{settings.globals.announcement || 'Announcement bar'}</div>}
-          <header><div>{settings.brand.primaryLogo ? <img src={settings.brand.primaryLogo} alt="" /> : <b>{website?.logo || 'SITE'}</b>}<span><strong>{settings.brand.name}</strong><small>{settings.brand.tagline}</small></span></div><nav>{sortedNavigation(settings.navigation).filter(item => item.visible !== false).map(item => <span key={item.id}>{item.label}</span>)}</nav></header>
-          <main style={{ '--preview-primary': settings.theme.primary, '--preview-secondary': settings.theme.secondary, '--preview-bg': settings.theme.background, '--preview-text': settings.theme.text, '--preview-radius': `${settings.theme.radius}px`, '--preview-font': settings.theme.font }}><small>{settings.brand.shortTagline}</small><h2>{settings.brand.name || website?.name}</h2><p>Page-body content is edited directly inside the visual website editor.</p><button>Primary Action</button></main>
-          <footer><span>{settings.globals.footerText || `© ${new Date().getFullYear()} ${settings.brand.name}`}</span><b>{settings.brand.supportCredit}</b></footer>
-        </aside>
+        <aside className="card siteSettingsPreview"><div className="panelHead"><h2>Global Preview</h2><span>Site-wide only</span></div>{settings.branding.showAnnouncement && <div className="settingsAnnouncement">{settings.globals.announcement || 'Announcement bar'}</div>}<header><div>{settings.brand.primaryLogo ? <img src={settings.brand.primaryLogo} alt="" /> : <b>{website?.logo || 'SITE'}</b>}<span><strong>{settings.brand.name}</strong><small>{settings.brand.tagline}</small></span></div><nav>{sortedNavigation(settings.navigation).filter(item => item.visible !== false).map(item => <span key={item.id}>{item.label}</span>)}</nav></header><main style={{ '--preview-primary': settings.theme.primary, '--preview-secondary': settings.theme.secondary, '--preview-bg': settings.theme.background, '--preview-text': settings.theme.text, '--preview-radius': `${settings.theme.radius}px`, '--preview-font': settings.theme.font }}><small>{settings.brand.shortTagline}</small><h2>{settings.brand.name || website?.name}</h2><p>Page-body content is edited directly inside the visual website editor.</p><button>Primary Action</button></main><footer><span>{settings.globals.footerText || `© ${new Date().getFullYear()} ${settings.brand.name}`}</span><b>{settings.brand.supportCredit}</b></footer></aside>
       </section>
     </Layout>
   )
