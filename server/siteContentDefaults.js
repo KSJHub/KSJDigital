@@ -27,6 +27,7 @@ export const starterSiteContent = {
       youtubeChannelId: 'UC54tVexRR4IXeXpzg2Dq1UA',
     },
     engine: {
+      pages: [],
       pageBlocks: {},
     },
     home: {
@@ -100,7 +101,7 @@ export const starterSiteContent = {
     terms: {
       eyebrow: 'Legal',
       title: 'Terms of Use',
-      intro: 'These Terms of Use outline the guidelines for using this website.',
+      intro: 'These Terms of Use explain the rules and expectations for using this website.',
       sections: [
         { title: '1. Use of this website', text: 'Use this website responsibly and only for lawful purposes.' },
         { title: '2. Website content', text: 'Content is provided for general information, entertainment, community updates and creator-related purposes.' },
@@ -114,18 +115,5 @@ export const starterSiteContent = {
       ],
       updated: 'Last updated: June 2026',
     },
-    editorPolicy: {
-      fields: {
-        'brand.supportCredit': { access: 'owner-only', approvalRequired: true, movable: false, deletable: false, reason: 'KSJ Digital platform credit' },
-        'privacy.sections': { access: 'owner-only', approvalRequired: true, movable: false, deletable: false, reason: 'Legal content is controlled by KSJ Digital' },
-        'terms.sections': { access: 'owner-only', approvalRequired: true, movable: false, deletable: false, reason: 'Legal content is controlled by KSJ Digital' },
-      },
-      sections: {},
-    },
-    pages: [],
   },
-}
-
-export function getStarterSiteContent(websiteId) {
-  return starterSiteContent[websiteId] || { engine: { pageBlocks: {} }, pages: [] }
 }
