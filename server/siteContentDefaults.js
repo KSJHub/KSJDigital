@@ -27,6 +27,17 @@ export const starterSiteContent = {
       youtubeChannelId: 'UC54tVexRR4IXeXpzg2Dq1UA',
     },
     engine: {
+      pageRegistry: [
+        { id: 'home', slug: '', path: '/', label: 'Home', type: 'layout', layoutKey: 'home', visible: true, navigable: true, editable: true, order: 1 },
+        { id: 'about', slug: 'about', path: '/about', label: 'About', type: 'layout', layoutKey: 'about', visible: true, navigable: true, editable: true, order: 2 },
+        { id: 'content', slug: 'content', path: '/content', label: 'Content', type: 'layout', layoutKey: 'contentPage', visible: true, navigable: true, editable: true, order: 3 },
+        { id: 'community', slug: 'community', path: '/community', label: 'Community', type: 'layout', layoutKey: 'communityPage', visible: true, navigable: true, editable: true, order: 4 },
+        { id: 'merch', slug: 'merch', path: '/merch', label: 'Merch', type: 'layout', layoutKey: 'merch', visible: true, navigable: true, editable: true, order: 5 },
+        { id: 'contact', slug: 'contact', path: '/contact', label: 'Contact', type: 'layout', layoutKey: 'contactPage', visible: true, navigable: true, editable: true, order: 6 },
+        { id: 'privacy', slug: 'privacy', path: '/privacy', label: 'Privacy', type: 'layout', layoutKey: 'privacy', visible: true, navigable: false, editable: true, order: 7 },
+        { id: 'terms', slug: 'terms', path: '/terms', label: 'Terms', type: 'layout', layoutKey: 'terms', visible: true, navigable: false, editable: true, order: 8 },
+      ],
+      pageSeo: {},
       pages: [],
       pageBlocks: {},
     },
