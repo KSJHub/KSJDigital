@@ -32,6 +32,10 @@ const BLOCK_TEMPLATES = [
   { type: 'text', icon: '¶', title: 'Text Section', description: 'Eyebrow, heading and editable paragraph.' },
   { type: 'image', icon: '🖼', title: 'Image Section', description: 'Managed image with title and supporting text.' },
   { type: 'cta', icon: '↗', title: 'Call To Action', description: 'Prominent message with a visitor action button.' },
+  { type: 'gallery', icon: '▦', title: 'Gallery', description: 'Responsive image gallery with editable captions.' },
+  { type: 'video', icon: '▶', title: 'Video', description: 'Responsive YouTube or Vimeo feature section.' },
+  { type: 'faq', icon: '?', title: 'FAQ', description: 'Expandable questions and answers.' },
+  { type: 'products', icon: '🛍', title: 'Product Grid', description: 'Displays managed products from this website.' },
 ]
 
 function localDevelopment() {
@@ -78,7 +82,25 @@ function makeId() {
 function templateBlock(type, order) {
   const common = { id: makeId(), type, order }
   if (type === 'image') return { ...common, title: 'Image Section', text: 'Add supporting text for this image.', image: '', alt: '', layout: 'wide' }
-  if (type === 'cta') return { ...common, eyebrow: 'Next Step', title: 'Ready to get involved?', text: 'Add a clear reason for visitors to take action.', buttonLabel: 'Learn More', buttonUrl: '#' }
+  if (type === 'cta') return { ...common, eyebrow: 'Next Step', title: 'Ready to get involved?', text: 'Add a clear reason for visitors to take action.', buttonLabel: 'Learn More', buttonUrl: '#', newTab: false, align: 'left' }
+  if (type === 'gallery') return {
+    ...common,
+    eyebrow: 'Gallery',
+    title: 'Latest Images',
+    text: 'Add and arrange images from the live editor.',
+    columns: 3,
+    images: Array.from({ length: 4 }, (_, index) => ({ src: '', alt: '', caption: `Image ${index + 1}` })),
+  }
+  if (type === 'video') return { ...common, eyebrow: 'Watch', title: 'Featured Video', text: 'Add a YouTube or Vimeo video.', videoUrl: '' }
+  if (type === 'faq') return {
+    ...common,
+    eyebrow: 'Help',
+    title: 'Frequently Asked Questions',
+    text: 'Answer the questions visitors ask most often.',
+    openFirst: true,
+    items: Array.from({ length: 4 }, (_, index) => ({ question: `Question ${index + 1}`, answer: 'Add the answer here.' })),
+  }
+  if (type === 'products') return { ...common, eyebrow: 'Shop', title: 'Featured Products', text: 'Explore products available from this website.', limit: 4, featuredOnly: false }
   return { ...common, eyebrow: 'New Section', title: 'New text section', text: 'Click here and start typing.', align: 'left' }
 }
 
@@ -496,7 +518,7 @@ export function PageBuilderPage({ client = false }) {
     const withPolicy = updateSectionRule(next, sectionId, { access: FIELD_ACCESS.EDITABLE, approvalRequired: true, movable: true, deletable: true, order: block.order, reason: '' })
     setShowBlockLibrary(false)
     setSelection({ type: 'section', sectionId, label: block.title, defaultOrder: block.order })
-    await save(withPolicy, '✓ New section added')
+    await save(withPolicy, `✓ ${BLOCK_TEMPLATES.find(template => template.type === type)?.title || 'Section'} added`)
   }
 
   async function duplicateSelectedBlock() {
