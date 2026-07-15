@@ -56,7 +56,7 @@ export async function signOut() {
 
 export async function refreshSession() {
   try {
-    const result = await api.me()
+    const result = await api.sessionAccess()
     return setCurrentAccount(result)
   } catch {
     return setCurrentAccount(null)
@@ -95,6 +95,7 @@ export function getPermissionSummary(account = {}) {
     role: account.roleLabel || 'Guest',
     access: websites.length ? websites.join(', ') : 'No website assigned',
     edit: account.canEdit ? 'Website editing enabled' : 'View only',
+    pages: account.canManagePages ? 'Page management enabled' : 'Page management disabled',
     publish: account.role === 'owner' ? 'Platform approval enabled' : 'Changes require approval',
   }
 }
