@@ -33,16 +33,23 @@ export function createLiveSessionAccessMiddleware() {
       Object.assign(req.session, {
         email: account.email,
         name: account.name,
+        displayName: account.displayName || account.name,
         role,
+        roleLabel: role === 'owner' ? 'Platform Owner' : (account.roleLabel || 'Website Owner'),
         websiteId: websiteIds[0],
         websiteIds,
         canPublish: role === 'owner',
         canManageClients: role === 'owner',
         canEdit: role === 'owner' || account.canEdit === true,
+        canManagePages: role === 'owner' || account.canManagePages === true,
         canManageMedia: role === 'owner' || account.canManageMedia === true,
         canRequestUpdates: role === 'owner' || account.canRequestUpdates === true,
         canViewSupport: role === 'owner' || account.canViewSupport === true,
       })
+
+      if (req.method === 'GET' && req.path === '/session-access') {
+        return res.json(req.session)
+      }
 
       next()
     } catch (error) {
