@@ -26,13 +26,7 @@ function pathWebsiteId(pathname = '') {
 }
 
 function requestedWebsiteId(req) {
-  return safeName(
-    pathWebsiteId(req.path)
-      || req.body?.websiteId
-      || req.query?.websiteId
-      || req.session?.websiteId
-      || '',
-  )
+  return safeName(pathWebsiteId(req.path) || req.body?.websiteId || req.query?.websiteId || '')
 }
 
 function sessionWebsiteIds(session = {}) {
