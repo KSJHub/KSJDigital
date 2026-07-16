@@ -72,7 +72,7 @@ export function ComponentPropertyInspector({ definition, component, disabled = f
   if (!definition || !component) return null
 
   return (
-    <aside className="componentPropertyInspector">
+    <div className="componentPropertyInspector">
       <header>
         <div>
           <span>{definition.category}</span>
@@ -100,6 +100,6 @@ export function ComponentPropertyInspector({ definition, component, disabled = f
           </label>
         ))}
       </div>
-    </aside>
+    </div>
   )
 }
