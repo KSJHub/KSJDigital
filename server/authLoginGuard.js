@@ -1,4 +1,7 @@
 import express from 'express'
+import { runVerifiedLogin } from './credentialContext.js'
+import { getCredential, verifyPassword } from './credentialStore.js'
+import { paths, readJson, safeName } from './storage.js'
 
 const WINDOW_MS = 15 * 60 * 1000
 const LOCK_MS = 30 * 60 * 1000
@@ -27,17 +30,7 @@ function retryAfterSeconds(record, now = Date.now()) {
   return Math.max(1, Math.ceil((record.lockedUntil - now) / 1000))
 }
 
-export function loginAttemptGuard(req, res, next) {
-  const now = Date.now()
-  const key = clientKey(req)
-  const record = currentRecord(key, now)
-
-  if (record.lockedUntil > now) {
-    const retryAfter = retryAfterSeconds(record, now)
-    res.setHeader('Retry-After', String(retryAfter))
-    return res.status(429).json({ error: 'Too many login attempts. Please wait before trying again.' })
-  }
-
+function recordOutcome(res, key) {
   res.once('finish', () => {
     if (res.statusCode >= 200 && res.statusCode < 300) {
       attempts.delete(key)
@@ -53,8 +46,36 @@ export function loginAttemptGuard(req, res, next) {
       lockedUntil: failures >= MAX_FAILURES ? Date.now() + LOCK_MS : 0,
     })
   })
+}
 
-  next()
+export async function loginAttemptGuard(req, res, next) {
+  const now = Date.now()
+  const key = clientKey(req)
+  const record = currentRecord(key, now)
+
+  if (record.lockedUntil > now) {
+    const retryAfter = retryAfterSeconds(record, now)
+    res.setHeader('Retry-After', String(retryAfter))
+    return res.status(429).json({ error: 'Too many login attempts. Please wait before trying again.' })
+  }
+
+  recordOutcome(res, key)
+
+  const email = String(req.body?.email || '').trim().toLowerCase()
+  const password = String(req.body?.password || '')
+  const accounts = await readJson(paths.clients(), [])
+  const account = accounts.find(item => String(item.email || '').trim().toLowerCase() === email)
+  const credential = account ? await getCredential(account.id) : null
+  const verified = Boolean(account && credential?.passwordHash && await verifyPassword(password, credential.passwordHash))
+
+  if (!verified) return res.status(401).json({ error: 'Invalid email or password' })
+
+  return runVerifiedLogin({
+    verified: true,
+    accountId: safeName(account.id),
+    email,
+    password,
+  }, next)
 }
 
 const originalPost = express.application.post
