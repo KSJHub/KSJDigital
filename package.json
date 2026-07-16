@@ -21,8 +21,9 @@
     "check:capabilities": "node scripts/check-website-capabilities.mjs",
     "check:capability-api": "node scripts/check-capability-api-boundary.mjs",
     "check:services": "node scripts/check-service-layer.mjs",
+    "check:content-service": "node scripts/check-content-service.mjs",
     "check:launch": "node scripts/check-launch.mjs",
-    "check": "npm run lint && npm run check:server && npm run check:publication && npm run check:workspace && npm run check:data && npm run check:auth && npm run check:credentials && npm run check:sessions && npm run check:origins && npm run check:capabilities && npm run check:capability-api && npm run check:services && npm run build",
+    "check": "npm run lint && npm run check:server && npm run check:publication && npm run check:workspace && npm run check:data && npm run check:auth && npm run check:credentials && npm run check:sessions && npm run check:origins && npm run check:capabilities && npm run check:capability-api && npm run check:services && npm run check:content-service && npm run build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "preview": "vite preview"
