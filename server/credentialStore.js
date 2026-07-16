@@ -79,7 +79,9 @@ export async function migratePlaintextCredentials() {
     }
 
     if ('password' in account || 'accessCode' in account) {
-      const { password: _password, accessCode: _accessCode, ...safeAccount } = account
+      const safeAccount = { ...account }
+      delete safeAccount.password
+      delete safeAccount.accessCode
       migrated.push(safeAccount)
       accountChanged = true
     } else {
