@@ -4,10 +4,12 @@ import path from 'node:path'
 
 export const DATA_DIR = path.resolve(process.cwd(), 'server-data')
 export const ASSET_DIR = path.join(DATA_DIR, 'assets')
+export const BACKUP_DIR = path.join(DATA_DIR, 'backups')
 export const STORAGE_LIMIT_BYTES = 2147483648
 
 const TRANSIENT_FILE_ERRORS = new Set(['EPERM', 'EBUSY', 'EACCES'])
 const WRITE_RETRY_DELAYS = [40, 100, 220, 450, 900]
+const BACKUP_RETENTION_PER_FILE = 20
 
 export async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true })
@@ -57,13 +59,68 @@ async function replaceFileWithRetry(temporaryFile, file) {
   }
 }
 
+function isManagedJsonFile(file) {
+  const resolved = path.resolve(file)
+  const relative = path.relative(DATA_DIR, resolved)
+  return relative && !relative.startsWith('..') && !path.isAbsolute(relative) && resolved.endsWith('.json') && !resolved.startsWith(BACKUP_DIR)
+}
+
+function backupFolderFor(file) {
+  const relative = path.relative(DATA_DIR, file)
+  return path.join(BACKUP_DIR, path.dirname(relative), path.basename(relative, '.json'))
+}
+
+async function pruneBackups(folder) {
+  const entries = await fs.readdir(folder, { withFileTypes: true }).catch(error => {
+    if (error?.code === 'ENOENT') return []
+    throw error
+  })
+  const files = entries
+    .filter(entry => entry.isFile() && entry.name.endsWith('.json'))
+    .map(entry => entry.name)
+    .sort()
+    .reverse()
+
+  await Promise.all(files.slice(BACKUP_RETENTION_PER_FILE).map(name => fs.rm(path.join(folder, name), { force: true })))
+}
+
+async function backupExistingJson(file, nextPayload) {
+  if (!isManagedJsonFile(file)) return
+
+  let existing
+  try {
+    existing = await fs.readFile(file, 'utf8')
+  } catch (error) {
+    if (error?.code === 'ENOENT') return
+    throw error
+  }
+
+  if (existing === nextPayload) return
+
+  // Do not preserve corrupt data as a trusted restore point.
+  try {
+    JSON.parse(existing)
+  } catch {
+    return
+  }
+
+  const folder = backupFolderFor(file)
+  await ensureDir(folder)
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const backupFile = path.join(folder, `${timestamp}-${crypto.randomBytes(4).toString('hex')}.json`)
+  await fs.writeFile(backupFile, existing, { encoding: 'utf8', flag: 'wx' })
+  await pruneBackups(folder)
+}
+
 export async function writeJson(file, data) {
   await ensureDir(path.dirname(file))
   const temporaryFile = `${file}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`
   const payload = JSON.stringify(data, null, 2)
 
   try {
+    await backupExistingJson(file, payload)
     await fs.writeFile(temporaryFile, payload, { encoding: 'utf8', flag: 'wx' })
+    JSON.parse(await fs.readFile(temporaryFile, 'utf8'))
     await replaceFileWithRetry(temporaryFile, file)
   } catch (error) {
     await fs.rm(temporaryFile, { force: true }).catch(() => {})
