@@ -10,6 +10,7 @@ const ACCESS_PERMISSIONS = [
   'canRequestUpdates',
   'canManageMedia',
   'canViewSupport',
+  'canManageTeam',
 ]
 
 function normaliseRole(account = {}) {
@@ -24,6 +25,7 @@ function normalisePermissions(account = {}, role = normaliseRole(account)) {
     ACCESS_PERMISSIONS.map(permission => {
       if (role === 'owner') return [permission, true]
       if (typeof account[permission] === 'boolean') return [permission, account[permission]]
+      if (permission === 'canManageTeam') return [permission, String(account.roleLabel || '').trim() === 'Website Owner']
       return [permission, !readOnly]
     }),
   )
@@ -73,7 +75,7 @@ async function migrateAccounts() {
     return normaliseAccount({
       ...account,
       role: 'client',
-      roleLabel: account.roleLabel === 'Viewer' ? 'Viewer' : 'Website Owner',
+      roleLabel: account.roleLabel || (account.id === 'taj' ? 'Website Owner' : 'Website Editor'),
       access: account.access === 'Read only' ? 'Read only' : 'Full website access',
       websiteIds: assigned.filter(id => id !== 'ksjdigital'),
     })
