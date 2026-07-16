@@ -4,6 +4,13 @@ import { paths, readJson, safeName, writeJson } from './storage.js'
 
 const PLATFORM_ACCOUNT_ID = 'morgan'
 const PLATFORM_DISPLAY_NAME = 'KSJ Digital'
+const ACCESS_PERMISSIONS = [
+  'canEdit',
+  'canManagePages',
+  'canRequestUpdates',
+  'canManageMedia',
+  'canViewSupport',
+]
 
 function normaliseRole(account = {}) {
   const role = String(account.role || '').trim().toLowerCase().replace(/[ _-]+/g, '_')
@@ -11,8 +18,20 @@ function normaliseRole(account = {}) {
   return 'client'
 }
 
+function normalisePermissions(account = {}, role = normaliseRole(account)) {
+  const readOnly = String(account.access || '').trim().toLowerCase() === 'read only'
+  return Object.fromEntries(
+    ACCESS_PERMISSIONS.map(permission => {
+      if (role === 'owner') return [permission, true]
+      if (typeof account[permission] === 'boolean') return [permission, account[permission]]
+      return [permission, !readOnly]
+    }),
+  )
+}
+
 function normaliseAccount(account = {}) {
   const platformOwner = account.id === PLATFORM_ACCOUNT_ID
+  const role = normaliseRole(account)
   const websiteIds = Array.isArray(account.websiteIds)
     ? account.websiteIds.map(safeName).filter(Boolean)
     : account.websiteId
@@ -23,11 +42,12 @@ function normaliseAccount(account = {}) {
     ...account,
     name: platformOwner ? PLATFORM_DISPLAY_NAME : account.name,
     displayName: platformOwner ? PLATFORM_DISPLAY_NAME : (account.displayName || account.name),
-    role: normaliseRole(account),
+    role,
     roleLabel: platformOwner ? 'Platform Owner' : (account.roleLabel || 'Website Owner'),
     access: platformOwner ? 'Platform administration' : (account.access || 'Full website access'),
     websiteIds,
     websiteId: websiteIds[0] || '',
+    ...normalisePermissions(account, role),
   }
 }
 
@@ -44,9 +64,11 @@ async function migrateAccounts() {
 
     const assigned = Array.isArray(account.websiteIds) && account.websiteIds.length
       ? account.websiteIds
-      : account.id === 'taj'
-        ? ['twotonetaj']
-        : []
+      : account.websiteId
+        ? [account.websiteId]
+        : account.id === 'taj'
+          ? ['twotonetaj']
+          : []
 
     return normaliseAccount({
       ...account,
