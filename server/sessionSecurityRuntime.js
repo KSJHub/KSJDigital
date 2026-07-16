@@ -27,6 +27,14 @@ function tokenFromSetCookie(value) {
   return separator >= 0 ? decodeURIComponent(first.slice(separator + 1)) : ''
 }
 
+function secureProductionCookie(res) {
+  if (process.env.NODE_ENV !== 'production') return
+  const current = res.getHeader('Set-Cookie')
+  if (!current) return
+  const secureValue = value => String(value).includes('; Secure') ? String(value) : `${value}; Secure`
+  res.setHeader('Set-Cookie', Array.isArray(current) ? current.map(secureValue) : secureValue(current))
+}
+
 function clearCookie(res) {
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : ''
   res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${secure}`)
@@ -65,7 +73,9 @@ express.application.post = function secureSessionPost(path, ...handlers) {
           const token = tokenFromSetCookie(res.getHeader('Set-Cookie'))
           if (token) sessions.set(token, { createdAt: Date.now(), lastSeenAt: Date.now() })
         })
-        return handler(req, res, next)
+        const result = await handler(req, res, next)
+        secureProductionCookie(res)
+        return result
       }
     }))
   }
