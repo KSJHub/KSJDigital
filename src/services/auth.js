@@ -34,11 +34,13 @@ function setCurrentAccount(account) {
 
 export async function signIn(email, password) {
   try {
-    const result = await api.login({ email, password })
+    await api.login({ email, password })
+    const result = await api.sessionAccess()
     const account = setCurrentAccount(result)
     if (!account) throw new Error('Login response did not contain an account')
     return { account }
   } catch (error) {
+    setCurrentAccount(null)
     return { error: error.message || 'Email or password is incorrect.' }
   }
 }
