@@ -18,23 +18,24 @@ const ownerWorkspace = {
 
 const clientWorkspace = {
   home: { path: '/client', label: 'Home', group: 'My Website' },
-  editor: { path: '/client/editor', label: 'Edit Website', group: 'My Website', any: ['canEdit'] },
-  branding: { path: '/client/branding', label: 'Header, Footer & Brand', group: 'My Website', any: ['canManageMedia', 'canManagePages'] },
-  media: { path: '/client/media', label: 'Media', group: 'My Website', any: ['canManageMedia'] },
-  forms: { path: '/client/forms', label: 'Forms', group: 'My Website', any: ['canEdit'] },
-  merch: { path: '/client/merch', label: 'Products', group: 'Business', any: ['canEdit'] },
-  inventory: { path: '/client/inventory', label: 'Stock', group: 'Business', any: ['canEdit'] },
-  orders: { path: '/client/orders', label: 'Orders', group: 'Business', any: ['canEdit'] },
-  commerce: { path: '/client/commerce', label: 'Payments', group: 'Business', any: ['canEdit'] },
-  team: { path: '/client/team', label: 'Team', group: 'Account' },
-  publish: { path: '/client/publish', label: 'Website Updates', group: 'Account', any: ['canRequestUpdates'] },
-  support: { path: '/client/support', label: 'Help', group: 'Account', any: ['canViewSupport'] },
+  editor: { path: '/client/editor', label: 'Edit Website', group: 'My Website', capability: 'website', any: ['canEdit'] },
+  branding: { path: '/client/branding', label: 'Header, Footer & Brand', group: 'My Website', capability: 'website', any: ['canManageMedia', 'canManagePages'] },
+  media: { path: '/client/media', label: 'Media', group: 'My Website', capability: 'media', any: ['canManageMedia'] },
+  forms: { path: '/client/forms', label: 'Forms', group: 'My Website', capability: 'forms', any: ['canEdit'] },
+  merch: { path: '/client/merch', label: 'Products', group: 'Business', capability: 'commerce', any: ['canEdit'] },
+  inventory: { path: '/client/inventory', label: 'Stock', group: 'Business', capability: 'commerce', any: ['canEdit'] },
+  orders: { path: '/client/orders', label: 'Orders', group: 'Business', capability: 'commerce', any: ['canEdit'] },
+  commerce: { path: '/client/commerce', label: 'Payments', group: 'Business', capability: 'commerce', any: ['canEdit'] },
+  team: { path: '/client/team', label: 'Team', group: 'Account', capability: 'team' },
+  publish: { path: '/client/publish', label: 'Website Updates', group: 'Account', capability: 'website', any: ['canRequestUpdates'] },
+  support: { path: '/client/support', label: 'Help', group: 'Account', capability: 'support', any: ['canViewSupport'] },
   settings: { path: '/client/settings', label: 'Settings', group: 'Account' },
 }
 
 function allowedByRule(account, rule = {}) {
   if (!account) return false
   if (account.role === 'owner') return true
+  if (rule.capability && !(account.websiteCapabilities || []).includes(rule.capability)) return false
   if (!rule.any?.length) return true
   return rule.any.some(permission => account[permission] === true)
 }
