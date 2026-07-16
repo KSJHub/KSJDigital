@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises'
 
-const [hook, inspector, api, registry] = await Promise.all([
+const [hook, inspector, library, api, registry] = await Promise.all([
   fs.readFile('src/hooks/useComponentRegistry.js', 'utf8'),
   fs.readFile('src/components/ComponentPropertyInspector.jsx', 'utf8'),
+  fs.readFile('src/components/RegistryBlockLibrary.jsx', 'utf8'),
   fs.readFile('src/services/api.js', 'utf8'),
   fs.readFile('shared/componentRegistry.js', 'utf8'),
 ])
@@ -15,6 +16,10 @@ if (!inspector.includes('definition.fields')) failures.push('Property inspector 
 for (const type of ['textarea', 'image', 'boolean', 'select', 'number', 'url', 'repeater']) {
   if (!inspector.includes(`field.type === '${type}'`)) failures.push(`Property inspector is missing ${type} field support`)
 }
+if (!library.includes('useComponentRegistry(capabilities)')) failures.push('Section library must consume the website-filtered component registry')
+if (!library.includes('createComponentBlock(definition.type')) failures.push('Section library must create blocks through the shared registry factory')
+if (!library.includes('groupComponents(filtered)')) failures.push('Section library must group registered components by category')
+if (!library.includes('Search sections')) failures.push('Section library must provide component search')
 if (!api.includes('getComponents:')) failures.push('Frontend API must expose the component registry endpoint')
 if (!registry.includes('createComponentBlock')) failures.push('Component defaults must remain owned by the shared registry')
 
