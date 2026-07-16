@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"vite\" \"node --import ./server/runtimeGlobals.js server/start.js\"",
+    "dev": "concurrently \"vite\" \"node --import ./server/runtimeGlobals.js server/start.js\" \"node scripts/start-client-editors.mjs\"",
     "frontend": "vite",
     "server": "node --import ./server/runtimeGlobals.js server/start.js",
+    "client-editors": "node scripts/start-client-editors.mjs",
     "build": "vite build",
     "lint": "eslint .",
     "check:server": "node scripts/check-server.mjs",
