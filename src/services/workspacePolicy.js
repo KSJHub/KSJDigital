@@ -26,6 +26,7 @@ const clientWorkspace = {
   inventory: { path: '/client/inventory', label: 'Stock', group: 'Business', any: ['canEdit'] },
   orders: { path: '/client/orders', label: 'Orders', group: 'Business', any: ['canEdit'] },
   commerce: { path: '/client/commerce', label: 'Payments', group: 'Business', any: ['canEdit'] },
+  team: { path: '/client/team', label: 'Team', group: 'Account' },
   publish: { path: '/client/publish', label: 'Website Updates', group: 'Account', any: ['canRequestUpdates'] },
   support: { path: '/client/support', label: 'Help', group: 'Account', any: ['canViewSupport'] },
   settings: { path: '/client/settings', label: 'Settings', group: 'Account' },
