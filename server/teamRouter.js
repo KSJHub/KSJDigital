@@ -1,5 +1,6 @@
 import express from 'express'
 import crypto from 'node:crypto'
+import { removeCredential, setPassword } from './credentialStore.js'
 import { paths, readJson, safeName, writeJson } from './storage.js'
 
 const TEAM_PERMISSIONS = ['canEdit', 'canManagePages', 'canManageMedia', 'canRequestUpdates', 'canViewSupport', 'canManageTeam']
@@ -56,9 +57,9 @@ export function createTeamRouter() {
     }
 
     const email = String(req.body?.email || '').trim().toLowerCase()
-    const accessCode = String(req.body?.accessCode || '')
+    const temporaryPassword = String(req.body?.accessCode || '')
     if (!email) return res.status(400).json({ error: 'Email is required' })
-    if (accessCode.length < 8) return res.status(400).json({ error: 'Temporary password must be at least 8 characters' })
+    if (temporaryPassword.length < 8) return res.status(400).json({ error: 'Temporary password must be at least 8 characters' })
 
     const members = await readJson(paths.clients(), [])
     if (members.some(member => String(member.email || '').toLowerCase() === email)) {
@@ -71,7 +72,6 @@ export function createTeamRouter() {
       name: String(req.body?.name || 'Team Member').trim(),
       displayName: String(req.body?.name || 'Team Member').trim(),
       email,
-      accessCode,
       role: 'client',
       roleLabel: req.body?.roleLabel || 'Website Editor',
       access: 'Team access',
@@ -82,7 +82,13 @@ export function createTeamRouter() {
     }
 
     if (members.some(item => item.id === member.id)) member.id = `${member.id}-${Date.now()}`
-    await writeJson(paths.clients(), [...members, member])
+    await setPassword(member.id, temporaryPassword)
+    try {
+      await writeJson(paths.clients(), [...members, member])
+    } catch (error) {
+      await removeCredential(member.id).catch(() => {})
+      throw error
+    }
     res.json(sanitise(member))
   })
 
@@ -108,9 +114,10 @@ export function createTeamRouter() {
       websiteId: existing.websiteId,
       websiteIds: existing.websiteIds,
     }
+
     if (req.body?.accessCode) {
       if (String(req.body.accessCode).length < 8) return res.status(400).json({ error: 'Temporary password must be at least 8 characters' })
-      updated.accessCode = String(req.body.accessCode)
+      await setPassword(existing.id, String(req.body.accessCode))
     }
 
     await writeJson(paths.clients(), members.map(member => member.id === existing.id ? updated : member))
@@ -128,6 +135,7 @@ export function createTeamRouter() {
     }
 
     await writeJson(paths.clients(), members.filter(member => member.id !== existing.id))
+    await removeCredential(existing.id)
     res.json({ ok: true })
   })
 
