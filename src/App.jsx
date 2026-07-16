@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { AccessDenied } from './components/UI.jsx'
 import { canAccessOwner, getAccountFromPath, refreshSession } from './services/auth.js'
+import { canAccessClientWorkspace } from './services/workspacePolicy.js'
 
 const PublicHomePage = lazy(() => import('./pages/PublicHomePage.jsx').then(module => ({ default: module.PublicHomePage })))
 const LoginPage = lazy(() => import('./pages/LoginPage.jsx').then(module => ({ default: module.LoginPage })))
@@ -26,16 +27,6 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage.jsx').then(module =
 const SupportPage = lazy(() => import('./pages/SupportPage.jsx').then(module => ({ default: module.SupportPage })))
 
 function route() { return location.pathname.replace(/\/$/, '') || '/' }
-
-function canAccessClientRoute(account, type) {
-  if (!account || account.role === 'owner') return true
-  if (['editor', 'engine', 'forms', 'merch', 'inventory', 'orders', 'commerce'].includes(type)) return !!account.canEdit
-  if (type === 'branding') return !!account.canManageMedia || !!account.canManagePages
-  if (type === 'media') return !!account.canManageMedia
-  if (type === 'publish') return !!account.canRequestUpdates
-  if (type === 'support') return !!account.canViewSupport
-  return true
-}
 
 function Workspace({ client = false, type }) {
   if (!client && type === 'websites') return <OwnerWebsitesPage />
@@ -97,7 +88,7 @@ export default function App() {
   else if (path.startsWith('/owner/')) page = <Workspace type={path.split('/')[2]} />
   else if (path.startsWith('/client/')) {
     const type = path.split('/')[2]
-    page = canAccessClientRoute(account, type)
+    page = canAccessClientWorkspace(account, type)
       ? <Workspace client type={type} />
       : <AccessDenied account={account} />
   } else page = <PublicHomePage />
