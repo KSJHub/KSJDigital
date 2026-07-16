@@ -128,3 +128,37 @@ export const starterSiteContent = {
     },
   },
 }
+
+const genericStarterContent = {
+  brand: {
+    name: 'New Website',
+    tagline: '',
+    shortTagline: '',
+    ownerName: '',
+    communityName: '',
+    supportCredit: 'Website by KSJ Digital',
+  },
+  contact: {
+    supportEmail: 'support@ksjdigital.co.uk',
+    businessEmail: '',
+  },
+  socials: {},
+  platforms: {},
+  engine: {
+    pageRegistry: [
+      { id: 'home', slug: '', path: '/', label: 'Home', type: 'layout', layoutKey: 'home', visible: true, navigable: true, editable: true, order: 1 },
+    ],
+    pageSeo: {},
+    pages: [],
+    pageBlocks: {},
+  },
+  home: {
+    heroTitle: 'New Website',
+    heroText: '',
+  },
+}
+
+export function getStarterSiteContent(websiteId) {
+  const source = starterSiteContent[websiteId] || genericStarterContent
+  return structuredClone(source)
+}
