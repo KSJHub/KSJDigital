@@ -1,6 +1,7 @@
 import express from 'express'
 import { starterClients, starterWebsites } from './defaults.js'
 import { paths, readJson, safeName, writeJson } from './storage.js'
+import { normaliseWebsiteCapabilities } from './websiteCapabilities.js'
 
 const PLATFORM_ACCOUNT_ID = 'morgan'
 const PLATFORM_DISPLAY_NAME = 'KSJ Digital'
@@ -93,6 +94,7 @@ async function migrateWebsiteIdentity() {
     return {
       ...site,
       developmentEditorUrl: site.developmentEditorUrl || fallback.developmentEditorUrl || '',
+      capabilities: normaliseWebsiteCapabilities(site.capabilities || fallback.capabilities),
       ...(site.id === 'ksjdigital' ? { owner: PLATFORM_DISPLAY_NAME, notes: 'KSJ Digital platform website' } : {}),
     }
   })
