@@ -13,8 +13,9 @@
     "check:server": "node scripts/check-server.mjs",
     "check:publication": "node scripts/check-publication-boundary.mjs",
     "check:workspace": "node scripts/check-workspace-boundary.mjs",
+    "check:data": "node scripts/check-data-integrity.mjs",
     "check:launch": "node scripts/check-launch.mjs",
-    "check": "npm run lint && npm run check:server && npm run check:publication && npm run check:workspace && npm run build",
+    "check": "npm run lint && npm run check:server && npm run check:publication && npm run check:workspace && npm run check:data && npm run build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "preview": "vite preview"
