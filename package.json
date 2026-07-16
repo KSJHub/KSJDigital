@@ -16,8 +16,9 @@
     "check:data": "node scripts/check-data-integrity.mjs",
     "check:auth": "node scripts/check-auth-hardening.mjs",
     "check:credentials": "node scripts/check-credential-storage.mjs",
+    "check:sessions": "node scripts/check-session-security.mjs",
     "check:launch": "node scripts/check-launch.mjs",
-    "check": "npm run lint && npm run check:server && npm run check:publication && npm run check:workspace && npm run check:data && npm run check:auth && npm run check:credentials && npm run build",
+    "check": "npm run lint && npm run check:server && npm run check:publication && npm run check:workspace && npm run check:data && npm run check:auth && npm run check:credentials && npm run check:sessions && npm run build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "preview": "vite preview"
