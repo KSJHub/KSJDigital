@@ -2,6 +2,7 @@ import path from 'node:path'
 import express from 'express'
 import { assertProductCheckoutAccess } from './checkoutAccess.js'
 import { captureBasketPayPalOrder, completeBasketStripeSession } from './basketCheckout.js'
+import { createCapabilityAccessGuard } from './capabilityAccessGuard.js'
 import { createCommerceSettingsRouter, createWebsiteOrderPrefixGuard } from './commerceSettingsRouter.js'
 import { starterWebsites } from './defaults.js'
 import { createDispatchRouter } from './dispatchRouter.js'
@@ -226,6 +227,7 @@ export function mountPublicRoutes(app) {
 export function mountProtectedRoutes(app) {
   app.use('/api', createLiveSessionAccessMiddleware())
   app.use('/api', trustedOriginGuard)
+  app.use('/api', createCapabilityAccessGuard())
   app.use('/api/websites', websiteRegistryMutationGuard)
   app.use('/api/websites', createWebsiteOrderPrefixGuard())
   app.use('/api/team', createTeamRouter())
