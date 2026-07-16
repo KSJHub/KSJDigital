@@ -45,6 +45,18 @@ export const starterSiteContent = {
       heroTitle: 'TwoToneTaj',
       heroText: 'TwoToneTaj, an average gamer with a passion for games, a pure heart, good laughs, and an awesome community.',
       aboutText: 'I’ve been gaming since 1989 and I’m here for the fun, the challenge, and the community. You’ll find gameplay, chill streams, and plenty of unforgettable moments with the TajSquad.',
+      scheduleTitle: 'Stream Schedule',
+      schedule: [
+        { day: 'Mon', time: '7:00 PM - 11:00 PM' },
+        { day: 'Tue', time: '7:00 PM - 11:00 PM' },
+        { day: 'Wed', time: 'Offline' },
+        { day: 'Thu', time: '7:00 PM - 11:00 PM' },
+        { day: 'Fri', time: '7:00 PM - 12:00 AM' },
+        { day: 'Sat', time: '12:00 PM - 12:00 AM' },
+        { day: 'Sun', time: '12:00 PM - 10:00 PM' },
+      ],
+      scheduleTimezone: 'GMT',
+      scheduleNote: 'Schedule is subject to change. Follow on social media for updates!',
       merchTitle: 'Official TwoToneTaj Merch',
       merchText: 'Hoodies, creator apparel, and exclusive TajSquad merchandise are in development.',
     },
@@ -129,36 +141,32 @@ export const starterSiteContent = {
   },
 }
 
-const genericStarterContent = {
-  brand: {
-    name: 'New Website',
-    tagline: '',
-    shortTagline: '',
-    ownerName: '',
-    communityName: '',
-    supportCredit: 'Website by KSJ Digital',
-  },
-  contact: {
-    supportEmail: 'support@ksjdigital.co.uk',
-    businessEmail: '',
-  },
-  socials: {},
-  platforms: {},
-  engine: {
-    pageRegistry: [
-      { id: 'home', slug: '', path: '/', label: 'Home', type: 'layout', layoutKey: 'home', visible: true, navigable: true, editable: true, order: 1 },
-    ],
-    pageSeo: {},
-    pages: [],
-    pageBlocks: {},
-  },
-  home: {
-    heroTitle: 'New Website',
-    heroText: '',
-  },
-}
-
 export function getStarterSiteContent(websiteId) {
-  const source = starterSiteContent[websiteId] || genericStarterContent
-  return structuredClone(source)
+  const starter = starterSiteContent[websiteId]
+  if (starter) return structuredClone(starter)
+
+  return {
+    brand: {
+      name: websiteId || 'New Website',
+      tagline: '',
+      shortTagline: '',
+      communityName: '',
+      supportCredit: 'Website by KSJ Digital',
+    },
+    contact: { supportEmail: '', businessEmail: '' },
+    socials: {},
+    platforms: {},
+    engine: {
+      pageRegistry: [
+        { id: 'home', slug: '', path: '/', label: 'Home', type: 'layout', layoutKey: 'home', visible: true, navigable: true, editable: true, order: 1 },
+      ],
+      pageSeo: {},
+      pages: [],
+      pageBlocks: {},
+    },
+    home: {
+      heroTitle: 'Welcome',
+      heroText: 'Add the main introduction for this website.',
+    },
+  }
 }
