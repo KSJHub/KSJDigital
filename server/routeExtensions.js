@@ -78,6 +78,12 @@ export function validateUploadedAsset(req, res, next) {
   next()
 }
 
+function websiteRegistryMutationGuard(req, res, next) {
+  if (!['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) return next()
+  if (req.session?.role === 'owner') return next()
+  return res.status(403).json({ error: 'Website registry changes require platform owner access' })
+}
+
 function isBasketMiss(error) {
   return ['Checkout basket was not found', 'Stripe basket reference is missing'].includes(error?.message)
 }
@@ -210,6 +216,7 @@ export function mountPublicRoutes(app) {
 
 export function mountProtectedRoutes(app) {
   app.use('/api', createLiveSessionAccessMiddleware())
+  app.use('/api/websites', websiteRegistryMutationGuard)
   app.use('/api/websites', createWebsiteOrderPrefixGuard())
   app.use('/api/orders', createDispatchRouter())
   app.use('/api/orders', createOrdersRouter())
