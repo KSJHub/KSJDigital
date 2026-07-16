@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Layout } from '../layouts/Shell.jsx'
 import { VisualImageControl } from '../components/VisualImageControl.jsx'
+import { RegistryBlockLibrary } from '../components/RegistryBlockLibrary.jsx'
 import { api } from '../services/api.js'
 import { getAccountFromPath } from '../services/auth.js'
 import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
@@ -27,15 +28,6 @@ const FALLBACK_PAGES = [
   { label: 'Contact', target: '/contact' },
   { label: 'Privacy', target: '/privacy' },
   { label: 'Terms', target: '/terms' },
-]
-const BLOCK_TEMPLATES = [
-  { type: 'text', icon: '¶', title: 'Text Section', description: 'Eyebrow, heading and editable paragraph.' },
-  { type: 'image', icon: '🖼', title: 'Image Section', description: 'Managed image with title and supporting text.' },
-  { type: 'cta', icon: '↗', title: 'Call To Action', description: 'Prominent message with a visitor action button.' },
-  { type: 'gallery', icon: '▦', title: 'Gallery', description: 'Responsive image gallery with editable captions.' },
-  { type: 'video', icon: '▶', title: 'Video', description: 'Responsive YouTube or Vimeo feature section.' },
-  { type: 'faq', icon: '?', title: 'FAQ', description: 'Expandable questions and answers.' },
-  { type: 'products', icon: '🛍', title: 'Product Grid', description: 'Displays managed products from this website.' },
 ]
 
 function localDevelopment() {
@@ -77,31 +69,6 @@ function pageKey(pathname = '/') {
 
 function makeId() {
   return globalThis.crypto?.randomUUID?.() || `block-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-function templateBlock(type, order) {
-  const common = { id: makeId(), type, order }
-  if (type === 'image') return { ...common, title: 'Image Section', text: 'Add supporting text for this image.', image: '', alt: '', layout: 'wide' }
-  if (type === 'cta') return { ...common, eyebrow: 'Next Step', title: 'Ready to get involved?', text: 'Add a clear reason for visitors to take action.', buttonLabel: 'Learn More', buttonUrl: '#', newTab: false, align: 'left' }
-  if (type === 'gallery') return {
-    ...common,
-    eyebrow: 'Gallery',
-    title: 'Latest Images',
-    text: 'Add and arrange images from the live editor.',
-    columns: 3,
-    images: Array.from({ length: 4 }, (_, index) => ({ src: '', alt: '', caption: `Image ${index + 1}` })),
-  }
-  if (type === 'video') return { ...common, eyebrow: 'Watch', title: 'Featured Video', text: 'Add a YouTube or Vimeo video.', videoUrl: '' }
-  if (type === 'faq') return {
-    ...common,
-    eyebrow: 'Help',
-    title: 'Frequently Asked Questions',
-    text: 'Answer the questions visitors ask most often.',
-    openFirst: true,
-    items: Array.from({ length: 4 }, (_, index) => ({ question: `Question ${index + 1}`, answer: 'Add the answer here.' })),
-  }
-  if (type === 'products') return { ...common, eyebrow: 'Shop', title: 'Featured Products', text: 'Explore products available from this website.', limit: 4, featuredOnly: false }
-  return { ...common, eyebrow: 'New Section', title: 'New text section', text: 'Click here and start typing.', align: 'left' }
 }
 
 function managedBlockDetails(selection, content) {
@@ -185,18 +152,6 @@ function SectionInspector({ account, content, selection, onRuleChange, onMove, o
   )
 }
 
-function BlockLibrary({ pathname, onAdd, onClose }) {
-  return (
-    <aside className="editorBlockLibrary">
-      <div className="selectedFieldTitle"><div><span>Add Section</span><code>{pathname}</code></div><button className="inspectorClose" onClick={onClose}>×</button></div>
-      <p>Choose a reusable section. It will be added to the current page as managed content.</p>
-      <div className="blockTemplateGrid">
-        {BLOCK_TEMPLATES.map(template => <button key={template.type} onClick={() => onAdd(template.type)}><span>{template.icon}</span><strong>{template.title}</strong><small>{template.description}</small></button>)}
-      </div>
-    </aside>
-  )
-}
-
 export function PageBuilderPage({ client = false }) {
   const account = getAccountFromPath()
   const { websites } = useWebsites()
@@ -228,6 +183,9 @@ export function PageBuilderPage({ client = false }) {
   const canRequestUpdates = account?.role === 'owner' || account?.canRequestUpdates
   const selectedValue = useMemo(() => selection?.fieldId ? getPathValue(content, selection.fieldId) ?? selection.value ?? '' : '', [content, selection])
   const pages = useMemo(() => editorPages(content), [content])
+  const currentPageBlocks = content.engine?.pageBlocks?.[pageKey(currentPath)] || []
+  const nextBlockOrder = currentPageBlocks.reduce((maximum, block) => Math.max(maximum, Number(block.order || 0)), 0) + 10
+  const capabilities = website?.capabilities || account?.websiteCapabilities || []
   const canUndo = historyState.index > 0
   const canRedo = historyState.index >= 0 && historyState.index < historyState.length - 1
 
@@ -503,22 +461,20 @@ export function PageBuilderPage({ client = false }) {
     save(updateSectionRule(contentRef.current, selection.sectionId, { order: Number(current.order || 0) + step }), direction === 'up' ? '✓ Section moved up' : '✓ Section moved down')
   }
 
-  async function addBlock(type) {
+  async function addBlock(block, definition) {
     await flushInlineDraft('✓ Text saved before adding section')
     const key = pageKey(currentPath)
     const next = structuredClone(contentRef.current)
     next.engine = { ...(next.engine || {}) }
     next.engine.pageBlocks = { ...(next.engine.pageBlocks || {}) }
     const blocks = Array.isArray(next.engine.pageBlocks[key]) ? [...next.engine.pageBlocks[key]] : []
-    const highestOrder = blocks.reduce((maximum, block) => Math.max(maximum, Number(block.order || 0)), 0)
-    const block = templateBlock(type, highestOrder + 10)
     blocks.push(block)
     next.engine.pageBlocks[key] = blocks
     const sectionId = `pageBlocks.${key}.${block.id}`
     const withPolicy = updateSectionRule(next, sectionId, { access: FIELD_ACCESS.EDITABLE, approvalRequired: true, movable: true, deletable: true, order: block.order, reason: '' })
     setShowBlockLibrary(false)
-    setSelection({ type: 'section', sectionId, label: block.title, defaultOrder: block.order })
-    await save(withPolicy, `✓ ${BLOCK_TEMPLATES.find(template => template.type === type)?.title || 'Section'} added`)
+    setSelection({ type: 'section', sectionId, label: block.title || definition?.title || 'Section', defaultOrder: block.order })
+    await save(withPolicy, `✓ ${definition?.title || 'Section'} added`)
   }
 
   async function duplicateSelectedBlock() {
@@ -613,7 +569,7 @@ export function PageBuilderPage({ client = false }) {
         </header>
         <main className="editorStage">
           <div className={`editorCanvas ${device}`}>{website?.domain || website?.editorUrl || website?.previewUrl || website?.developmentEditorUrl ? <iframe key={websiteId} ref={frameRef} title={`${website.name} visual editor`} src={siteUrl(website, true)} onLoad={frameLoaded} /> : <p className="emptyState">This website does not have an editor URL configured.</p>}</div>
-          {showBlockLibrary && <BlockLibrary pathname={currentPath} onAdd={addBlock} onClose={() => setShowBlockLibrary(false)} />}
+          {showBlockLibrary && <RegistryBlockLibrary capabilities={capabilities} pathname={currentPath} nextOrder={nextBlockOrder} onAdd={addBlock} onClose={() => setShowBlockLibrary(false)} />}
           {selection?.type === 'field' && <aside className="editorInspector"><FieldInspector account={account} content={content} selection={selection} value={selectedValue} onChange={updateSelected} onUpload={uploadSelectedImage} onRuleChange={updateRule} onClose={() => setSelection(null)} /></aside>}
           {selection?.type === 'section' && <aside className="editorInspector"><SectionInspector account={account} content={content} selection={selection} onRuleChange={updateSelectedSection} onMove={moveSelectedSection} onDuplicate={duplicateSelectedBlock} onDelete={deleteSelectedBlock} onClose={() => setSelection(null)} /></aside>}
           {submission && <div className={`editorSubmission ${submission.type}`} role="status"><button onClick={() => setSubmission(null)} aria-label="Dismiss notification">×</button><strong>{submission.title}</strong><span>{submission.message}</span>{submission.requestId && <small>Request: {submission.requestId}</small>}</div>}
