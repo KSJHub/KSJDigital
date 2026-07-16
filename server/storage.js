@@ -6,6 +6,9 @@ export const DATA_DIR = path.resolve(process.cwd(), 'server-data')
 export const ASSET_DIR = path.join(DATA_DIR, 'assets')
 export const STORAGE_LIMIT_BYTES = 2147483648
 
+const TRANSIENT_FILE_ERRORS = new Set(['EPERM', 'EBUSY', 'EACCES'])
+const WRITE_RETRY_DELAYS = [40, 100, 220, 450, 900]
+
 export async function ensureDir(dir) {
   await fs.mkdir(dir, { recursive: true })
 }
@@ -26,6 +29,34 @@ export async function readJson(file, fallback) {
   }
 }
 
+function pause(milliseconds) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds))
+}
+
+async function replaceFileWithRetry(temporaryFile, file) {
+  let lastError
+
+  for (const delay of WRITE_RETRY_DELAYS) {
+    try {
+      await fs.rename(temporaryFile, file)
+      return
+    } catch (error) {
+      lastError = error
+      if (!TRANSIENT_FILE_ERRORS.has(error?.code)) throw error
+      await pause(delay)
+    }
+  }
+
+  try {
+    await fs.copyFile(temporaryFile, file)
+    await fs.rm(temporaryFile, { force: true })
+  } catch (error) {
+    throw new Error(`Could not update ${path.relative(DATA_DIR, file)} because Windows or OneDrive kept the file locked`, {
+      cause: error || lastError,
+    })
+  }
+}
+
 export async function writeJson(file, data) {
   await ensureDir(path.dirname(file))
   const temporaryFile = `${file}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`
@@ -33,7 +64,7 @@ export async function writeJson(file, data) {
 
   try {
     await fs.writeFile(temporaryFile, payload, { encoding: 'utf8', flag: 'wx' })
-    await fs.rename(temporaryFile, file)
+    await replaceFileWithRetry(temporaryFile, file)
   } catch (error) {
     await fs.rm(temporaryFile, { force: true }).catch(() => {})
     throw error
