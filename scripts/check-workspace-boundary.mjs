@@ -1,10 +1,11 @@
 import fs from 'node:fs/promises'
 
-const [policy, app, shell, routes] = await Promise.all([
+const [policy, app, shell, routes, websiteRouter] = await Promise.all([
   fs.readFile(new URL('../src/services/workspacePolicy.js', import.meta.url), 'utf8'),
   fs.readFile(new URL('../src/App.jsx', import.meta.url), 'utf8'),
   fs.readFile(new URL('../src/layouts/Shell.jsx', import.meta.url), 'utf8'),
   fs.readFile(new URL('../server/routeExtensions.js', import.meta.url), 'utf8'),
+  fs.readFile(new URL('../server/websiteRouter.js', import.meta.url), 'utf8'),
 ])
 
 const failures = []
@@ -17,12 +18,18 @@ if (!shell.includes("from '../services/workspacePolicy.js'")) {
   failures.push('Sidebar navigation must use the shared workspace policy.')
 }
 
-if (!routes.includes("app.use('/api/websites', websiteRegistryMutationGuard)")) {
-  failures.push('Protected routes must guard website registry mutations.')
+if (!routes.includes("app.use('/api/websites', createWebsiteRouter())")) {
+  failures.push('Protected routes must mount the website service router.')
 }
 
-if (!routes.includes("req.session?.role === 'owner'")) {
+if (!websiteRouter.includes("if (req.session?.role === 'owner') return next()")) {
   failures.push('Website registry mutation guard must require an owner session.')
+}
+
+for (const route of ["router.post('/', ownerOnly", "router.patch('/:id', ownerOnly", "router.delete('/:id', ownerOnly"]) {
+  if (!websiteRouter.includes(route)) {
+    failures.push(`Website registry mutation is missing owner protection: ${route}`)
+  }
 }
 
 const clientPolicy = policy.split('const clientWorkspace = {')[1]?.split('\n}\n\nfunction allowedByRule')[0] || ''
