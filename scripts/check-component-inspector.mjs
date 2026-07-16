@@ -1,9 +1,10 @@
 import fs from 'node:fs/promises'
 
-const [hook, inspector, library, api, registry] = await Promise.all([
+const [hook, inspector, library, pageBuilder, api, registry] = await Promise.all([
   fs.readFile('src/hooks/useComponentRegistry.js', 'utf8'),
   fs.readFile('src/components/ComponentPropertyInspector.jsx', 'utf8'),
   fs.readFile('src/components/RegistryBlockLibrary.jsx', 'utf8'),
+  fs.readFile('src/pages/PageBuilderPage.jsx', 'utf8'),
   fs.readFile('src/services/api.js', 'utf8'),
   fs.readFile('shared/componentRegistry.js', 'utf8'),
 ])
@@ -20,6 +21,12 @@ if (!library.includes('useComponentRegistry(capabilities)')) failures.push('Sect
 if (!library.includes('createComponentBlock(definition.type')) failures.push('Section library must create blocks through the shared registry factory')
 if (!library.includes('groupComponents(filtered)')) failures.push('Section library must group registered components by category')
 if (!library.includes('Search sections')) failures.push('Section library must provide component search')
+if (!pageBuilder.includes("from '../components/RegistryBlockLibrary.jsx'")) failures.push('Page Builder must import the registry-driven section library')
+if (!pageBuilder.includes('<RegistryBlockLibrary')) failures.push('Page Builder must render the registry-driven section library')
+if (!pageBuilder.includes('capabilities={capabilities}')) failures.push('Page Builder must filter available sections using website capabilities')
+if (!pageBuilder.includes('async function addBlock(block, definition)')) failures.push('Page Builder must accept blocks created by the shared registry')
+if (pageBuilder.includes('BLOCK_TEMPLATES')) failures.push('Page Builder must not contain a duplicated component catalogue')
+if (pageBuilder.includes('templateBlock(')) failures.push('Page Builder must not contain a duplicated component defaults factory')
 if (!api.includes('getComponents:')) failures.push('Frontend API must expose the component registry endpoint')
 if (!registry.includes('createComponentBlock')) failures.push('Component defaults must remain owned by the shared registry')
 
