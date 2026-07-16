@@ -1,0 +1,95 @@
+.componentPropertyInspector {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.componentPropertyInspector > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border, #24344f);
+}
+
+.componentPropertyInspector > header span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--accent, #60a5fa);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.componentPropertyInspector > header h2,
+.componentPropertyInspector > header p {
+  margin: 0;
+}
+
+.componentPropertyInspector > header p {
+  margin-top: 6px;
+  color: var(--muted, #9fb0c8);
+  line-height: 1.45;
+}
+
+.componentPropertyInspector > header button {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+}
+
+.componentInspectorFields {
+  display: grid;
+  gap: 15px;
+}
+
+.componentInspectorFields > label {
+  display: grid;
+  gap: 7px;
+}
+
+.componentInspectorFields > label > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 700;
+}
+
+.componentInspectorFields > label > span b {
+  color: var(--muted, #9fb0c8);
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.componentInspectorFields input,
+.componentInspectorFields select,
+.componentInspectorFields textarea {
+  width: 100%;
+}
+
+.componentInspectorFields textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.componentInspectorToggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.componentInspectorToggle input {
+  width: auto;
+}
+
+.componentInspectorNotice {
+  padding: 12px;
+  border: 1px dashed var(--border, #314565);
+  border-radius: 10px;
+  color: var(--muted, #9fb0c8);
+  background: rgba(255, 255, 255, 0.025);
+}
