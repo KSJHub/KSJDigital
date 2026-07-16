@@ -4,7 +4,9 @@ const files = {
   capability: await fs.readFile('server/websiteCapabilities.js', 'utf8'),
   identity: await fs.readFile('server/identityAccessRuntime.js', 'utf8'),
   session: await fs.readFile('server/sessionAccess.js', 'utf8'),
+  routes: await fs.readFile('server/routeExtensions.js', 'utf8'),
   workspace: await fs.readFile('src/services/workspacePolicy.js', 'utf8'),
+  ownerWebsites: await fs.readFile('src/pages/OwnerWebsitesPage.jsx', 'utf8'),
 }
 
 const errors = []
@@ -31,6 +33,13 @@ for (const binding of [
   "capability: 'support'",
 ]) {
   if (!files.workspace.includes(binding)) errors.push(`Workspace policy is missing ${binding}`)
+}
+
+if (!files.routes.includes("Object.prototype.hasOwnProperty.call(req.body, 'capabilities')") || !files.routes.includes('normaliseWebsiteCapabilities(req.body.capabilities)')) {
+  errors.push('Website capability writes are not normalised by the owner-only API boundary')
+}
+for (const marker of ['CLIENT_TOOLS', 'Client Workspace Tools', 'toggleCapability', 'capabilities: [...ALL_CLIENT_TOOLS]']) {
+  if (!files.ownerWebsites.includes(marker)) errors.push(`Owner website controls are missing marker: ${marker}`)
 }
 
 if (errors.length) {
