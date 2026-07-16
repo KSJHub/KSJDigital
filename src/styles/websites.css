@@ -130,6 +130,52 @@
 .ownerActionGrid button {
   height: 72px;
 }
+.clientToolsFieldset {
+  margin: 24px 0;
+  padding: 20px;
+  border: 1px solid #263650;
+  border-radius: 16px;
+  background: #08101c;
+}
+.clientToolsFieldset legend {
+  padding: 0 8px;
+  font-weight: 800;
+}
+.clientToolsFieldset > p {
+  margin: 0 0 16px;
+  color: #aeb8cc;
+}
+.clientToolsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.clientTool {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #24314a;
+  border-radius: 14px;
+  background: #0b111d;
+  cursor: pointer;
+}
+.clientTool.enabled {
+  border-color: #5c66ff;
+  background: #11162a;
+}
+.clientTool input {
+  margin-top: 4px;
+}
+.clientTool span,
+.clientTool small {
+  display: block;
+}
+.clientTool small {
+  margin-top: 4px;
+  color: #aeb8cc;
+  line-height: 1.4;
+}
 @media (max-width: 1200px) {
   .websiteStats,
   .websiteDetailGrid {
@@ -154,7 +200,8 @@
   .websiteStats,
   .websiteDetailGrid,
   .detailMetrics,
-  .ownerActionGrid {
+  .ownerActionGrid,
+  .clientToolsGrid {
     grid-template-columns: 1fr;
   }
 }
