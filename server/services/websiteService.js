@@ -33,13 +33,13 @@ function cleanText(value = '') {
   return String(value ?? '').trim()
 }
 
-function cleanUrl(value = '') {
+function cleanEditorUrl(value = '') {
   const text = cleanText(value)
   if (!text) return ''
   try {
     return new URL(text).toString()
   } catch {
-    throw new WebsiteServiceError('Website URLs must be valid')
+    throw new WebsiteServiceError('Development editor URL must be valid')
   }
 }
 
@@ -67,8 +67,8 @@ function normaliseRecord(input = {}, existing = null) {
     ...record,
     id,
     name: cleanText(record.name) || 'New Website',
-    domain: cleanUrl(record.domain),
-    developmentEditorUrl: cleanUrl(record.developmentEditorUrl),
+    domain: cleanText(record.domain),
+    developmentEditorUrl: cleanEditorUrl(record.developmentEditorUrl),
     status: cleanText(record.status) || 'Draft',
     pageCount: wholeNumber(record.pageCount),
     mediaCount: wholeNumber(record.mediaCount),
