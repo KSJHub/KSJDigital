@@ -6,6 +6,7 @@ const ACCESS_PERMISSIONS = [
   'canManageMedia',
   'canRequestUpdates',
   'canViewSupport',
+  'canManageTeam',
 ]
 
 function currentWebsiteIds(account, websites) {
@@ -27,6 +28,7 @@ function currentWebsiteIds(account, websites) {
 function permissionValue(account, permission, role) {
   if (role === 'owner') return true
   if (typeof account[permission] === 'boolean') return account[permission]
+  if (permission === 'canManageTeam') return String(account.roleLabel || '').trim() === 'Website Owner'
   return String(account.access || '').trim().toLowerCase() !== 'read only'
 }
 
