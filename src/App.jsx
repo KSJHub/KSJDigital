@@ -25,6 +25,7 @@ const OperationsPage = lazy(() => import('./pages/OperationsPage.jsx').then(modu
 const ReleaseCentrePage = lazy(() => import('./pages/ReleaseCentrePage.jsx').then(module => ({ default: module.ReleaseCentrePage })))
 const SettingsPage = lazy(() => import('./pages/SettingsPage.jsx').then(module => ({ default: module.SettingsPage })))
 const SupportPage = lazy(() => import('./pages/SupportPage.jsx').then(module => ({ default: module.SupportPage })))
+const TeamPage = lazy(() => import('./pages/TeamPage.jsx').then(module => ({ default: module.TeamPage })))
 
 function route() { return location.pathname.replace(/\/$/, '') || '/' }
 
@@ -57,6 +58,7 @@ function Workspace({ client = false, type }) {
   if (client && type === 'website') return <ClientWebsitePage />
   if (client && type === 'editor') return <PageBuilderPage client />
   if (client && type === 'media') return <MediaLibraryPage client />
+  if (client && type === 'team') return <TeamPage client />
   if (type === 'support') return <SupportPage client={client} />
   if (type === 'settings') return <SettingsPage client={client} />
   return client ? <ClientWebsitePage /> : <OwnerWebsitesPage />
