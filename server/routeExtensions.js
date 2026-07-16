@@ -14,6 +14,7 @@ import { createLiveSessionAccessMiddleware } from './sessionAccess.js'
 import { createStripeCheckoutSession, createStripeRouter, processStripeCheckoutCompleted, verifyStripeWebhook } from './stripeCheckout.js'
 import { releaseStockReservation } from './stockReservations.js'
 import { createTeamRouter } from './teamRouter.js'
+import { trustedOriginGuard } from './trustedOriginGuard.js'
 import { paths, readJson, readWebsiteAssets, safeName } from './storage.js'
 
 const MAX_ASSET_UPLOAD_BYTES = 15 * 1024 * 1024
@@ -217,6 +218,7 @@ export function mountPublicRoutes(app) {
 
 export function mountProtectedRoutes(app) {
   app.use('/api', createLiveSessionAccessMiddleware())
+  app.use('/api', trustedOriginGuard)
   app.use('/api/websites', websiteRegistryMutationGuard)
   app.use('/api/websites', createWebsiteOrderPrefixGuard())
   app.use('/api/team', createTeamRouter())
