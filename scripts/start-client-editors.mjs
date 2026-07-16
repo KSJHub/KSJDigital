@@ -4,6 +4,12 @@ import { spawn } from 'node:child_process'
 
 const root = process.cwd()
 const websitesFile = path.join(root, 'server-data', 'websites.json')
+const localEditorDefaults = {
+  twotonetaj: {
+    developmentEditorUrl: 'http://localhost:5174/',
+    developmentProjectPath: '../TwoToneTaj',
+  },
+}
 
 function readWebsites() {
   try {
@@ -16,16 +22,10 @@ function readWebsites() {
 
 function configuredEditors() {
   const stored = readWebsites()
-  const defaults = [
-    {
-      id: 'twotonetaj',
-      name: 'TwoToneTaj',
-      developmentEditorUrl: 'http://localhost:5174/',
-      developmentProjectPath: '../TwoToneTaj',
-    },
-  ]
-  const source = stored.length ? stored : defaults
-  return source.filter(site => site.developmentEditorUrl && site.developmentProjectPath)
+  const source = stored.length ? stored : Object.entries(localEditorDefaults).map(([id, config]) => ({ id, name: id, ...config }))
+  return source
+    .map(site => ({ ...localEditorDefaults[site.id], ...site }))
+    .filter(site => site.developmentEditorUrl && site.developmentProjectPath && site.developmentProjectPath !== '.')
 }
 
 const editors = configuredEditors()
