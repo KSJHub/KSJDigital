@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Layout } from '../layouts/Shell.jsx'
-import { VisualImageControl } from '../components/VisualImageControl.jsx'
+import { componentDefinition } from '../../shared/componentRegistry.js'
+import { ComponentPropertyInspector } from '../components/ComponentPropertyInspector.jsx'
 import { RegistryBlockLibrary } from '../components/RegistryBlockLibrary.jsx'
+import { VisualImageControl } from '../components/VisualImageControl.jsx'
+import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
+import { Layout } from '../layouts/Shell.jsx'
 import { api } from '../services/api.js'
 import { getAccountFromPath } from '../services/auth.js'
-import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
 import {
   FIELD_ACCESS,
   canEditField,
@@ -109,12 +111,13 @@ function FieldInspector({ account, content, selection, value, onChange, onUpload
   )
 }
 
-function SectionInspector({ account, content, selection, onRuleChange, onMove, onDuplicate, onDelete, onClose }) {
+function SectionInspector({ account, content, selection, onComponentChange, onComponentUpload, onRuleChange, onMove, onDuplicate, onDelete, onClose }) {
   if (!selection?.sectionId) return null
   const rule = sectionRule(content, selection.sectionId, selection.defaultOrder || 0)
   const manageable = canManageSection(account, content, selection.sectionId)
   const platformOwner = account?.role === 'owner'
   const managedBlock = managedBlockDetails(selection, content)
+  const definition = componentDefinition(managedBlock?.block?.type)
   const canMove = platformOwner || (manageable && rule.movable !== false)
   const canHide = platformOwner || manageable
   const canRemove = platformOwner || (manageable && rule.deletable === true)
@@ -124,6 +127,15 @@ function SectionInspector({ account, content, selection, onRuleChange, onMove, o
         <div><span>{selection.label || 'Website section'}</span><code>{selection.sectionId}</code></div>
         <button className="inspectorClose" onClick={onClose} aria-label="Close section controls">×</button>
       </div>
+      {managedBlock && definition && (
+        <ComponentPropertyInspector
+          definition={definition}
+          component={managedBlock.block}
+          disabled={!manageable && !platformOwner}
+          onChange={onComponentChange}
+          onUpload={onComponentUpload}
+        />
+      )}
       <section className="sectionActionsPanel">
         <h3>Section controls</h3>
         <p className="sectionDragHint">Drag this section directly in the website preview, or use the buttons below.</p>
@@ -453,6 +465,30 @@ export function PageBuilderPage({ client = false }) {
     save(updateSectionRule(contentRef.current, selection.sectionId, changes), changes.hidden ? '✓ Section hidden' : '✓ Section settings saved')
   }
 
+  function updateSelectedBlockField(fieldKey, value) {
+    const details = managedBlockDetails(selection, contentRef.current)
+    if (!details || !canManageSection(account, contentRef.current, selection.sectionId)) return
+    const next = structuredClone(contentRef.current)
+    const blocks = [...(next.engine?.pageBlocks?.[details.key] || [])]
+    blocks[details.index] = { ...blocks[details.index], [fieldKey]: value }
+    next.engine = { ...(next.engine || {}), pageBlocks: { ...(next.engine?.pageBlocks || {}), [details.key]: blocks } }
+    if (fieldKey === 'title') setSelection(current => current ? { ...current, label: value || current.label } : current)
+    save(next, '✓ Section content saved')
+  }
+
+  async function uploadSelectedBlockImage(fieldKey, file) {
+    const details = managedBlockDetails(selection, contentRef.current)
+    if (!file || !details || !websiteId || !canManageSection(account, contentRef.current, selection.sectionId)) return
+    setNotice('Uploading image…')
+    try {
+      const slotId = `${selection.sectionId}.${fieldKey}`
+      const asset = await api.uploadAsset(website.owner || website.id, websiteId, slotId, file)
+      updateSelectedBlockField(fieldKey, asset.url)
+    } catch (error) {
+      setNotice(error.message || 'Image upload failed')
+    }
+  }
+
   function moveSelectedSection(direction) {
     if (!selection?.sectionId || !canManageSection(account, contentRef.current, selection.sectionId)) return
     const current = sectionRule(contentRef.current, selection.sectionId, selection.defaultOrder || 0)
@@ -571,7 +607,7 @@ export function PageBuilderPage({ client = false }) {
           <div className={`editorCanvas ${device}`}>{website?.domain || website?.editorUrl || website?.previewUrl || website?.developmentEditorUrl ? <iframe key={websiteId} ref={frameRef} title={`${website.name} visual editor`} src={siteUrl(website, true)} onLoad={frameLoaded} /> : <p className="emptyState">This website does not have an editor URL configured.</p>}</div>
           {showBlockLibrary && <RegistryBlockLibrary capabilities={capabilities} pathname={currentPath} nextOrder={nextBlockOrder} onAdd={addBlock} onClose={() => setShowBlockLibrary(false)} />}
           {selection?.type === 'field' && <aside className="editorInspector"><FieldInspector account={account} content={content} selection={selection} value={selectedValue} onChange={updateSelected} onUpload={uploadSelectedImage} onRuleChange={updateRule} onClose={() => setSelection(null)} /></aside>}
-          {selection?.type === 'section' && <aside className="editorInspector"><SectionInspector account={account} content={content} selection={selection} onRuleChange={updateSelectedSection} onMove={moveSelectedSection} onDuplicate={duplicateSelectedBlock} onDelete={deleteSelectedBlock} onClose={() => setSelection(null)} /></aside>}
+          {selection?.type === 'section' && <aside className="editorInspector"><SectionInspector account={account} content={content} selection={selection} onComponentChange={updateSelectedBlockField} onComponentUpload={uploadSelectedBlockImage} onRuleChange={updateSelectedSection} onMove={moveSelectedSection} onDuplicate={duplicateSelectedBlock} onDelete={deleteSelectedBlock} onClose={() => setSelection(null)} /></aside>}
           {submission && <div className={`editorSubmission ${submission.type}`} role="status"><button onClick={() => setSubmission(null)} aria-label="Dismiss notification">×</button><strong>{submission.title}</strong><span>{submission.message}</span>{submission.requestId && <small>Request: {submission.requestId}</small>}</div>}
         </main>
       </div>
