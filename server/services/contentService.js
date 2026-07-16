@@ -1,3 +1,4 @@
+import { validateManagedPageBlocks } from '../../shared/componentRegistry.js'
 import { getStarterSiteContent } from '../siteContentDefaults.js'
 import { paths, readJson, safeName, writeJson } from '../storage.js'
 
@@ -19,7 +20,12 @@ function contentDocument(value, label = 'Website content') {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new ContentServiceError(`${label} must be an object`)
   }
-  return structuredClone(value)
+  const document = structuredClone(value)
+  const componentErrors = validateManagedPageBlocks(document)
+  if (componentErrors.length) {
+    throw new ContentServiceError(`Managed website sections are invalid: ${componentErrors.join('; ')}`)
+  }
+  return document
 }
 
 export async function getDraftContent(value) {
