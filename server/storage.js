@@ -50,14 +50,11 @@ function pause(milliseconds) {
 }
 
 async function replaceFileWithRetry(temporaryFile, file) {
-  let lastError
-
   for (const delay of WRITE_RETRY_DELAYS) {
     try {
       await fs.rename(temporaryFile, file)
       return
     } catch (error) {
-      lastError = error
       if (!TRANSIENT_FILE_ERRORS.has(error?.code)) throw error
       await pause(delay)
     }
@@ -68,7 +65,7 @@ async function replaceFileWithRetry(temporaryFile, file) {
     await fs.rm(temporaryFile, { force: true })
   } catch (error) {
     throw new Error(`Could not update ${path.relative(DATA_DIR, file)} because Windows or OneDrive kept the file locked`, {
-      cause: error || lastError,
+      cause: error,
     })
   }
 }
