@@ -1,10 +1,11 @@
 import fs from 'node:fs/promises'
 
-const [hook, inspector, library, pageBuilder, api, registry] = await Promise.all([
+const [hook, inspector, library, pageBuilder, imageControl, api, registry] = await Promise.all([
   fs.readFile('src/hooks/useComponentRegistry.js', 'utf8'),
   fs.readFile('src/components/ComponentPropertyInspector.jsx', 'utf8'),
   fs.readFile('src/components/RegistryBlockLibrary.jsx', 'utf8'),
   fs.readFile('src/pages/PageBuilderPage.jsx', 'utf8'),
+  fs.readFile('src/components/VisualImageControl.jsx', 'utf8'),
   fs.readFile('src/services/api.js', 'utf8'),
   fs.readFile('shared/componentRegistry.js', 'utf8'),
 ])
@@ -17,6 +18,11 @@ if (!inspector.includes('definition.fields')) failures.push('Property inspector 
 for (const type of ['textarea', 'image', 'boolean', 'select', 'number', 'url', 'repeater']) {
   if (!inspector.includes(`field.type === '${type}'`)) failures.push(`Property inspector is missing ${type} field support`)
 }
+for (const marker of ['function RepeaterField', '＋ Add Item', 'Move item up', 'Move item down', 'Remove', 'updateItem(index, key, value)']) {
+  if (!inspector.includes(marker)) failures.push(`Repeater editor is missing marker: ${marker}`)
+}
+if (inspector.includes('Repeating items are managed in the website preview')) failures.push('Repeater fields must not fall back to the preview-only placeholder')
+if (!imageControl.includes("typeof onUpload === 'function'")) failures.push('Image controls without upload handlers must remain URL-editable and safe')
 if (!library.includes('useComponentRegistry(capabilities)')) failures.push('Section library must consume the website-filtered component registry')
 if (!library.includes('createComponentBlock(definition.type')) failures.push('Section library must create blocks through the shared registry factory')
 if (!library.includes('groupComponents(filtered)')) failures.push('Section library must group registered components by category')
