@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import express from 'express'
+import { getCredential, setPassword, verifyPassword } from './credentialStore.js'
 import {
   assetServingGuard,
   assetUploadGuard,
@@ -8,7 +9,6 @@ import {
   mountPublicRoutes,
   validateUploadedAsset,
 } from './routeExtensions.js'
-import { paths, readJson, writeJson } from './storage.js'
 
 function loadLocalEnvironment() {
   const file = path.resolve(process.cwd(), '.env.local')
@@ -35,36 +35,22 @@ const credentialConfiguration = {
   'goliath-admin': { environment: 'GOLIATH_CLIENT_PASSWORD', development: 'draft-access' },
 }
 
-const insecureStarterCredentials = new Set(['owner-access', 'client-access', 'draft-access'])
-
-async function migrateStarterCredentials() {
-  const clients = await readJson(paths.clients(), null)
-  if (!Array.isArray(clients)) return
-
+async function synchroniseConfiguredCredentials() {
   const production = process.env.NODE_ENV === 'production'
-  let changed = false
-  const nextClients = clients.map(client => {
-    const configuration = credentialConfiguration[client.id]
-    if (!configuration) return client
 
+  for (const [accountId, configuration] of Object.entries(credentialConfiguration)) {
     const configured = String(process.env[configuration.environment] || '').trim()
-    const current = String(client.password || client.accessCode || '').trim()
     const desired = configured || (!production ? configuration.development : '')
-    const replaceable = !current || insecureStarterCredentials.has(current)
+    if (!desired) continue
 
-    if (!replaceable || current === desired) return client
-    changed = true
-    const next = { ...client }
-    delete next.password
-    next.accessCode = desired
-    return next
-  })
-
-  if (changed) await writeJson(paths.clients(), nextClients)
+    const current = await getCredential(accountId)
+    if (current?.passwordHash && await verifyPassword(desired, current.passwordHash)) continue
+    await setPassword(accountId, desired)
+  }
 }
 
 loadLocalEnvironment()
-await migrateStarterCredentials()
+await synchroniseConfiguredCredentials()
 
 const originalUse = express.application.use
 const originalPost = express.application.post
