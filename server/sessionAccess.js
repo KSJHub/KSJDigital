@@ -1,4 +1,5 @@
 import { paths, readJson, safeName } from './storage.js'
+import { capabilitiesForWebsites } from './websiteCapabilities.js'
 
 const ACCESS_PERMISSIONS = [
   'canEdit',
@@ -51,6 +52,7 @@ export function createLiveSessionAccessMiddleware() {
 
       const role = String(account.role || '').toLowerCase() === 'owner' ? 'owner' : 'client'
       const websiteIds = currentWebsiteIds(account, websites)
+      const websiteCapabilities = capabilitiesForWebsites(websites, websiteIds)
       const permissions = Object.fromEntries(
         ACCESS_PERMISSIONS.map(permission => [permission, permissionValue(account, permission, role)]),
       )
@@ -63,6 +65,7 @@ export function createLiveSessionAccessMiddleware() {
         roleLabel: role === 'owner' ? 'Platform Owner' : (account.roleLabel || 'Website Owner'),
         websiteId: websiteIds[0] || '',
         websiteIds,
+        websiteCapabilities,
         canPublish: role === 'owner',
         canManageClients: role === 'owner',
         ...permissions,
