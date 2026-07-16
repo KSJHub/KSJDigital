@@ -1,13 +1,33 @@
 import { paths, readJson, safeName } from './storage.js'
 
+const ACCESS_PERMISSIONS = [
+  'canEdit',
+  'canManagePages',
+  'canManageMedia',
+  'canRequestUpdates',
+  'canViewSupport',
+]
+
 function currentWebsiteIds(account, websites) {
   const role = String(account.role || '').toLowerCase() === 'owner' ? 'owner' : 'client'
   if (role === 'owner') return websites.map(site => safeName(site.id)).filter(Boolean)
 
   const existing = new Set(websites.map(site => safeName(site.id)).filter(Boolean))
-  return (account.websiteIds || [])
+  const assigned = Array.isArray(account.websiteIds)
+    ? account.websiteIds
+    : account.websiteId
+      ? [account.websiteId]
+      : []
+
+  return assigned
     .map(safeName)
     .filter(websiteId => existing.has(websiteId))
+}
+
+function permissionValue(account, permission, role) {
+  if (role === 'owner') return true
+  if (typeof account[permission] === 'boolean') return account[permission]
+  return String(account.access || '').trim().toLowerCase() !== 'read only'
 }
 
 export function createLiveSessionAccessMiddleware() {
@@ -29,6 +49,9 @@ export function createLiveSessionAccessMiddleware() {
 
       const role = String(account.role || '').toLowerCase() === 'owner' ? 'owner' : 'client'
       const websiteIds = currentWebsiteIds(account, websites)
+      const permissions = Object.fromEntries(
+        ACCESS_PERMISSIONS.map(permission => [permission, permissionValue(account, permission, role)]),
+      )
 
       Object.assign(req.session, {
         email: account.email,
@@ -36,15 +59,11 @@ export function createLiveSessionAccessMiddleware() {
         displayName: account.displayName || account.name,
         role,
         roleLabel: role === 'owner' ? 'Platform Owner' : (account.roleLabel || 'Website Owner'),
-        websiteId: websiteIds[0],
+        websiteId: websiteIds[0] || '',
         websiteIds,
         canPublish: role === 'owner',
         canManageClients: role === 'owner',
-        canEdit: role === 'owner' || account.canEdit === true,
-        canManagePages: role === 'owner' || account.canManagePages === true,
-        canManageMedia: role === 'owner' || account.canManageMedia === true,
-        canRequestUpdates: role === 'owner' || account.canRequestUpdates === true,
-        canViewSupport: role === 'owner' || account.canViewSupport === true,
+        ...permissions,
       })
 
       if (req.method === 'GET' && req.path === '/session-access') {
