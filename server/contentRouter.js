@@ -19,13 +19,21 @@ function sendError(res, error) {
   res.status(status).json({ error: error.message || 'Website content could not be processed' })
 }
 
+function serialisableComponents() {
+  return COMPONENT_REGISTRY.map(definition => {
+    const serialisable = { ...definition }
+    delete serialisable.createDefaults
+    return serialisable
+  })
+}
+
 export function createContentRouter() {
   const router = express.Router()
 
   router.get('/components', (_req, res) => {
     const errors = validateComponentRegistry()
     if (errors.length) return res.status(500).json({ error: 'Managed website components are not configured correctly' })
-    res.json(COMPONENT_REGISTRY.map(({ createDefaults, ...definition }) => definition))
+    res.json(serialisableComponents())
   })
 
   router.get('/:websiteId', async (req, res) => {
