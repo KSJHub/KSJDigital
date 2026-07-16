@@ -8,6 +8,76 @@ function fieldValue(component, field) {
   return value ?? ''
 }
 
+function itemLabel(key) {
+  return String(key || 'value')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[-_]+/g, ' ')
+    .replace(/^./, character => character.toUpperCase())
+}
+
+function emptyRepeaterItem(field) {
+  return Object.fromEntries((field.itemFields || []).map(key => [key, '']))
+}
+
+function moveItem(items, index, direction) {
+  const target = direction === 'up' ? index - 1 : index + 1
+  if (target < 0 || target >= items.length) return items
+  const next = [...items]
+  const [item] = next.splice(index, 1)
+  next.splice(target, 0, item)
+  return next
+}
+
+function RepeaterField({ component, field, disabled, onChange, onUpload }) {
+  const items = Array.isArray(component?.[field.key]) ? component[field.key] : []
+
+  function updateItems(nextItems) {
+    onChange(field.key, nextItems)
+  }
+
+  function updateItem(index, key, value) {
+    updateItems(items.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item))
+  }
+
+  return (
+    <div className="componentRepeaterEditor">
+      {!items.length && <div className="componentInspectorNotice">No items added yet.</div>}
+      {items.map((item, index) => (
+        <section className="componentRepeaterItem" key={`${field.key}-${index}`}>
+          <header>
+            <strong>{item?.question || item?.caption || `${field.label} ${index + 1}`}</strong>
+            <div>
+              <button type="button" disabled={disabled || index === 0} onClick={() => updateItems(moveItem(items, index, 'up'))} aria-label="Move item up">↑</button>
+              <button type="button" disabled={disabled || index === items.length - 1} onClick={() => updateItems(moveItem(items, index, 'down'))} aria-label="Move item down">↓</button>
+              <button type="button" className="danger" disabled={disabled} onClick={() => updateItems(items.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>
+            </div>
+          </header>
+          <div className="componentRepeaterFields">
+            {(field.itemFields || Object.keys(item || {})).map(key => (
+              <label key={key}>
+                <span>{itemLabel(key)}</span>
+                {key === 'src'
+                  ? (
+                    <VisualImageControl
+                      value={item?.[key] || ''}
+                      disabled={disabled}
+                      onUpload={file => onUpload?.(field.key, file, index, key)}
+                      onUrlChange={value => updateItem(index, key, value)}
+                    />
+                  )
+                  : key === 'answer'
+                    ? <textarea value={item?.[key] || ''} disabled={disabled} onChange={event => updateItem(index, key, event.target.value)} />
+                    : <input value={item?.[key] || ''} disabled={disabled} onChange={event => updateItem(index, key, event.target.value)} />}
+              </label>
+            ))}
+          </div>
+        </section>
+      ))}
+      <button type="button" className="componentRepeaterAdd" disabled={disabled} onClick={() => updateItems([...items, emptyRepeaterItem(field)])}>＋ Add Item</button>
+    </div>
+  )
+}
+
 function FieldControl({ component, field, disabled, onChange, onUpload }) {
   const value = fieldValue(component, field)
   const update = nextValue => onChange(field.key, nextValue)
@@ -87,16 +157,8 @@ export function ComponentPropertyInspector({ definition, component, disabled = f
           <label key={field.key} className={field.type === 'boolean' ? 'componentInspectorBooleanField' : ''}>
             <span>{field.label}{field.required && <b>Required</b>}</span>
             {field.type === 'repeater'
-              ? <div className="componentInspectorNotice">Repeating items are managed in the website preview.</div>
-              : (
-                <FieldControl
-                  component={component}
-                  field={field}
-                  disabled={disabled}
-                  onChange={onChange}
-                  onUpload={onUpload}
-                />
-              )}
+              ? <RepeaterField component={component} field={field} disabled={disabled} onChange={onChange} onUpload={onUpload} />
+              : <FieldControl component={component} field={field} disabled={disabled} onChange={onChange} onUpload={onUpload} />}
           </label>
         ))}
       </div>
