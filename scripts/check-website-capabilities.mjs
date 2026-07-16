@@ -5,6 +5,8 @@ const files = {
   identity: await fs.readFile('server/identityAccessRuntime.js', 'utf8'),
   session: await fs.readFile('server/sessionAccess.js', 'utf8'),
   routes: await fs.readFile('server/routeExtensions.js', 'utf8'),
+  websiteRouter: await fs.readFile('server/websiteRouter.js', 'utf8'),
+  websiteService: await fs.readFile('server/services/websiteService.js', 'utf8'),
   workspace: await fs.readFile('src/services/workspacePolicy.js', 'utf8'),
   ownerWebsites: await fs.readFile('src/pages/OwnerWebsitesPage.jsx', 'utf8'),
 }
@@ -35,9 +37,22 @@ for (const binding of [
   if (!files.workspace.includes(binding)) errors.push(`Workspace policy is missing ${binding}`)
 }
 
-if (!files.routes.includes("Object.prototype.hasOwnProperty.call(req.body, 'capabilities')") || !files.routes.includes('normaliseWebsiteCapabilities(req.body.capabilities)')) {
-  errors.push('Website capability writes are not normalised by the owner-only API boundary')
+if (!files.routes.includes("app.use('/api/websites', createWebsiteRouter())")) {
+  errors.push('Protected routes do not mount the website service router')
 }
+if (!files.websiteRouter.includes("req.session?.role === 'owner'")) {
+  errors.push('Website capability writes are not protected by an owner-only API boundary')
+}
+if (!files.websiteService.includes("import { normaliseWebsiteCapabilities } from '../websiteCapabilities.js'")) {
+  errors.push('Website service does not import the capability contract')
+}
+if (!files.websiteService.includes('capabilities: normaliseWebsiteCapabilities(input.capabilities ?? existing?.capabilities)')) {
+  errors.push('Website capability writes are not normalised by the website service')
+}
+for (const mutation of ["router.post('/', ownerOnly", "router.patch('/:id', ownerOnly", "router.delete('/:id', ownerOnly"]) {
+  if (!files.websiteRouter.includes(mutation)) errors.push(`Owner-only website mutation is missing: ${mutation}`)
+}
+
 for (const marker of ['CLIENT_TOOLS', 'Client Workspace Tools', 'toggleCapability', 'capabilities: [...ALL_CLIENT_TOOLS]']) {
   if (!files.ownerWebsites.includes(marker)) errors.push(`Owner website controls are missing marker: ${marker}`)
 }
