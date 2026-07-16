@@ -19,8 +19,9 @@
     "check:sessions": "node scripts/check-session-security.mjs",
     "check:origins": "node scripts/check-trusted-origins.mjs",
     "check:capabilities": "node scripts/check-website-capabilities.mjs",
+    "check:capability-api": "node scripts/check-capability-api-boundary.mjs",
     "check:launch": "node scripts/check-launch.mjs",
-    "check": "npm run lint && npm run check:server && npm run check:publication && npm run check:workspace && npm run check:data && npm run check:auth && npm run check:credentials && npm run check:sessions && npm run check:origins && npm run check:capabilities && npm run build",
+    "check": "npm run lint && npm run check:server && npm run check:publication && npm run check:workspace && npm run check:data && npm run check:auth && npm run check:credentials && npm run check:sessions && npm run check:origins && npm run check:capabilities && npm run check:capability-api && npm run build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "preview": "vite preview"
