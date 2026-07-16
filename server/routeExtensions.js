@@ -8,9 +8,9 @@ import { createDispatchRouter } from './dispatchRouter.js'
 import { createInventoryRouter } from './inventoryRouter.js'
 import { createOrdersRouter, createPublicOrdersRouter } from './ordersRouter.js'
 import { createPayPalOrder, createPayPalRouter, verifyPayPalWebhook } from './paypalCheckout.js'
+import { getPublishedContent } from './publishedContent.js'
 import { createRefundRouter } from './refundRouter.js'
 import { createLiveSessionAccessMiddleware } from './sessionAccess.js'
-import { getStarterSiteContent } from './siteContentDefaults.js'
 import { createStripeCheckoutSession, createStripeRouter, processStripeCheckoutCompleted, verifyStripeWebhook } from './stripeCheckout.js'
 import { releaseStockReservation } from './stockReservations.js'
 import { paths, readJson, readWebsiteAssets, safeName } from './storage.js'
@@ -199,12 +199,10 @@ export function mountPublicRoutes(app) {
     const website = websites.find(site => safeName(site.id) === websiteId)
     if (!website) return res.status(404).json({ error: 'Website not found' })
 
-    const defaultContent = getStarterSiteContent(websiteId)
-    const storedContent = await readJson(paths.content(websiteId), null)
-    const content = storedContent ? { ...defaultContent, ...storedContent } : defaultContent
+    const content = await getPublishedContent(websiteId)
     const assets = await readWebsiteAssets(websiteId)
     res.setHeader('Cache-Control', 'no-store')
-    res.json({ website, content, assets, publishedAt: content.updatedAt || null })
+    res.json({ website, content, assets, publishedAt: content.publishedAt || null })
   })
 
   app.use('/api/public/orders', createPublicOrdersRouter())
