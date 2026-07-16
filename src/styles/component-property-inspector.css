@@ -93,3 +93,63 @@
   color: var(--muted, #9fb0c8);
   background: rgba(255, 255, 255, 0.025);
 }
+
+.componentRepeaterEditor {
+  display: grid;
+  gap: 12px;
+}
+
+.componentRepeaterItem {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border, #314565);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.componentRepeaterItem > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.componentRepeaterItem > header strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.componentRepeaterItem > header div {
+  display: flex;
+  gap: 6px;
+}
+
+.componentRepeaterItem > header button {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 5px 8px;
+}
+
+.componentRepeaterFields {
+  display: grid;
+  gap: 10px;
+}
+
+.componentRepeaterFields > label {
+  display: grid;
+  gap: 6px;
+}
+
+.componentRepeaterFields > label > span {
+  color: var(--muted, #9fb0c8);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.componentRepeaterAdd {
+  width: 100%;
+}
