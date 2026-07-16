@@ -28,7 +28,7 @@ function moveItem(items, index, direction) {
   return next
 }
 
-function RepeaterField({ component, field, disabled, onChange, onUpload }) {
+function RepeaterField({ component, field, disabled, onChange }) {
   const items = Array.isArray(component?.[field.key]) ? component[field.key] : []
 
   function updateItems(nextItems) {
@@ -58,12 +58,14 @@ function RepeaterField({ component, field, disabled, onChange, onUpload }) {
                 <span>{itemLabel(key)}</span>
                 {key === 'src'
                   ? (
-                    <VisualImageControl
-                      value={item?.[key] || ''}
-                      disabled={disabled}
-                      onUpload={file => onUpload?.(field.key, file, index, key)}
-                      onUrlChange={value => updateItem(index, key, value)}
-                    />
+                    <>
+                      <VisualImageControl
+                        value={item?.[key] || ''}
+                        disabled={disabled}
+                        onUrlChange={value => updateItem(index, key, value)}
+                      />
+                      <small>Paste or choose an existing Media Library URL. Direct nested uploads are added in the next media slice.</small>
+                    </>
                   )
                   : key === 'answer'
                     ? <textarea value={item?.[key] || ''} disabled={disabled} onChange={event => updateItem(index, key, event.target.value)} />
@@ -157,7 +159,7 @@ export function ComponentPropertyInspector({ definition, component, disabled = f
           <label key={field.key} className={field.type === 'boolean' ? 'componentInspectorBooleanField' : ''}>
             <span>{field.label}{field.required && <b>Required</b>}</span>
             {field.type === 'repeater'
-              ? <RepeaterField component={component} field={field} disabled={disabled} onChange={onChange} onUpload={onUpload} />
+              ? <RepeaterField component={component} field={field} disabled={disabled} onChange={onChange} />
               : <FieldControl component={component} field={field} disabled={disabled} onChange={onChange} onUpload={onUpload} />}
           </label>
         ))}
