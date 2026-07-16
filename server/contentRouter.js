@@ -1,4 +1,5 @@
 import express from 'express'
+import { COMPONENT_REGISTRY, validateComponentRegistry } from '../shared/componentRegistry.js'
 import { ContentServiceError, getDraftContent, saveDraftContent } from './services/contentService.js'
 import { safeName } from './storage.js'
 
@@ -20,6 +21,12 @@ function sendError(res, error) {
 
 export function createContentRouter() {
   const router = express.Router()
+
+  router.get('/components', (_req, res) => {
+    const errors = validateComponentRegistry()
+    if (errors.length) return res.status(500).json({ error: 'Managed website components are not configured correctly' })
+    res.json(COMPONENT_REGISTRY.map(({ createDefaults, ...definition }) => definition))
+  })
 
   router.get('/:websiteId', async (req, res) => {
     if (!canAccessWebsite(req.session, req.params.websiteId)) {
