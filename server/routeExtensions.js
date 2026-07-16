@@ -15,6 +15,7 @@ import { createStripeCheckoutSession, createStripeRouter, processStripeCheckoutC
 import { releaseStockReservation } from './stockReservations.js'
 import { createTeamRouter } from './teamRouter.js'
 import { trustedOriginGuard } from './trustedOriginGuard.js'
+import { normaliseWebsiteCapabilities } from './websiteCapabilities.js'
 import { paths, readJson, readWebsiteAssets, safeName } from './storage.js'
 
 const MAX_ASSET_UPLOAD_BYTES = 15 * 1024 * 1024
@@ -82,8 +83,14 @@ export function validateUploadedAsset(req, res, next) {
 
 function websiteRegistryMutationGuard(req, res, next) {
   if (!['POST', 'PATCH', 'PUT', 'DELETE'].includes(req.method)) return next()
-  if (req.session?.role === 'owner') return next()
-  return res.status(403).json({ error: 'Website registry changes require platform owner access' })
+  if (req.session?.role !== 'owner') {
+    return res.status(403).json({ error: 'Website registry changes require platform owner access' })
+  }
+
+  if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'capabilities')) {
+    req.body.capabilities = normaliseWebsiteCapabilities(req.body.capabilities)
+  }
+  next()
 }
 
 function isBasketMiss(error) {
