@@ -31,6 +31,7 @@ export function useComponentRegistry(capabilities = []) {
   }, [])
 
   const availableComponents = useMemo(() => {
+    if (capabilities == null) return components
     const enabled = new Set(Array.isArray(capabilities) ? capabilities : [])
     return components.filter(component => !component.capability || enabled.has(component.capability))
   }, [capabilities, components])
