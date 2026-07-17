@@ -14,7 +14,10 @@ const failures = []
 
 if (!hook.includes('api.getComponents()')) failures.push('Component registry hook must load the authenticated registry API')
 if (!hook.includes('component.capability')) failures.push('Component registry hook must filter components by website capability')
-if (!inspector.includes('definition.fields')) failures.push('Property inspector must render fields from component definitions')
+if (!hook.includes('if (capabilities == null) return components')) failures.push('Component registry hook must support unfiltered lookup for selected components')
+if (!inspector.includes('resolvedDefinition.fields')) failures.push('Property inspector must render fields from the resolved registry definition')
+if (!inspector.includes('useComponentRegistry(null)')) failures.push('Property inspector must resolve selected component definitions through the registry API')
+if (!inspector.includes('componentsByType.get(component?.type) || definition')) failures.push('Property inspector must retain a bundled fallback when the live registry is unavailable')
 for (const type of ['textarea', 'image', 'boolean', 'select', 'number', 'url', 'repeater']) {
   if (!inspector.includes(`field.type === '${type}'`)) failures.push(`Property inspector is missing ${type} field support`)
 }
@@ -33,7 +36,7 @@ if (!library.includes('groupComponents(filtered)')) failures.push('Section libra
 if (!library.includes('Search sections')) failures.push('Section library must provide component search')
 if (!pageBuilder.includes("from '../components/RegistryBlockLibrary.jsx'")) failures.push('Page Builder must import the registry-driven section library')
 if (!pageBuilder.includes("from '../components/ComponentPropertyInspector.jsx'")) failures.push('Page Builder must import the universal property inspector')
-if (!pageBuilder.includes("from '../../shared/componentRegistry.js'")) failures.push('Page Builder must resolve managed section definitions from the shared registry')
+if (!pageBuilder.includes("from '../../shared/componentRegistry.js'")) failures.push('Page Builder must retain bundled component definitions as an outage fallback')
 if (!pageBuilder.includes('<RegistryBlockLibrary')) failures.push('Page Builder must render the registry-driven section library')
 if (!pageBuilder.includes('<ComponentPropertyInspector')) failures.push('Managed sections must render the universal property inspector')
 if (!pageBuilder.includes('capabilities={capabilities}')) failures.push('Page Builder must filter available sections using website capabilities')
