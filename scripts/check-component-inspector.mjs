@@ -21,7 +21,11 @@ for (const type of ['textarea', 'image', 'boolean', 'select', 'number', 'url', '
 for (const marker of ['function RepeaterField', '＋ Add Item', 'Move item up', 'Move item down', 'Remove', 'updateItem(index, key, value)']) {
   if (!inspector.includes(marker)) failures.push(`Repeater editor is missing marker: ${marker}`)
 }
+for (const marker of ['async function resolveActiveWebsite()', 'async function uploadItemImage(index, key, file)', 'api.getWebsites()', 'api.uploadAsset(', 'pageBlocks.${component.id}.${field.key}.${index}.${key}', 'onUpload={file => uploadItemImage(index, key, file)}']) {
+  if (!inspector.includes(marker)) failures.push(`Nested repeater media upload is missing marker: ${marker}`)
+}
 if (inspector.includes('Repeating items are managed in the website preview')) failures.push('Repeater fields must not fall back to the preview-only placeholder')
+if (inspector.includes('Direct nested uploads are added in the next media slice')) failures.push('Repeater image fields must not remain URL-only')
 if (!imageControl.includes("typeof onUpload === 'function'")) failures.push('Image controls without upload handlers must remain URL-editable and safe')
 if (!library.includes('useComponentRegistry(capabilities)')) failures.push('Section library must consume the website-filtered component registry')
 if (!library.includes('createComponentBlock(definition.type')) failures.push('Section library must create blocks through the shared registry factory')
