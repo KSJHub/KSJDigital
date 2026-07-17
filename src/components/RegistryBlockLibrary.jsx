@@ -3,11 +3,20 @@ import { createComponentBlock } from '../../shared/componentRegistry.js'
 import { useComponentRegistry } from '../hooks/useComponentRegistry.js'
 import '../styles/registry-block-library.css'
 
-function groupComponents(components) {
-  return components.reduce((groups, component) => {
-    const category = component.category || 'Other'
+function presetEntries(components) {
+  return components.flatMap(component => {
+    const presets = Array.isArray(component.presets) && component.presets.length
+      ? component.presets
+      : [{ id: 'default', name: component.title, description: component.description, values: {} }]
+    return presets.map(preset => ({ component, preset }))
+  })
+}
+
+function groupPresets(entries) {
+  return entries.reduce((groups, entry) => {
+    const category = entry.component.category || 'Other'
     if (!groups.has(category)) groups.set(category, [])
-    groups.get(category).push(component)
+    groups.get(category).push(entry)
     return groups
   }, new Map())
 }
@@ -15,17 +24,26 @@ function groupComponents(components) {
 export function RegistryBlockLibrary({ capabilities = [], pathname = '/', nextOrder = 10, onAdd, onClose }) {
   const { components, loading, error } = useComponentRegistry(capabilities)
   const [query, setQuery] = useState('')
+  const entries = useMemo(() => presetEntries(components), [components])
   const filtered = useMemo(() => {
     const search = query.trim().toLowerCase()
-    if (!search) return components
-    return components.filter(component => [component.title, component.description, component.category, component.type]
-      .some(value => String(value || '').toLowerCase().includes(search)))
-  }, [components, query])
-  const grouped = useMemo(() => groupComponents(filtered), [filtered])
+    if (!search) return entries
+    return entries.filter(({ component, preset }) => [
+      component.title,
+      component.description,
+      component.category,
+      component.type,
+      preset.name,
+      preset.description,
+      preset.id,
+    ].some(value => String(value || '').toLowerCase().includes(search)))
+  }, [entries, query])
+  const grouped = useMemo(() => groupPresets(filtered), [filtered])
 
-  function addComponent(definition) {
-    const block = createComponentBlock(definition.type, { order: nextOrder })
-    onAdd?.(block, definition)
+  function addPreset(component, preset) {
+    const presetId = preset.id === 'default' ? undefined : preset.id
+    const block = createComponentBlock(component.type, { order: nextOrder, presetId })
+    onAdd?.(block, component)
   }
 
   return (
@@ -34,23 +52,24 @@ export function RegistryBlockLibrary({ capabilities = [], pathname = '/', nextOr
         <div><span>Add Section</span><code>{pathname}</code></div>
         <button className="inspectorClose" onClick={onClose} aria-label="Close section library">×</button>
       </div>
-      <p>Choose a reusable section. Available options match the tools enabled for this website.</p>
+      <p>Choose a ready-made section preset. Available options match the tools enabled for this website.</p>
       <label className="registryBlockSearch">
         Search sections
-        <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search text, gallery, products…" />
+        <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search hero, gallery, contact…" />
       </label>
       {loading && <p className="registryBlockState">Loading section library…</p>}
       {error && <p className="registryBlockState error">{error}</p>}
-      {!loading && !error && !filtered.length && <p className="registryBlockState">No matching sections.</p>}
-      {[...grouped.entries()].map(([category, entries]) => (
+      {!loading && !error && !filtered.length && <p className="registryBlockState">No matching section presets.</p>}
+      {[...grouped.entries()].map(([category, categoryEntries]) => (
         <section className="registryBlockCategory" key={category}>
           <h3>{category}</h3>
           <div className="blockTemplateGrid">
-            {entries.map(component => (
-              <button key={component.type} onClick={() => addComponent(component)}>
+            {categoryEntries.map(({ component, preset }) => (
+              <button key={`${component.type}-${preset.id}`} onClick={() => addPreset(component, preset)}>
                 <span>{component.icon}</span>
-                <strong>{component.title}</strong>
-                <small>{component.description}</small>
+                <strong>{preset.name}</strong>
+                <small>{preset.description}</small>
+                <em>{component.title}</em>
               </button>
             ))}
           </div>
