@@ -31,9 +31,12 @@ if (inspector.includes('Repeating items are managed in the website preview')) fa
 if (inspector.includes('Direct nested uploads are added in the next media slice')) failures.push('Repeater image fields must not remain URL-only')
 if (!imageControl.includes("typeof onUpload === 'function'")) failures.push('Image controls without upload handlers must remain URL-editable and safe')
 if (!library.includes('useComponentRegistry(capabilities)')) failures.push('Section library must consume the website-filtered component registry')
-if (!library.includes('createComponentBlock(definition.type')) failures.push('Section library must create blocks through the shared registry factory')
-if (!library.includes('groupComponents(filtered)')) failures.push('Section library must group registered components by category')
-if (!library.includes('Search sections')) failures.push('Section library must provide component search')
+if (!library.includes('function presetEntries(components)')) failures.push('Section library must expand registry definitions into preset choices')
+if (!library.includes('createComponentBlock(component.type, { order: nextOrder, presetId })')) failures.push('Section library must create blocks through the shared preset-aware registry factory')
+if (!library.includes('groupPresets(filtered)')) failures.push('Section library must group registered presets by category')
+if (!library.includes('Search sections')) failures.push('Section library must provide preset search')
+if (!library.includes('preset.name')) failures.push('Section library must display preset names')
+if (!library.includes('preset.description')) failures.push('Section library must display preset descriptions')
 if (!pageBuilder.includes("from '../components/RegistryBlockLibrary.jsx'")) failures.push('Page Builder must import the registry-driven section library')
 if (!pageBuilder.includes("from '../components/ComponentPropertyInspector.jsx'")) failures.push('Page Builder must import the universal property inspector')
 if (!pageBuilder.includes("from '../../shared/componentRegistry.js'")) failures.push('Page Builder must retain bundled component definitions as an outage fallback')
@@ -47,6 +50,7 @@ if (pageBuilder.includes('BLOCK_TEMPLATES')) failures.push('Page Builder must no
 if (pageBuilder.includes('templateBlock(')) failures.push('Page Builder must not contain a duplicated component defaults factory')
 if (!api.includes('getComponents:')) failures.push('Frontend API must expose the component registry endpoint')
 if (!registry.includes('createComponentBlock')) failures.push('Component defaults must remain owned by the shared registry')
+if (!registry.includes('presets:')) failures.push('Component presets must remain owned by the shared registry')
 
 if (failures.length) {
   console.error('Component inspector check failed:')
@@ -54,4 +58,4 @@ if (failures.length) {
   process.exit(1)
 }
 
-console.log('Component property inspector check passed.')
+console.log('Component property inspector and preset library check passed.')
