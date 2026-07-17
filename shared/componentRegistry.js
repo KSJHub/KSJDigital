@@ -1,8 +1,10 @@
 const FIELD_TYPES = new Set(['text', 'textarea', 'image', 'url', 'number', 'boolean', 'select', 'repeater'])
+const RENDERER_KEY_PATTERN = /^[a-z][a-z0-9-]*$/
 
 const registry = [
   {
     type: 'text',
+    renderer: 'text',
     icon: '¶',
     title: 'Text Section',
     category: 'Content',
@@ -17,6 +19,7 @@ const registry = [
   },
   {
     type: 'image',
+    renderer: 'image',
     icon: '🖼',
     title: 'Image Section',
     category: 'Media',
@@ -32,6 +35,7 @@ const registry = [
   },
   {
     type: 'cta',
+    renderer: 'cta',
     icon: '↗',
     title: 'Call To Action',
     category: 'Engagement',
@@ -49,6 +53,7 @@ const registry = [
   },
   {
     type: 'gallery',
+    renderer: 'gallery',
     icon: '▦',
     title: 'Gallery',
     category: 'Media',
@@ -65,6 +70,7 @@ const registry = [
   },
   {
     type: 'video',
+    renderer: 'video',
     icon: '▶',
     title: 'Video',
     category: 'Media',
@@ -79,6 +85,7 @@ const registry = [
   },
   {
     type: 'faq',
+    renderer: 'faq',
     icon: '?',
     title: 'FAQ',
     category: 'Content',
@@ -95,6 +102,7 @@ const registry = [
   },
   {
     type: 'products',
+    renderer: 'products',
     icon: '🛍',
     title: 'Product Grid',
     category: 'Commerce',
@@ -118,6 +126,10 @@ export const COMPONENT_REGISTRY = Object.freeze(registry.map(definition => Objec
 
 export function componentDefinition(type) {
   return byType.get(String(type || '')) || null
+}
+
+export function componentRenderer(type) {
+  return componentDefinition(type)?.renderer || null
 }
 
 export function componentLibrary(capabilities = []) {
@@ -145,6 +157,7 @@ export function validateComponentRegistry() {
     if (!definition.type || !/^[a-z][a-z0-9-]*$/.test(definition.type)) errors.push('Every component requires a valid type')
     if (types.has(definition.type)) errors.push(`Duplicate component type: ${definition.type}`)
     types.add(definition.type)
+    if (!definition.renderer || !RENDERER_KEY_PATTERN.test(definition.renderer)) errors.push(`${definition.type} requires a valid renderer key`)
     if (!definition.title || !definition.description || !definition.category) errors.push(`${definition.type} is missing display metadata`)
     if (!Array.isArray(definition.fields)) errors.push(`${definition.type} fields must be an array`)
     for (const field of definition.fields || []) {
@@ -175,6 +188,7 @@ export function validateManagedPageBlocks(content = {}) {
       else ids.add(block.id)
       const definition = componentDefinition(block.type)
       if (!definition) errors.push(`${path} uses unregistered component type ${block.type || '(missing)'}`)
+      else if (!componentRenderer(block.type)) errors.push(`${path} has no registered renderer`)
       for (const field of definition?.fields || []) {
         if (field.required && !String(block[field.key] ?? '').trim()) errors.push(`${path}.${field.key} is required`)
       }
