@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useComponentRegistry } from '../hooks/useComponentRegistry.js'
 import { api } from '../services/api.js'
 import { VisualImageControl } from './VisualImageControl.jsx'
 import '../styles/component-property-inspector.css'
@@ -192,21 +193,26 @@ function FieldControl({ component, field, disabled, onChange, onUpload }) {
 }
 
 export function ComponentPropertyInspector({ definition, component, disabled = false, onChange, onUpload, onClose }) {
-  if (!definition || !component) return null
+  const { componentsByType, loading, error } = useComponentRegistry(null)
+  const resolvedDefinition = componentsByType.get(component?.type) || definition
+  if (!resolvedDefinition || !component) return null
 
   return (
     <div className="componentPropertyInspector">
       <header>
         <div>
-          <span>{definition.category}</span>
-          <h2>{definition.title}</h2>
-          <p>{definition.description}</p>
+          <span>{resolvedDefinition.category}</span>
+          <h2>{resolvedDefinition.title}</h2>
+          <p>{resolvedDefinition.description}</p>
         </div>
         {onClose && <button type="button" onClick={onClose} aria-label="Close component properties">×</button>}
       </header>
 
+      {loading && !definition && <div className="componentInspectorNotice">Loading component definition…</div>}
+      {error && definition && <div className="componentInspectorNotice">Using the built-in component definition because the live registry is unavailable.</div>}
+
       <div className="componentInspectorFields">
-        {(definition.fields || []).map(field => (
+        {(resolvedDefinition.fields || []).map(field => (
           <label key={field.key} className={field.type === 'boolean' ? 'componentInspectorBooleanField' : ''}>
             <span>{field.label}{field.required && <b>Required</b>}</span>
             {field.type === 'repeater'
