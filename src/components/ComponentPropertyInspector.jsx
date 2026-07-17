@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { api } from '../services/api.js'
 import { VisualImageControl } from './VisualImageControl.jsx'
 import '../styles/component-property-inspector.css'
 
@@ -28,8 +30,36 @@ function moveItem(items, index, direction) {
   return next
 }
 
+function normaliseSiteUrl(value = '') {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  try {
+    return new URL(raw.startsWith('http') ? raw : `https://${raw}`).origin.toLowerCase()
+  } catch {
+    return raw.replace(/\/$/, '').toLowerCase()
+  }
+}
+
+async function resolveActiveWebsite() {
+  const websites = await api.getWebsites()
+  const available = Array.isArray(websites) ? websites : []
+  if (available.length === 1) return available[0]
+
+  const frameUrl = normaliseSiteUrl(document.querySelector('.editorCanvas iframe')?.src)
+  if (!frameUrl) return null
+
+  return available.find(website => [
+    website.developmentEditorUrl,
+    website.editorUrl,
+    website.previewUrl,
+    website.domain,
+  ].some(candidate => normaliseSiteUrl(candidate) === frameUrl)) || null
+}
+
 function RepeaterField({ component, field, disabled, onChange }) {
   const items = Array.isArray(component?.[field.key]) ? component[field.key] : []
+  const [uploadError, setUploadError] = useState('')
+  const [uploadingKey, setUploadingKey] = useState('')
 
   function updateItems(nextItems) {
     onChange(field.key, nextItems)
@@ -37,6 +67,25 @@ function RepeaterField({ component, field, disabled, onChange }) {
 
   function updateItem(index, key, value) {
     updateItems(items.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item))
+  }
+
+  async function uploadItemImage(index, key, file) {
+    if (!file || disabled) return
+    const requestKey = `${index}-${key}`
+    setUploadError('')
+    setUploadingKey(requestKey)
+    try {
+      const website = await resolveActiveWebsite()
+      if (!website?.id) throw new Error('The active website could not be identified for this upload.')
+      const slotId = `pageBlocks.${component.id}.${field.key}.${index}.${key}`
+      const asset = await api.uploadAsset(website.owner || website.id, website.id, slotId, file)
+      if (!asset?.url) throw new Error('The media upload did not return an asset URL.')
+      updateItem(index, key, asset.url)
+    } catch (error) {
+      setUploadError(error.message || 'Image upload failed')
+    } finally {
+      setUploadingKey('')
+    }
   }
 
   return (
@@ -61,10 +110,11 @@ function RepeaterField({ component, field, disabled, onChange }) {
                     <>
                       <VisualImageControl
                         value={item?.[key] || ''}
-                        disabled={disabled}
+                        disabled={disabled || uploadingKey === `${index}-${key}`}
+                        onUpload={file => uploadItemImage(index, key, file)}
                         onUrlChange={value => updateItem(index, key, value)}
                       />
-                      <small>Paste or choose an existing Media Library URL. Direct nested uploads are added in the next media slice.</small>
+                      {uploadingKey === `${index}-${key}` && <small>Uploading image…</small>}
                     </>
                   )
                   : key === 'answer'
@@ -75,6 +125,7 @@ function RepeaterField({ component, field, disabled, onChange }) {
           </div>
         </section>
       ))}
+      {uploadError && <div className="componentInspectorNotice error" role="alert">{uploadError}</div>}
       <button type="button" className="componentRepeaterAdd" disabled={disabled} onClick={() => updateItems([...items, emptyRepeaterItem(field)])}>＋ Add Item</button>
     </div>
   )
