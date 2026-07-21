@@ -11,7 +11,7 @@ const OwnerWebsitesPage = lazy(() => import('./pages/OwnerWebsitesPage.jsx').the
 const OwnerClientsPage = lazy(() => import('./pages/OwnerClientsPage.jsx').then(module => ({ default: module.OwnerClientsPage })))
 const ClientWebsitePage = lazy(() => import('./pages/ClientWebsitePage.jsx').then(module => ({ default: module.ClientWebsitePage })))
 const SiteSettingsPage = lazy(() => import('./pages/SiteSettingsPage.jsx').then(module => ({ default: module.SiteSettingsPage })))
-const CommerceSettingsPage = lazy(() => import('./pages/CommerceSettingsV2Page.jsx').then(module => ({ default: module.CommerceSettingsV2Page })))
+const CommerceSettingsPage = lazy(() => import('./pages/CommerceSettingsPage.jsx').then(module => ({ default: module.CommerceSettingsPage })))
 const CheckoutTestPage = lazy(() => import('./pages/CheckoutTestPage.jsx').then(module => ({ default: module.CheckoutTestPage })))
 const InventoryPage = lazy(() => import('./pages/InventoryPage.jsx').then(module => ({ default: module.InventoryPage })))
 const PublishPipelinePage = lazy(() => import('./pages/PublishPipelinePage.jsx').then(module => ({ default: module.PublishPipelinePage })))
