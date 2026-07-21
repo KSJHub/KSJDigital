@@ -19,7 +19,7 @@ const PageBuilderPage = lazy(() => import('./pages/PageBuilderPage.jsx').then(mo
 const SiteEnginePage = lazy(() => import('./pages/SiteEnginePage.jsx').then(module => ({ default: module.SiteEnginePage })))
 const MediaLibraryPage = lazy(() => import('./pages/MediaLibraryPage.jsx').then(module => ({ default: module.MediaLibraryPage })))
 const FormBuilderPage = lazy(() => import('./pages/FormBuilderPage.jsx').then(module => ({ default: module.FormBuilderPage })))
-const MerchManagerPage = lazy(() => import('./pages/MerchManagerV2Page.jsx').then(module => ({ default: module.MerchManagerV2Page })))
+const MerchManagerPage = lazy(() => import('./pages/MerchManagerPage.jsx').then(module => ({ default: module.MerchManagerPage })))
 const OrdersPage = lazy(() => import('./pages/OrdersPage.jsx').then(module => ({ default: module.OrdersPage })))
 const OperationsPage = lazy(() => import('./pages/OperationsPage.jsx').then(module => ({ default: module.OperationsPage })))
 const ReleaseCentrePage = lazy(() => import('./pages/ReleaseCentrePage.jsx').then(module => ({ default: module.ReleaseCentrePage })))
