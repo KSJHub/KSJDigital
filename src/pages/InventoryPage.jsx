@@ -4,6 +4,8 @@ import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
 import { api } from '../services/api.js'
 import { getAccountFromPath } from '../services/auth.js'
 
+const EMPTY_INVENTORY = { summary: {}, stock: [], alerts: [], movements: [] }
+
 function movementLabel(value) {
   const quantity = Number(value || 0)
   return quantity > 0 ? `+${quantity}` : String(quantity)
@@ -17,27 +19,43 @@ export function InventoryPage({ client = false }) {
     ? websites.filter(site => account?.websiteIds?.includes(site.id))
     : websites
   const [websiteId, setWebsiteId] = useState(assignedWebsite?.id || availableWebsites[0]?.id || '')
-  const [inventory, setInventory] = useState({ summary: {}, stock: [], alerts: [], movements: [] })
+  const [inventory, setInventory] = useState(EMPTY_INVENTORY)
   const [notice, setNotice] = useState('Loading inventory')
 
-  async function load(nextWebsiteId = websiteId) {
-    if (!nextWebsiteId) return setNotice('No website assigned')
-    setWebsiteId(nextWebsiteId)
-    setNotice('Loading inventory')
-    try {
-      setInventory(await api.getInventory(nextWebsiteId))
-      setNotice('Inventory synced')
-    } catch (error) {
-      setNotice(error.message || 'Inventory unavailable')
-    }
-  }
-
   useEffect(() => {
-    if (websiteId) load(websiteId)
+    if (!websiteId) {
+      setNotice('No website assigned')
+      setInventory(EMPTY_INVENTORY)
+      return
+    }
+
+    let cancelled = false
+    setNotice('Loading inventory')
+
+    api.getInventory(websiteId)
+      .then(nextInventory => {
+        if (cancelled) return
+        setInventory(nextInventory || EMPTY_INVENTORY)
+        setNotice('Inventory synced')
+      })
+      .catch(error => {
+        if (!cancelled) setNotice(error.message || 'Inventory unavailable')
+      })
+
+    return () => { cancelled = true }
   }, [websiteId])
 
   const selectedWebsite = websites.find(site => site.id === websiteId)
   const summary = inventory.summary || {}
+  const alerts = inventory.alerts || []
+  const stock = inventory.stock || []
+  const movements = inventory.movements || []
+  const stats = [
+    ['Tracked Products', summary.trackedProducts || 0, 'Products using ready stock'],
+    ['Ready Units', summary.readyUnits || 0, 'Total tracked units'],
+    ['Low Stock', summary.lowStock || 0, 'At or below warning level'],
+    ['Out of Stock', summary.outOfStock || 0, 'No ready stock remaining'],
+  ]
 
   return (
     <Layout client={client} title="Inventory">
@@ -47,28 +65,33 @@ export function InventoryPage({ client = false }) {
           <h2>{selectedWebsite?.name || 'Website'} Stock Health</h2>
           <p>Review ready stock, low-stock warnings and order-linked inventory movements.</p>
         </div>
-        <button onClick={() => load()}>{notice}</button>
+        <button onClick={() => setWebsiteId(current => current)}>{notice}</button>
       </section>
 
       {!client && availableWebsites.length > 1 && (
         <section className="card formSettings">
-          <label>Website<select value={websiteId} onChange={event => setWebsiteId(event.target.value)}>{availableWebsites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
+          <label>
+            Website
+            <select value={websiteId} onChange={event => setWebsiteId(event.target.value)}>
+              {availableWebsites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}
+            </select>
+          </label>
         </section>
       )}
 
       <div className="stats">
-        {[
-          ['Tracked Products', summary.trackedProducts || 0, 'Products using ready stock'],
-          ['Ready Units', summary.readyUnits || 0, 'Total tracked units'],
-          ['Low Stock', summary.lowStock || 0, 'At or below warning level'],
-          ['Out of Stock', summary.outOfStock || 0, 'No ready stock remaining'],
-        ].map(item => <div className="card stat" key={item[0]}><div><span>{item[0]}</span><strong>{item[1]}</strong><small>{item[2]}</small></div><i /></div>)}
+        {stats.map(([label, value, description]) => (
+          <div className="card stat" key={label}>
+            <div><span>{label}</span><strong>{value}</strong><small>{description}</small></div>
+            <i />
+          </div>
+        ))}
       </div>
 
       <section className="simpleWebsiteGrid">
         <div className="card managerPanel mainWork">
-          <div className="panelHead"><h2>Stock Alerts</h2><span>{inventory.alerts?.length || 0} need attention</span></div>
-          {(inventory.alerts || []).map(item => (
+          <div className="panelHead"><h2>Stock Alerts</h2><span>{alerts.length} need attention</span></div>
+          {alerts.map(item => (
             <article className="simplePageRow" key={`${item.productId}-${item.variantLabel}`}>
               <div>
                 <b>{item.productName}</b>
@@ -79,7 +102,7 @@ export function InventoryPage({ client = false }) {
               <span>{item.status}</span>
             </article>
           ))}
-          {!inventory.alerts?.length && <p className="emptyState">No low-stock or out-of-stock alerts.</p>}
+          {!alerts.length && <p className="emptyState">No low-stock or out-of-stock alerts.</p>}
         </div>
 
         <aside className="card managerPanel nextSteps">
@@ -91,8 +114,8 @@ export function InventoryPage({ client = false }) {
       </section>
 
       <section className="card managerPanel">
-        <div className="panelHead"><h2>All Tracked Stock</h2><span>{inventory.stock?.length || 0} stock lines</span></div>
-        {(inventory.stock || []).map(item => (
+        <div className="panelHead"><h2>All Tracked Stock</h2><span>{stock.length} stock lines</span></div>
+        {stock.map(item => (
           <article className="simplePageRow" key={`${item.productId}-${item.variantLabel}`}>
             <div><b>{item.productName}</b><small>{item.orderTag} · {item.variantLabel}</small></div>
             <span>{item.quantity} ready</span>
@@ -100,19 +123,19 @@ export function InventoryPage({ client = false }) {
             <span>{item.status}</span>
           </article>
         ))}
-        {!inventory.stock?.length && <p className="emptyState">No products currently track ready stock.</p>}
+        {!stock.length && <p className="emptyState">No products currently track ready stock.</p>}
       </section>
 
       <section className="card managerPanel">
         <div className="panelHead"><h2>Inventory History</h2><span>Latest 100 order-linked movements</span></div>
-        {(inventory.movements || []).map(item => (
+        {movements.map(item => (
           <article className="simplePageRow" key={item.id}>
             <div><b>{item.productName}</b><small>{item.orderNumber} · {item.variantLabel} · {item.reason}</small></div>
             <span>{movementLabel(item.quantityChange)}</span>
             <span>{new Date(item.createdAt).toLocaleString('en-GB')}</span>
           </article>
         ))}
-        {!inventory.movements?.length && <p className="emptyState">Inventory movements will appear after tracked products are purchased or restored through a refund.</p>}
+        {!movements.length && <p className="emptyState">Inventory movements will appear after tracked products are purchased or restored through a refund.</p>}
       </section>
     </Layout>
   )
