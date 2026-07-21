@@ -11,7 +11,7 @@ const OwnerWebsitesPage = lazy(() => import('./pages/OwnerWebsitesPage.jsx').the
 const OwnerClientsPage = lazy(() => import('./pages/OwnerClientsPage.jsx').then(module => ({ default: module.OwnerClientsPage })))
 const ClientWebsitePage = lazy(() => import('./pages/ClientWebsitePage.jsx').then(module => ({ default: module.ClientWebsitePage })))
 const SiteSettingsPage = lazy(() => import('./pages/SiteSettingsPage.jsx').then(module => ({ default: module.SiteSettingsPage })))
-const CommerceSettingsV2Page = lazy(() => import('./pages/CommerceSettingsV2Page.jsx').then(module => ({ default: module.CommerceSettingsV2Page })))
+const CommerceSettingsPage = lazy(() => import('./pages/CommerceSettingsV2Page.jsx').then(module => ({ default: module.CommerceSettingsV2Page })))
 const CheckoutTestPage = lazy(() => import('./pages/CheckoutTestPage.jsx').then(module => ({ default: module.CheckoutTestPage })))
 const InventoryPage = lazy(() => import('./pages/InventoryPage.jsx').then(module => ({ default: module.InventoryPage })))
 const PublishPipelinePage = lazy(() => import('./pages/PublishPipelinePage.jsx').then(module => ({ default: module.PublishPipelinePage })))
@@ -19,7 +19,7 @@ const PageBuilderPage = lazy(() => import('./pages/PageBuilderPage.jsx').then(mo
 const SiteEnginePage = lazy(() => import('./pages/SiteEnginePage.jsx').then(module => ({ default: module.SiteEnginePage })))
 const MediaLibraryPage = lazy(() => import('./pages/MediaLibraryPage.jsx').then(module => ({ default: module.MediaLibraryPage })))
 const FormBuilderPage = lazy(() => import('./pages/FormBuilderPage.jsx').then(module => ({ default: module.FormBuilderPage })))
-const MerchManagerV2Page = lazy(() => import('./pages/MerchManagerV2Page.jsx').then(module => ({ default: module.MerchManagerV2Page })))
+const MerchManagerPage = lazy(() => import('./pages/MerchManagerV2Page.jsx').then(module => ({ default: module.MerchManagerV2Page })))
 const OrdersPage = lazy(() => import('./pages/OrdersPage.jsx').then(module => ({ default: module.OrdersPage })))
 const OperationsPage = lazy(() => import('./pages/OperationsPage.jsx').then(module => ({ default: module.OperationsPage })))
 const ReleaseCentrePage = lazy(() => import('./pages/ReleaseCentrePage.jsx').then(module => ({ default: module.ReleaseCentrePage })))
@@ -35,10 +35,10 @@ function Workspace({ client = false, type }) {
   if (!client && type === 'branding') return <SiteSettingsPage />
   if (!client && type === 'engine') return <SiteEnginePage />
   if (!client && type === 'forms') return <FormBuilderPage />
-  if (!client && type === 'merch') return <MerchManagerV2Page />
+  if (!client && type === 'merch') return <MerchManagerPage />
   if (!client && type === 'inventory') return <InventoryPage />
   if (!client && type === 'orders') return <OrdersPage />
-  if (!client && type === 'commerce') return <CommerceSettingsV2Page />
+  if (!client && type === 'commerce') return <CommerceSettingsPage />
   if (!client && type === 'checkout-test') return <CheckoutTestPage />
   if (!client && type === 'operations') return <OperationsPage />
   if (!client && type === 'launch') return <ReleaseCentrePage />
@@ -49,10 +49,10 @@ function Workspace({ client = false, type }) {
   if (client && type === 'branding') return <SiteSettingsPage client />
   if (client && type === 'engine') return <SiteEnginePage client />
   if (client && type === 'forms') return <FormBuilderPage client />
-  if (client && type === 'merch') return <MerchManagerV2Page client />
+  if (client && type === 'merch') return <MerchManagerPage client />
   if (client && type === 'inventory') return <InventoryPage client />
   if (client && type === 'orders') return <OrdersPage client />
-  if (client && type === 'commerce') return <CommerceSettingsV2Page client />
+  if (client && type === 'commerce') return <CommerceSettingsPage client />
   if (client && type === 'operations') return <OperationsPage client />
   if (client && type === 'publish') return <PublishPipelinePage client />
   if (client && type === 'website') return <ClientWebsitePage />
