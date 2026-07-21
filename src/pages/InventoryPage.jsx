@@ -21,6 +21,7 @@ export function InventoryPage({ client = false }) {
   const [websiteId, setWebsiteId] = useState(assignedWebsite?.id || availableWebsites[0]?.id || '')
   const [inventory, setInventory] = useState(EMPTY_INVENTORY)
   const [notice, setNotice] = useState('Loading inventory')
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     if (!websiteId) {
@@ -43,7 +44,7 @@ export function InventoryPage({ client = false }) {
       })
 
     return () => { cancelled = true }
-  }, [websiteId])
+  }, [refreshKey, websiteId])
 
   const selectedWebsite = websites.find(site => site.id === websiteId)
   const summary = inventory.summary || {}
@@ -65,7 +66,7 @@ export function InventoryPage({ client = false }) {
           <h2>{selectedWebsite?.name || 'Website'} Stock Health</h2>
           <p>Review ready stock, low-stock warnings and order-linked inventory movements.</p>
         </div>
-        <button onClick={() => setWebsiteId(current => current)}>{notice}</button>
+        <button onClick={() => setRefreshKey(current => current + 1)}>{notice}</button>
       </section>
 
       {!client && availableWebsites.length > 1 && (
