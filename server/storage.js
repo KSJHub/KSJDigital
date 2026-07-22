@@ -149,7 +149,6 @@ export async function getFolderSize(dir) {
       const full = path.join(dir, entry.name)
       total += entry.isDirectory() ? await getFolderSize(full) : (await fs.stat(full)).size
     }
-
     return total
   } catch {
     return 0
@@ -202,6 +201,7 @@ export const paths = {
   clients: () => CLIENTS_FILE,
   content: websiteId => path.join(DATA_DIR, 'content', `${safeName(websiteId)}.json`),
   publishedContent: websiteId => path.join(DATA_DIR, 'published-content', `${safeName(websiteId)}.json`),
+  articles: websiteId => path.join(DATA_DIR, 'articles', `${safeName(websiteId)}.json`),
   forms: websiteId => path.join(DATA_DIR, 'forms', `${safeName(websiteId)}.json`),
   tickets: () => path.join(DATA_DIR, 'support-tickets.json'),
   requests: () => path.join(DATA_DIR, 'publish-requests.json'),
