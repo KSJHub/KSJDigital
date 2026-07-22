@@ -3,6 +3,7 @@ import express from 'express'
 import { assertProductCheckoutAccess } from './checkoutAccess.js'
 import { captureBasketPayPalOrder, completeBasketStripeSession } from './basketCheckout.js'
 import { createCapabilityAccessGuard } from './capabilityAccessGuard.js'
+import { createCmsRouter } from './cmsRouter.js'
 import { createCommerceSettingsRouter, createWebsiteOrderPrefixGuard } from './commerceSettingsRouter.js'
 import { createContentRouter } from './contentRouter.js'
 import { starterWebsites } from './defaults.js'
@@ -220,6 +221,7 @@ export function mountProtectedRoutes(app) {
   app.use('/api/websites', createWebsiteOrderPrefixGuard())
   app.use('/api/websites', createWebsiteRouter())
   app.use('/api/content', createContentRouter())
+  app.use('/api/cms', createCmsRouter())
   app.use('/api/team', createTeamRouter())
   app.use('/api/orders', createDispatchRouter())
   app.use('/api/orders', createOrdersRouter())
