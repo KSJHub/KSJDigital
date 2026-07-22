@@ -4,6 +4,7 @@ import { normaliseWebsiteCapabilities } from './websiteCapabilities.js'
 const ROUTE_CAPABILITIES = [
   { prefix: '/assets', capability: 'media' },
   { prefix: '/forms', capability: 'forms' },
+  { prefix: '/cms', capability: 'website' },
   { prefix: '/team', capability: 'team' },
   { prefix: '/support', capability: 'support' },
   { prefix: '/orders', capability: 'commerce' },
@@ -21,7 +22,7 @@ function routeCapability(pathname = '') {
 function pathWebsiteId(pathname = '') {
   const parts = pathname.split('/').filter(Boolean)
   if (parts[0] === 'assets') return safeName(parts[2] || '')
-  if (['content', 'forms', 'commerce-settings'].includes(parts[0])) return safeName(parts[1] || '')
+  if (['content', 'forms', 'cms', 'commerce-settings'].includes(parts[0])) return safeName(parts[1] || '')
   return ''
 }
 
