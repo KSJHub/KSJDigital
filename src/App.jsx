@@ -19,6 +19,7 @@ const PageBuilderPage = lazy(() => import('./pages/PageBuilderPage.jsx').then(mo
 const SiteEnginePage = lazy(() => import('./pages/SiteEnginePage.jsx').then(module => ({ default: module.SiteEnginePage })))
 const MediaLibraryPage = lazy(() => import('./pages/MediaLibraryPage.jsx').then(module => ({ default: module.MediaLibraryPage })))
 const FormBuilderPage = lazy(() => import('./pages/FormBuilderPage.jsx').then(module => ({ default: module.FormBuilderPage })))
+const CmsPage = lazy(() => import('./pages/CmsPage.jsx').then(module => ({ default: module.CmsPage })))
 const MerchManagerPage = lazy(() => import('./pages/MerchManagerPage.jsx').then(module => ({ default: module.MerchManagerPage })))
 const OrdersPage = lazy(() => import('./pages/OrdersPage.jsx').then(module => ({ default: module.OrdersPage })))
 const OperationsPage = lazy(() => import('./pages/OperationsPage.jsx').then(module => ({ default: module.OperationsPage })))
@@ -34,6 +35,7 @@ function Workspace({ client = false, type }) {
   if (!client && type === 'clients') return <OwnerClientsPage />
   if (!client && type === 'branding') return <SiteSettingsPage />
   if (!client && type === 'engine') return <SiteEnginePage />
+  if (!client && type === 'content') return <CmsPage />
   if (!client && type === 'forms') return <FormBuilderPage />
   if (!client && type === 'merch') return <MerchManagerPage />
   if (!client && type === 'inventory') return <InventoryPage />
@@ -48,6 +50,7 @@ function Workspace({ client = false, type }) {
   if (!client && type === 'media') return <MediaLibraryPage />
   if (client && type === 'branding') return <SiteSettingsPage client />
   if (client && type === 'engine') return <SiteEnginePage client />
+  if (client && type === 'content') return <CmsPage client />
   if (client && type === 'forms') return <FormBuilderPage client />
   if (client && type === 'merch') return <MerchManagerPage client />
   if (client && type === 'inventory') return <InventoryPage client />
