@@ -41,6 +41,7 @@ export const api = {
   getArticles: websiteId => request(`/cms/${encodeURIComponent(websiteId)}`),
   createArticle: (websiteId, payload = {}) => request(`/cms/${encodeURIComponent(websiteId)}`, { method: 'POST', body: JSON.stringify(payload) }),
   updateArticle: (websiteId, articleId, payload) => request(`/cms/${encodeURIComponent(websiteId)}/${encodeURIComponent(articleId)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  restoreArticleRevision: (websiteId, articleId, revisionId) => request(`/cms/${encodeURIComponent(websiteId)}/${encodeURIComponent(articleId)}/restore/${encodeURIComponent(revisionId)}`, { method: 'POST', body: JSON.stringify({}) }),
   deleteArticle: (websiteId, articleId) => request(`/cms/${encodeURIComponent(websiteId)}/${encodeURIComponent(articleId)}`, { method: 'DELETE' }),
   getCommerceSettings: websiteId => request(`/commerce-settings/${websiteId}`),
   getCommerceReadiness: websiteId => request(`/commerce-settings/${websiteId}/readiness`),
