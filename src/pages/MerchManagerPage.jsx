@@ -5,7 +5,7 @@ import { getAccountFromPath } from '../services/auth.js'
 import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
 
 const ASSET_BASE = import.meta.env.VITE_KSJ_ASSET_URL || 'http://localhost:4174'
-const TABS = ['Basics', 'Inventory', 'Media', 'Checkout', 'Advanced']
+const TABS = ['Basics', 'Collections', 'Inventory', 'Media', 'Checkout', 'Advanced']
 
 function assetUrl(asset) {
   if (!asset?.url) return ''
@@ -18,6 +18,21 @@ function listFromText(value = '') {
 
 function compactTag(value = '') {
   return value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)
+}
+
+function slugify(value = '') {
+  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60)
+}
+
+function collectionDefaults(collection = {}, index = 0) {
+  const name = collection.name?.trim() || 'New Collection'
+  return {
+    id: collection.id || `collection-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    name,
+    slug: collection.slug?.trim() || slugify(name),
+    visible: collection.visible !== false,
+    order: Number.isFinite(Number(collection.order)) ? Number(collection.order) : index + 1,
+  }
 }
 
 function productDefaults(product = {}) {
@@ -41,6 +56,7 @@ function productDefaults(product = {}) {
     featured: product.featured === true,
     limited: product.limited === true,
     showInCarousel: product.showInCarousel === true,
+    collections: Array.isArray(product.collections) ? [...new Set(product.collections.filter(Boolean))] : [],
     orderTag: product.orderTag || '',
     shippingNote: product.shippingNote || '',
     internalNotes: product.internalNotes || '',
@@ -69,11 +85,17 @@ function productDefaults(product = {}) {
 }
 
 function normaliseMerch(content = {}, websiteName = 'Your Store') {
+  const collections = (content.merch?.collections || []).map(collectionDefaults).sort((a, b) => a.order - b.order)
+  const collectionIds = new Set(collections.map(collection => collection.id))
   return {
     title: content.merch?.title || `${websiteName} Merch`,
     eyebrow: content.merch?.eyebrow || 'Official Store',
     subtitle: content.merch?.subtitle || `Official products from ${websiteName}.`,
-    products: (content.merch?.products || []).map(productDefaults),
+    collections,
+    products: (content.merch?.products || []).map(product => {
+      const next = productDefaults(product)
+      return { ...next, collections: next.collections.filter(id => collectionIds.has(id)) }
+    }),
   }
 }
 
@@ -110,7 +132,7 @@ export function MerchManagerPage({ client = false }) {
   const canManageMedia = platformOwner || account?.canManageMedia
   const canRequestUpdates = platformOwner || account?.canRequestUpdates
   const [content, setContent] = useState({ pages: [] })
-  const [merch, setMerch] = useState({ title: '', eyebrow: '', subtitle: '', products: [] })
+  const [merch, setMerch] = useState({ title: '', eyebrow: '', subtitle: '', collections: [], products: [] })
   const [commerce, setCommerce] = useState({ stripeEnabled: false, paypalEnabled: false })
   const [assets, setAssets] = useState([])
   const [selectedId, setSelectedId] = useState('')
@@ -121,6 +143,7 @@ export function MerchManagerPage({ client = false }) {
   const [submitted, setSubmitted] = useState(false)
   const [draggedId, setDraggedId] = useState('')
   const [imageDragging, setImageDragging] = useState(false)
+  const [collectionName, setCollectionName] = useState('')
 
   const selected = merch.products.find(product => product.id === selectedId) || merch.products[0]
   const warnings = productWarnings(selected, commerce)
@@ -227,6 +250,39 @@ export function MerchManagerPage({ client = false }) {
     persist({ ...merch, products }, visible ? 'Product shown on storefront' : 'Product hidden from storefront')
   }
 
+  function addCollection() {
+    const name = collectionName.trim()
+    if (!name) return
+    const baseSlug = slugify(name) || 'collection'
+    const usedSlugs = new Set(merch.collections.map(collection => collection.slug))
+    let slug = baseSlug
+    let suffix = 2
+    while (usedSlugs.has(slug)) slug = `${baseSlug}-${suffix++}`
+    const collection = collectionDefaults({ name, slug, order: merch.collections.length + 1 })
+    setCollectionName('')
+    persist({ ...merch, collections: [...merch.collections, collection] }, 'Collection created')
+  }
+
+  function toggleCollectionVisibility(collectionId) {
+    const collections = merch.collections.map(collection => collection.id === collectionId ? { ...collection, visible: collection.visible === false } : collection)
+    persist({ ...merch, collections }, 'Collection visibility saved')
+  }
+
+  function deleteCollection(collectionId) {
+    const collection = merch.collections.find(item => item.id === collectionId)
+    if (!collection || !window.confirm(`Delete ${collection.name}? Products will remain in the store.`)) return
+    const collections = merch.collections.filter(item => item.id !== collectionId).map((item, index) => ({ ...item, order: index + 1 }))
+    const products = merch.products.map(product => ({ ...product, collections: product.collections.filter(id => id !== collectionId) }))
+    persist({ ...merch, collections, products }, 'Collection deleted')
+  }
+
+  function toggleProductCollection(collectionId) {
+    if (!selected) return
+    const hasCollection = selected.collections.includes(collectionId)
+    const collections = hasCollection ? selected.collections.filter(id => id !== collectionId) : [...selected.collections, collectionId]
+    editProduct({ collections })
+  }
+
   function reorderProducts(sourceId, targetId) {
     if (!sourceId || !targetId || sourceId === targetId) return
     const products = [...merch.products]
@@ -283,7 +339,7 @@ export function MerchManagerPage({ client = false }) {
   return (
     <Layout client={client} title="Merch">
       <section className="moduleHero card merchHero merchHeroV2">
-        <div><span>Visual Store Manager</span><h2>{website?.name || 'Assigned Website'} Merch</h2><p>Products, images, inventory, checkout and customer preview all live on this one page.</p></div>
+        <div><span>Visual Store Manager</span><h2>{website?.name || 'Assigned Website'} Merch</h2><p>Products, collections, images, inventory, checkout and customer preview all live on this one page.</p></div>
         <div className="merchHeroActions">
           {platformOwner && websites.length > 1 && <select value={website?.id || ''} onChange={event => setWebsiteId(event.target.value)}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select>}
           {canRequestUpdates && <button onClick={submitForApproval} disabled={submitting || submitted}>{submitting ? 'Submitting…' : submitted ? 'Submitted' : 'Submit for Approval'}</button>}
@@ -297,17 +353,19 @@ export function MerchManagerPage({ client = false }) {
         <label>Store description<input value={merch.subtitle} disabled={!canEdit} onChange={event => editStore({ subtitle: event.target.value })} onBlur={() => persist(merch, 'Store description saved')} /></label>
       </section>
 
+      <section className="card merchStoreBar">
+        <label>New collection<input value={collectionName} disabled={!canEdit} onChange={event => setCollectionName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addCollection() } }} placeholder="Summer, Featured, Sale…" /></label>
+        {canEdit && <button onClick={addCollection} disabled={!collectionName.trim() || saving}>＋ Add Collection</button>}
+        <div className="merchChecks">{merch.collections.map(collection => <label key={collection.id}><input type="checkbox" checked={collection.visible} disabled={!canEdit || saving} onChange={() => toggleCollectionVisibility(collection.id)} /> {collection.name} <button type="button" className="danger" disabled={!canEdit || saving} onClick={() => deleteCollection(collection.id)}>Delete</button></label>)}{!merch.collections.length && <small>No collections yet.</small>}</div>
+      </section>
+
       <section className="merchWorkspace merchWorkspaceV2">
         <aside className="card merchCatalogue">
           <div className="panelHead"><div><h2>Products</h2><small>Drag to reorder</small></div>{canEdit && <button onClick={addProduct}>＋ Add</button>}</div>
           <div className="merchProductGrid">{merch.products.map(product => {
             const issues = productWarnings(product, commerce)
-            const cardClass = [
-              'merchProductCard',
-              product.id === selected?.id ? 'active' : '',
-              product.visible === false ? 'hidden' : '',
-            ].filter(Boolean).join(' ')
-            return <article key={product.id} className={cardClass} draggable={canEdit} onDragStart={() => setDraggedId(product.id)} onDragOver={event => event.preventDefault()} onDrop={() => { reorderProducts(draggedId, product.id); setDraggedId('') }} onClick={() => { setSelectedId(product.id); setTab('Basics') }}><div className="merchCardImage">{product.image.url ? <img src={product.image.url} alt={product.image.alt || product.name} /> : <span>No image</span>}</div><div><b>{product.name}</b><span>£{product.priceGBP.toFixed(2)}</span></div><small>{product.visible === false ? 'Hidden' : product.status} · {issues.length ? `${issues.length} warning${issues.length === 1 ? '' : 's'}` : 'Ready'}</small>{canEdit && <button type="button" className="merchVisibilityToggle" onClick={event => { event.stopPropagation(); toggleProductVisibility(product.id) }} disabled={saving}>{product.visible === false ? 'Show' : 'Hide'}</button>}</article>
+            const cardClass = ['merchProductCard', product.id === selected?.id ? 'active' : '', product.visible === false ? 'hidden' : ''].filter(Boolean).join(' ')
+            return <article key={product.id} className={cardClass} draggable={canEdit} onDragStart={() => setDraggedId(product.id)} onDragOver={event => event.preventDefault()} onDrop={() => { reorderProducts(draggedId, product.id); setDraggedId('') }} onClick={() => { setSelectedId(product.id); setTab('Basics') }}><div className="merchCardImage">{product.image.url ? <img src={product.image.url} alt={product.image.alt || product.name} /> : <span>No image</span>}</div><div><b>{product.name}</b><span>£{product.priceGBP.toFixed(2)}</span></div><small>{product.visible === false ? 'Hidden' : product.status} · {issues.length ? `${issues.length} warning${issues.length === 1 ? '' : 's'}` : 'Ready'}{product.collections.length ? ` · ${product.collections.length} collection${product.collections.length === 1 ? '' : 's'}` : ''}</small>{canEdit && <button type="button" className="merchVisibilityToggle" onClick={event => { event.stopPropagation(); toggleProductVisibility(product.id) }} disabled={saving}>{product.visible === false ? 'Show' : 'Hide'}</button>}</article>
           })}{!merch.products.length && <button className="merchEmptyAdd" onClick={addProduct}>＋ Add your first product</button>}</div>
         </aside>
 
@@ -317,6 +375,8 @@ export function MerchManagerPage({ client = false }) {
             <nav className="merchTabs" aria-label="Product editor sections">{TABS.map(item => <button key={item} className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item}</button>)}</nav>
 
             {tab === 'Basics' && <section className="merchEditorSection"><h3>Product Basics</h3><div className="merchFields two"><label>Name<input value={selected.name} disabled={!canEdit} onChange={event => editProduct({ name: event.target.value })} /></label><label>Price (£)<input type="number" min="0" step="0.01" value={selected.priceGBP} disabled={!canEdit} onChange={event => editProduct({ priceGBP: Number(event.target.value) })} /></label><label>Category<select value={selected.category} disabled={!canEdit} onChange={event => editProduct({ category: event.target.value })}><option>Apparel</option><option>Accessories</option><option>Digital</option><option>Other</option></select></label><label>Product type<input value={selected.type} disabled={!canEdit} onChange={event => editProduct({ type: event.target.value })} /></label></div><label>Description<textarea value={selected.description} disabled={!canEdit} onChange={event => editProduct({ description: event.target.value })} /></label><div className="merchChecks"><label><input type="checkbox" checked={selected.visible} disabled={!canEdit || saving} onChange={event => { if (event.target.checked !== selected.visible) toggleProductVisibility(selected.id) }} /> Visible on storefront</label><label><input type="checkbox" checked={selected.featured} disabled={!canEdit} onChange={event => editProduct({ featured: event.target.checked })} /> Featured</label><label><input type="checkbox" checked={selected.limited} disabled={!canEdit} onChange={event => editProduct({ limited: event.target.checked })} /> Limited drop</label><label><input type="checkbox" checked={selected.showInCarousel} disabled={!canEdit} onChange={event => editProduct({ showInCarousel: event.target.checked })} /> Homepage carousel</label></div><button className="merchSaveSection" onClick={() => persist(merch, 'Product basics saved')} disabled={saving}>Save Basics</button></section>}
+
+            {tab === 'Collections' && <section className="merchEditorSection"><h3>Product Collections</h3><p>Assign this product to any number of reusable storefront collections.</p><div className="merchChecks">{merch.collections.map(collection => <label key={collection.id}><input type="checkbox" checked={selected.collections.includes(collection.id)} disabled={!canEdit} onChange={() => toggleProductCollection(collection.id)} /> {collection.name}{collection.visible === false ? ' (hidden)' : ''}</label>)}{!merch.collections.length && <p>Create a collection above before assigning products.</p>}</div><button className="merchSaveSection" onClick={() => persist(merch, 'Product collections saved')} disabled={saving}>Save Collections</button></section>}
 
             {tab === 'Inventory' && <section className="merchEditorSection"><h3>Inventory & Options</h3><div className="merchChecks"><label><input type="checkbox" checked={selected.inventory.trackStock} disabled={!canEdit} onChange={event => editProduct({ inventory: { trackStock: event.target.checked } })} /> Ready stock</label><label><input type="checkbox" checked={selected.fulfilmentOptions.madeToOrder} disabled={!canEdit} onChange={event => editProduct({ fulfilmentOptions: { madeToOrder: event.target.checked } })} /> Made to order</label></div><div className="merchFields two"><label>Ready quantity<input type="number" min="0" value={selected.inventory.quantity} disabled={!canEdit || !selected.inventory.trackStock} onChange={event => editProduct({ inventory: { quantity: Math.max(0, Number(event.target.value)) } })} /></label><label>Low stock warning<input type="number" min="0" value={selected.inventory.lowStockThreshold} disabled={!canEdit || !selected.inventory.trackStock} onChange={event => editProduct({ inventory: { lowStockThreshold: Math.max(0, Number(event.target.value)) } })} /></label><label>Sizes<input value={selected.variants.sizes.join(', ')} disabled={!canEdit} onChange={event => editProduct({ variants: { sizes: listFromText(event.target.value) } })} placeholder="S, M, L, XL" /></label><label>Colours<input value={selected.variants.colours.join(', ')} disabled={!canEdit} onChange={event => editProduct({ variants: { colours: listFromText(event.target.value) } })} placeholder="Black, White, Blue" /></label></div>{selected.fulfilmentOptions.madeToOrder && <label>Production timeframe<textarea value={selected.fulfilmentOptions.leadTimeMessage} disabled={!canEdit} onChange={event => editProduct({ fulfilmentOptions: { leadTimeMessage: event.target.value } })} /></label>}<button className="merchSaveSection" onClick={() => persist(merch, 'Inventory saved')} disabled={saving}>Save Inventory</button></section>}
 
@@ -328,7 +388,7 @@ export function MerchManagerPage({ client = false }) {
           </> : <div className="emptyState">Select or add a product.</div>}
         </section>
 
-        <aside className="card merchPreviewPanel"><div className="panelHead"><div><h2>Customer Preview</h2><small>{selected?.visible === false ? 'Hidden from storefront' : 'Updates as you type'}</small></div></div>{selected ? <article className="merchLiveCard"><div className="merchLiveImage">{selected.image.url ? <img src={selected.image.url} alt={selected.image.alt || selected.name} /> : <span>Image coming soon</span>}</div>{selected.visible === false && <em>Hidden</em>}{selected.featured && <em>Featured</em>}<h3>{selected.name}</h3><p>{selected.description}</p><strong>£{selected.priceGBP.toFixed(2)}</strong><small>{selected.status}{selected.inventory.trackStock ? ` · ${selected.inventory.quantity} ready` : ''}{selected.fulfilmentOptions.madeToOrder ? ' · Made to order' : ''}</small>{selected.variants.sizes.length > 0 && <div className="merchOptionPreview">{selected.variants.sizes.map(size => <span key={size}>{size}</span>)}</div>}{selected.variants.colours.length > 0 && <div className="merchOptionPreview">{selected.variants.colours.map(colour => <span key={colour}>{colour}</span>)}</div>}<button disabled={selected.visible === false || !selected.checkout.enabled || selected.availability !== 'available'}>{selected.checkout.label || 'Buy Now'}</button></article> : <p>No product selected.</p>}{selected && <section className={warnings.length ? 'merchWarnings' : 'merchWarnings ready'}><h3>{warnings.length ? 'Before publishing' : 'Ready to publish'}</h3>{warnings.length ? warnings.map(item => <p key={item}>• {item}</p>) : <p>No product warnings.</p>}<small>Warnings never block saving.</small></section>}</aside>
+        <aside className="card merchPreviewPanel"><div className="panelHead"><div><h2>Customer Preview</h2><small>{selected?.visible === false ? 'Hidden from storefront' : 'Updates as you type'}</small></div></div>{selected ? <article className="merchLiveCard"><div className="merchLiveImage">{selected.image.url ? <img src={selected.image.url} alt={selected.image.alt || selected.name} /> : <span>Image coming soon</span>}</div>{selected.visible === false && <em>Hidden</em>}{selected.featured && <em>Featured</em>}<h3>{selected.name}</h3><p>{selected.description}</p><strong>£{selected.priceGBP.toFixed(2)}</strong><small>{selected.status}{selected.inventory.trackStock ? ` · ${selected.inventory.quantity} ready` : ''}{selected.fulfilmentOptions.madeToOrder ? ' · Made to order' : ''}</small>{selected.collections.length > 0 && <div className="merchOptionPreview">{selected.collections.map(collectionId => { const collection = merch.collections.find(item => item.id === collectionId); return collection ? <span key={collection.id}>{collection.name}</span> : null })}</div>}{selected.variants.sizes.length > 0 && <div className="merchOptionPreview">{selected.variants.sizes.map(size => <span key={size}>{size}</span>)}</div>}{selected.variants.colours.length > 0 && <div className="merchOptionPreview">{selected.variants.colours.map(colour => <span key={colour}>{colour}</span>)}</div>}<button disabled={selected.visible === false || !selected.checkout.enabled || selected.availability !== 'available'}>{selected.checkout.label || 'Buy Now'}</button></article> : <p>No product selected.</p>}{selected && <section className={warnings.length ? 'merchWarnings' : 'merchWarnings ready'}><h3>{warnings.length ? 'Before publishing' : 'Ready to publish'}</h3>{warnings.length ? warnings.map(item => <p key={item}>• {item}</p>) : <p>No product warnings.</p>}<small>Warnings never block saving.</small></section>}</aside>
       </section>
     </Layout>
   )
