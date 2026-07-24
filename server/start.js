@@ -6,6 +6,7 @@ import { createBackupRouter } from './backupRouter.js'
 import { createConfigurationRouter } from './configurationRouter.js'
 import { getCredential, setPassword, verifyPassword } from './credentialStore.js'
 import { createIntegrationEventCaptureMiddleware, createIntegrationRouter } from './integrationRouter.js'
+import { createMigrationRouter } from './migrationRouter.js'
 import { createReleaseRouter } from './releaseRouter.js'
 import {
   assetServingGuard,
@@ -137,6 +138,7 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, '/api/backups', createBackupRouter())
     originalUse.call(this, '/api/configuration', createConfigurationRouter())
     originalUse.call(this, '/api/releases', createReleaseRouter())
+    originalUse.call(this, '/api/migrations', createMigrationRouter())
   }
 
   return result
