@@ -15,6 +15,7 @@ import { createIntegrationEventCaptureMiddleware, createIntegrationRouter } from
 import { createJobQueueRouter } from './jobQueueRouter.js'
 import { createMigrationRouter } from './migrationRouter.js'
 import { createNotificationRouter } from './notificationRouter.js'
+import { createPrivacyRightsRouter } from './privacyRightsRouter.js'
 import { createReleaseRouter } from './releaseRouter.js'
 import { createRetentionComplianceRouter } from './retentionComplianceRouter.js'
 import { createServiceAccountRouter } from './serviceAccountRouter.js'
@@ -164,6 +165,7 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, '/api/event-bus', createEventBusRouter())
     originalUse.call(this, '/api/data-portability', createDataPortabilityRouter())
     originalUse.call(this, '/api/retention-compliance', createRetentionComplianceRouter())
+    originalUse.call(this, '/api/privacy-rights', createPrivacyRightsRouter())
     originalUse.call(this, '/api/system-health', createSystemHealthRouter())
     originalUse.call(this, '/api/backups', createBackupRouter())
     originalUse.call(this, '/api/configuration', createConfigurationRouter())
