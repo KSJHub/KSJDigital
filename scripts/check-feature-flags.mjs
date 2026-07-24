@@ -58,6 +58,7 @@ try {
   assert.match(startSource, /createFeatureFlagRouter/)
   assert.match(startSource, /\/api\/feature-flags/)
 
+  await new Promise(resolve => setTimeout(resolve, 100))
   console.log('Feature flag and controlled rollout checks passed')
 } finally {
   process.chdir(root)
