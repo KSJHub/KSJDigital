@@ -16,7 +16,7 @@ const errors = []
 const files = {
   service: await fs.readFile('server/services/assetLibraryService.js', 'utf8'),
   router: await fs.readFile('server/assetLibraryRouter.js', 'utf8'),
-  start: await fs.readFile('server/start.js', 'utf8'),
+  protectedRoutes: await fs.readFile('server/routeExtensions.js', 'utf8'),
 }
 
 for (const method of ['listAssets', 'getAsset', 'createAsset', 'updateAsset', 'registerAssetVariant', 'findAssetUsage', 'deleteAsset']) {
@@ -27,7 +27,9 @@ if (!files.service.includes('withMutation')) errors.push('Asset library writes a
 if (!files.service.includes('recordContainsAsset')) errors.push('Content usage discovery is missing')
 if (!files.router.includes("router.get('/:websiteId/:assetId/usage'")) errors.push('Asset usage endpoint is missing')
 if (!files.router.includes("router.post('/:websiteId/:assetId/variants'")) errors.push('Asset variant endpoint is missing')
-if (!files.start.includes("'/api/asset-library'")) errors.push('Asset library router is not mounted')
+if (!files.protectedRoutes.includes("app.use('/api/asset-library', createAssetLibraryRouter())")) {
+  errors.push('Asset library router is not mounted')
+}
 
 const websiteId = `asset-check-${crypto.randomUUID()}`
 const libraryFile = path.join(DATA_DIR, 'asset-libraries', `${websiteId}.json`)
