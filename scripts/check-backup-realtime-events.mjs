@@ -24,8 +24,8 @@ if (!router.includes('id: req.session?.userId || null') || !router.includes('ema
   throw new Error('Backup events must include the authenticated actor')
 }
 
-if (!router.includes('confirmationToken: preview.confirmationToken')) {
-  console.log('Backup restore confirmation tokens remain response-only')
+if (router.includes('confirmationToken: preview.confirmationToken')) {
+  throw new Error('Backup restore confirmation tokens must not be published in real-time events')
 }
 
 console.log('Backup real-time event checks passed')
