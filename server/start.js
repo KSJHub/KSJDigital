@@ -1,7 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import express from 'express'
-import { createAssetLibraryRouter } from './assetLibraryRouter.js'
 import { getCredential, setPassword, verifyPassword } from './credentialStore.js'
 import {
   assetServingGuard,
@@ -10,6 +9,7 @@ import {
   mountPublicRoutes,
   validateUploadedAsset,
 } from './routeExtensions.js'
+import { appendAuditEvent, auditRequestContext } from './services/auditTrailService.js'
 import { startContentWorkflowScheduler } from './services/contentWorkflowScheduler.js'
 
 function loadLocalEnvironment() {
@@ -51,6 +51,26 @@ async function synchroniseConfiguredCredentials() {
   }
 }
 
+function authenticationAudit(action) {
+  return function captureAuthentication(req, res, next) {
+    const startedAt = Date.now()
+    const email = action === 'login' ? String(req.body?.email || '').trim().toLowerCase() : null
+    res.on('finish', () => {
+      appendAuditEvent({
+        websiteId: 'global',
+        category: 'authentication',
+        action,
+        outcome: res.statusCode < 400 ? 'success' : 'failure',
+        actor: email ? { email } : null,
+        request: auditRequestContext(req),
+        resource: { type: 'session', id: email },
+        metadata: { statusCode: res.statusCode, durationMs: Date.now() - startedAt },
+      }).catch(error => console.error('Could not append authentication audit event', error))
+    })
+    next()
+  }
+}
+
 loadLocalEnvironment()
 await synchroniseConfiguredCredentials()
 startContentWorkflowScheduler()
@@ -66,6 +86,8 @@ express.application.post = function guardedPost(...args) {
   if (args[0] === '/api/assets/:ownerId/:websiteId/:slotId' && args.length >= 3) {
     return originalPost.call(this, args[0], args[1], validateUploadedAsset, ...args.slice(2))
   }
+  if (args[0] === '/api/login') return originalPost.call(this, args[0], authenticationAudit('login'), ...args.slice(1))
+  if (args[0] === '/api/logout') return originalPost.call(this, args[0], authenticationAudit('logout'), ...args.slice(1))
   return originalPost.apply(this, args)
 }
 
@@ -93,7 +115,6 @@ express.application.use = function routeAwareUse(...args) {
   if (!protectedRoutesMounted && mountPath === '/api' && middleware?.name === 'requireSession') {
     protectedRoutesMounted = true
     mountProtectedRoutes(this)
-    originalUse.call(this, '/api/asset-library', createAssetLibraryRouter())
   }
 
   return result
