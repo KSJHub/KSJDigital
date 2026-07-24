@@ -20,15 +20,6 @@ function actor(req) { return { id: req.session?.userId || req.session?.email || 
 function handle(res, next, operation, success = 200) {
   Promise.resolve().then(operation).then(result => res.status(success).json(result)).catch(next)
 }
-function publishAfter(req, topic, operation, payload, success = 200) {
-  const currentActor = actor(req)
-  handle(resFor(req), req.next, async () => {
-    const result = await operation(currentActor)
-    await publishDomainEvent(topic, payload(result, currentActor), currentActor)
-    return result
-  }, success)
-}
-function resFor(req) { return req.res }
 
 export function createCollaborationRouter() {
   const router = express.Router()
