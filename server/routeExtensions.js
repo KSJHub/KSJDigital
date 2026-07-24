@@ -1,5 +1,6 @@
 import path from 'node:path'
 import express from 'express'
+import { createAssetLibraryRouter } from './assetLibraryRouter.js'
 import { assertProductCheckoutAccess } from './checkoutAccess.js'
 import { captureBasketPayPalOrder, completeBasketStripeSession } from './basketCheckout.js'
 import { createCapabilityAccessGuard } from './capabilityAccessGuard.js'
@@ -17,6 +18,7 @@ import { createRefundRouter } from './refundRouter.js'
 import { createLiveSessionAccessMiddleware } from './sessionAccess.js'
 import { createStripeCheckoutSession, createStripeRouter, processStripeCheckoutCompleted, verifyStripeWebhook } from './stripeCheckout.js'
 import { releaseStockReservation } from './stockReservations.js'
+import { createTaxonomyRouter } from './taxonomyRouter.js'
 import { createTeamRouter } from './teamRouter.js'
 import { trustedOriginGuard } from './trustedOriginGuard.js'
 import { createWebsiteRouter } from './websiteRouter.js'
@@ -223,6 +225,8 @@ export function mountProtectedRoutes(app) {
   app.use('/api/websites', createWebsiteRouter())
   app.use('/api/content', createContentRouter())
   app.use('/api/dynamic-content', createDynamicContentRouter())
+  app.use('/api/asset-library', createAssetLibraryRouter())
+  app.use('/api/taxonomies', createTaxonomyRouter())
   app.use('/api/cms', createCmsRouter())
   app.use('/api/team', createTeamRouter())
   app.use('/api/orders', createDispatchRouter())
