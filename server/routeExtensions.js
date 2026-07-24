@@ -1,6 +1,7 @@
 import path from 'node:path'
 import express from 'express'
 import { createAssetLibraryRouter } from './assetLibraryRouter.js'
+import { createAuditCaptureMiddleware, createAuditTrailRouter } from './auditTrailRouter.js'
 import { assertProductCheckoutAccess } from './checkoutAccess.js'
 import { captureBasketPayPalOrder, completeBasketStripeSession } from './basketCheckout.js'
 import { createCapabilityAccessGuard } from './capabilityAccessGuard.js'
@@ -222,6 +223,8 @@ export function mountProtectedRoutes(app) {
   app.use('/api', createLiveSessionAccessMiddleware())
   app.use('/api', trustedOriginGuard)
   app.use('/api', createCapabilityAccessGuard())
+  app.use('/api', createAuditCaptureMiddleware())
+  app.use('/api/audit', createAuditTrailRouter())
   app.use('/api/websites', createWebsiteOrderPrefixGuard())
   app.use('/api/websites', createWebsiteRouter())
   app.use('/api/content', createContentRouter())
