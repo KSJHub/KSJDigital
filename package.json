@@ -17,6 +17,7 @@
     "check:auth": "node scripts/check-auth-hardening.mjs",
     "check:credentials": "node scripts/check-credential-storage.mjs",
     "check:sessions": "node scripts/check-session-security.mjs",
+    "check:login-mfa": "node scripts/check-login-mfa-integration.mjs",
     "check:origins": "node scripts/check-trusted-origins.mjs",
     "check:capabilities": "node scripts/check-website-capabilities.mjs",
     "check:capability-api": "node scripts/check-capability-api-boundary.mjs",
@@ -52,7 +53,7 @@
     "check:components": "node scripts/check-component-registry.mjs",
     "check:component-inspector": "node scripts/check-component-inspector.mjs",
     "check:launch": "node scripts/check-launch.mjs",
-    "check": "npm run lint && npm run check:server && npm run check:publication && npm run check:workspace && npm run check:data && npm run check:auth && npm run check:credentials && npm run check:sessions && npm run check:origins && npm run check:capabilities && npm run check:capability-api && npm run check:services && npm run check:content-service && npm run check:dynamic-content && npm run check:content-workflow && npm run check:content-search && npm run check:asset-library && npm run check:taxonomy && npm run check:localisation && npm run check:audit-trail && npm run check:integrations && npm run check:automations && npm run check:jobs && npm run check:notifications && npm run check:feature-flags && npm run check:service-accounts && npm run check:api-keys && npm run check:mfa && npm run check:abuse-protection && npm run check:cache && npm run check:event-bus && npm run check:data-portability && npm run check:retention-compliance && npm run check:privacy-rights && npm run check:collaboration && npm run check:system-health && npm run check:backups && npm run check:configuration && npm run check:releases && npm run check:migrations && npm run check:components && npm run check:component-inspector && npm run build",
+    "check": "npm run lint && npm run check:server && npm run check:publication && npm run check:workspace && npm run check:data && npm run check:auth && npm run check:credentials && npm run check:sessions && npm run check:login-mfa && npm run check:origins && npm run check:capabilities && npm run check:capability-api && npm run check:services && npm run check:content-service && npm run check:dynamic-content && npm run check:content-workflow && npm run check:content-search && npm run check:asset-library && npm run check:taxonomy && npm run check:localisation && npm run check:audit-trail && npm run check:integrations && npm run check:automations && npm run check:jobs && npm run check:notifications && npm run check:feature-flags && npm run check:service-accounts && npm run check:api-keys && npm run check:mfa && npm run check:abuse-protection && npm run check:cache && npm run check:event-bus && npm run check:data-portability && npm run check:retention-compliance && npm run check:privacy-rights && npm run check:collaboration && npm run check:system-health && npm run check:backups && npm run check:configuration && npm run check:releases && npm run check:migrations && npm run check:components && npm run check:component-inspector && npm run build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "preview": "vite preview"
@@ -72,7 +73,7 @@
   "devDependencies": {
     "eslint": "10.3.0",
     "@eslint/js": "10.0.1",
-    "eslint-plugin-react-hooks": "7.1.1",
+    "eslint-plugin-react-hooks": "6.0.1",
     "eslint-plugin-react-refresh": "0.5.2",
     "globals": "17.6.0",
     "prettier": "3.4.2"
