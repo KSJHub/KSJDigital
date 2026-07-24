@@ -23,10 +23,11 @@
     "check:services": "node scripts/check-service-layer.mjs",
     "check:content-service": "node scripts/check-content-service.mjs",
     "check:dynamic-content": "node scripts/check-dynamic-content.mjs",
+    "check:content-workflow": "node scripts/check-content-workflow.mjs",
     "check:components": "node scripts/check-component-registry.mjs",
     "check:component-inspector": "node scripts/check-component-inspector.mjs",
     "check:launch": "node scripts/check-launch.mjs",
-    "check": "npm run lint && npm run check:server && npm run check:publication && npm run check:workspace && npm run check:data && npm run check:auth && npm run check:credentials && npm run check:sessions && npm run check:origins && npm run check:capabilities && npm run check:capability-api && npm run check:services && npm run check:content-service && npm run check:dynamic-content && npm run check:components && npm run check:component-inspector && npm run build",
+    "check": "npm run lint && npm run check:server && npm run check:publication && npm run check:workspace && npm run check:data && npm run check:auth && npm run check:credentials && npm run check:sessions && npm run check:origins && npm run check:capabilities && npm run check:capability-api && npm run check:services && npm run check:content-service && npm run check:dynamic-content && npm run check:content-workflow && npm run check:components && npm run check:component-inspector && npm run build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "preview": "vite preview"
