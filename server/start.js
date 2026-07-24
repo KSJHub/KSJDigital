@@ -5,6 +5,7 @@ import { createAutomationRouter } from './automationRouter.js'
 import { createBackupRouter } from './backupRouter.js'
 import { createConfigurationRouter } from './configurationRouter.js'
 import { getCredential, setPassword, verifyPassword } from './credentialStore.js'
+import { createFeatureFlagRouter } from './featureFlagRouter.js'
 import { createFieldRegistryRouter } from './fieldRegistryRouter.js'
 import { createIntegrationEventCaptureMiddleware, createIntegrationRouter } from './integrationRouter.js'
 import { createJobQueueRouter } from './jobQueueRouter.js'
@@ -142,6 +143,7 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, '/api/automations', createAutomationRouter())
     originalUse.call(this, '/api/jobs', createJobQueueRouter())
     originalUse.call(this, '/api/notifications', createNotificationRouter())
+    originalUse.call(this, '/api/feature-flags', createFeatureFlagRouter())
     originalUse.call(this, '/api/system-health', createSystemHealthRouter())
     originalUse.call(this, '/api/backups', createBackupRouter())
     originalUse.call(this, '/api/configuration', createConfigurationRouter())
