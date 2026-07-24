@@ -144,9 +144,14 @@ async function maybeAlert(registry, snapshot) {
   registry.lastAlertAt[key] = nowIso()
   const incident = { id: crypto.randomUUID(), status: snapshot.status, openedAt: nowIso(), summary: snapshot.reasons, metrics: snapshot.metrics }
   registry.incidents.push(incident)
-  registry.incidents = registry.incidents.slice(-1000)
   await writeStructuredLog(snapshot.status === 'critical' ? 'error' : 'warn', `System health ${snapshot.status}`, incident)
   publishIntegrationEvent('global', 'system.health.degraded', incident, { observability: true }).catch(() => {})
+}
+
+function applyRetention(registry) {
+  const cutoff = Date.now() - Number(registry.settings.retentionDays || DEFAULTS.retentionDays) * 86_400_000
+  registry.metrics = registry.metrics.filter(item => new Date(item.checkedAt || item.metrics?.timestamp || 0).getTime() >= cutoff).slice(-2000)
+  registry.incidents = registry.incidents.filter(item => new Date(item.openedAt || 0).getTime() >= cutoff).slice(-1000)
 }
 
 export async function collectSystemHealth() {
@@ -174,8 +179,8 @@ export async function collectSystemHealth() {
     if (dependencies.some(item => item.status === 'failed')) reasons.push('A service dependency check failed')
     const snapshot = { status: evaluated.status, reasons, metrics, dependencies, heartbeats: registry.heartbeats, checkedAt: nowIso() }
     registry.metrics.push(snapshot)
-    registry.metrics = registry.metrics.slice(-2000)
     await maybeAlert(registry, snapshot)
+    applyRetention(registry)
     return snapshot
   })
 }
@@ -202,6 +207,7 @@ export async function updateSystemHealthSettings(input = {}) {
     }
     if (registry.settings.queueCriticalDepth <= registry.settings.queueWarningDepth) registry.settings.queueCriticalDepth = registry.settings.queueWarningDepth + 1
     if (registry.settings.memoryCriticalPercent <= registry.settings.memoryWarningPercent) registry.settings.memoryCriticalPercent = Math.min(100, registry.settings.memoryWarningPercent + 1)
+    applyRetention(registry)
     return registry.settings
   })
 }
@@ -220,6 +226,7 @@ export function createRequestMetricsMiddleware() {
 
 export function startSystemHealthMonitor() {
   if (timers.has('monitor')) return timers.get('monitor')
+  let lastSampleAt = 0
   const pulse = async () => {
     const registry = await readRegistry()
     if (registry.settings.enabled === false) return
@@ -229,6 +236,8 @@ export function startSystemHealthMonitor() {
       recordWorkerHeartbeat('automation-worker', { status: 'running', supervised: true }),
       recordWorkerHeartbeat('system-health', { status: 'running' }),
     ])
+    if (Date.now() - lastSampleAt < registry.settings.sampleIntervalMs) return
+    lastSampleAt = Date.now()
     await collectSystemHealth()
   }
   const timer = setInterval(() => pulse().catch(error => console.error('System health monitor failed', error)), 5000)
