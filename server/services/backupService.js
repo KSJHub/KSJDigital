@@ -50,6 +50,16 @@ async function walk(directory, base = directory) {
   }
   return output
 }
+async function copyActiveData(destination, includeAssets) {
+  await ensureDir(destination)
+  const entries = await fs.readdir(DATA_DIR, { withFileTypes: true }).catch(error => error.code === 'ENOENT' ? [] : Promise.reject(error))
+  for (const entry of entries) {
+    const source = path.join(DATA_DIR, entry.name)
+    if (contained(BACKUP_DIR, source)) continue
+    if (!includeAssets && contained(ASSET_DIR, source)) continue
+    await fs.cp(source, path.join(destination, entry.name), { recursive: true })
+  }
+}
 async function hashFile(file) {
   const hash = crypto.createHash('sha256')
   hash.update(await fs.readFile(file))
@@ -90,10 +100,7 @@ export async function createBackup(input = {}) {
   const destination = backupFolder(id)
   await ensureDir(temporary)
   try {
-    await fs.cp(DATA_DIR, path.join(temporary, 'data'), {
-      recursive: true,
-      filter: source => !contained(BACKUP_DIR, source) && (includeAssets || !contained(ASSET_DIR, source)),
-    })
+    await copyActiveData(path.join(temporary, 'data'), includeAssets)
     const manifest = { id, label: String(input.label || '').trim().slice(0, 200) || null, createdAt: nowIso(), includeAssets, ...await manifestFor(path.join(temporary, 'data')) }
     await fs.writeFile(path.join(temporary, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8')
     await ensureDir(ROOT)
