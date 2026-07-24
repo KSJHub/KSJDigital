@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import path from 'node:path'
 import { getContentType, normaliseContentFields } from './contentTypeRegistry.js'
 import {
   getContentRevision,
@@ -6,7 +7,7 @@ import {
   listContentRevisions,
   saveContentRevision,
 } from './contentRevisionService.js'
-import { paths, readJson, safeName, writeJson } from '../storage.js'
+import { DATA_DIR, paths, readJson, safeName, writeJson } from '../storage.js'
 
 export class ContentRecordError extends Error {
   constructor(message, status = 400) {
@@ -29,8 +30,12 @@ function typeDefinition(value) {
   return definition
 }
 
+function recordsPath(websiteId, typeId) {
+  return path.join(DATA_DIR, 'content-records', safeName(websiteId), `${safeName(typeId)}.json`)
+}
+
 async function migrateLegacyArticles(websiteId) {
-  const target = paths.contentRecords(websiteId, 'article')
+  const target = recordsPath(websiteId, 'article')
   const existing = await readJson(target, null)
   if (Array.isArray(existing)) return existing
 
@@ -61,7 +66,7 @@ async function migrateLegacyArticles(websiteId) {
 
 async function getStoredRecords(websiteId, typeId) {
   if (typeId === 'article') return migrateLegacyArticles(websiteId)
-  return readJson(paths.contentRecords(websiteId, typeId), [])
+  return readJson(recordsPath(websiteId, typeId), [])
 }
 
 async function hydrateRevisions(websiteId, typeId, record) {
@@ -93,7 +98,7 @@ export async function createContentRecord(websiteValue, typeValue, input = {}) {
     updatedAt: timestamp,
   }
   const records = await getStoredRecords(websiteId, typeId)
-  await writeJson(paths.contentRecords(websiteId, typeId), [record, ...records])
+  await writeJson(recordsPath(websiteId, typeId), [record, ...records])
   return hydrateRevisions(websiteId, typeId, record)
 }
 
@@ -116,7 +121,7 @@ export async function updateContentRecord(websiteValue, typeValue, recordId, inp
     updatedAt: new Date().toISOString(),
   }
   const next = records.map((record, recordIndex) => recordIndex === index ? updated : record)
-  await writeJson(paths.contentRecords(websiteId, typeId), next)
+  await writeJson(recordsPath(websiteId, typeId), next)
   return hydrateRevisions(websiteId, typeId, updated)
 }
 
@@ -134,6 +139,6 @@ export async function deleteContentRecord(websiteValue, typeValue, recordId) {
   const records = await getStoredRecords(websiteId, typeId)
   if (!records.some(record => record.id === recordId)) throw new ContentRecordError('Content record not found', 404)
   const next = records.filter(record => record.id !== recordId)
-  await writeJson(paths.contentRecords(websiteId, typeId), next)
+  await writeJson(recordsPath(websiteId, typeId), next)
   return next
 }
