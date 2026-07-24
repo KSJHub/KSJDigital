@@ -3,6 +3,7 @@ import path from 'node:path'
 import express from 'express'
 import { createAutomationRouter } from './automationRouter.js'
 import { createBackupRouter } from './backupRouter.js'
+import { createConfigurationRouter } from './configurationRouter.js'
 import { getCredential, setPassword, verifyPassword } from './credentialStore.js'
 import { createIntegrationEventCaptureMiddleware, createIntegrationRouter } from './integrationRouter.js'
 import {
@@ -133,6 +134,7 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, '/api/automations', createAutomationRouter())
     originalUse.call(this, '/api/system-health', createSystemHealthRouter())
     originalUse.call(this, '/api/backups', createBackupRouter())
+    originalUse.call(this, '/api/configuration', createConfigurationRouter())
   }
 
   return result
