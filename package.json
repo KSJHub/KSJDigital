@@ -24,10 +24,11 @@
     "check:content-service": "node scripts/check-content-service.mjs",
     "check:dynamic-content": "node scripts/check-dynamic-content.mjs",
     "check:content-workflow": "node scripts/check-content-workflow.mjs",
+    "check:content-search": "node scripts/check-content-search.mjs",
     "check:components": "node scripts/check-component-registry.mjs",
     "check:component-inspector": "node scripts/check-component-inspector.mjs",
     "check:launch": "node scripts/check-launch.mjs",
-    "check": "npm run lint && npm run check:server && npm run check:publication && npm run check:workspace && npm run check:data && npm run check:auth && npm run check:credentials && npm run check:sessions && npm run check:origins && npm run check:capabilities && npm run check:capability-api && npm run check:services && npm run check:content-service && npm run check:dynamic-content && npm run check:content-workflow && npm run check:components && npm run check:component-inspector && npm run build",
+    "check": "npm run lint && npm run check:server && npm run check:publication && npm run check:workspace && npm run check:data && npm run check:auth && npm run check:credentials && npm run check:sessions && npm run check:origins && npm run check:capabilities && npm run check:capability-api && npm run check:services && npm run check:content-service && npm run check:dynamic-content && npm run check:content-workflow && npm run check:content-search && npm run check:components && npm run check:component-inspector && npm run build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "preview": "vite preview"
@@ -47,7 +48,7 @@
   "devDependencies": {
     "eslint": "10.3.0",
     "@eslint/js": "10.0.1",
-    "eslint-plugin-react-hooks": "7.1.1",
+    "eslint-plugin-react-hooks": "6.1.1",
     "eslint-plugin-react-refresh": "0.5.2",
     "globals": "17.6.0",
     "prettier": "3.4.2"
