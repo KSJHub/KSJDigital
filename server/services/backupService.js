@@ -44,7 +44,6 @@ async function walk(directory, base = directory) {
   const output = []
   for (const entry of await fs.readdir(directory, { withFileTypes: true }).catch(error => error.code === 'ENOENT' ? [] : Promise.reject(error))) {
     const full = path.join(directory, entry.name)
-    if (contained(BACKUP_DIR, full)) continue
     if (entry.isDirectory()) output.push(...await walk(full, base))
     else if (entry.isFile()) output.push({ full, relative: path.relative(base, full).split(path.sep).join('/') })
   }
