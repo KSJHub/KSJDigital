@@ -9,6 +9,7 @@ const handlers = new Map()
 const MAX_HISTORY = 5000
 const MAX_EVENTS = 10000
 const MAX_DELIVERIES = 25000
+const DELIVERY_LOCK_TIMEOUT_MS = 60000
 const DEFAULT_RETRY = { maximumAttempts: 5, baseDelayMs: 1000, maximumDelayMs: 300000 }
 let workerTimer = null
 
@@ -25,7 +26,7 @@ function nowIso() { return new Date().toISOString() }
 function initialRegistry() {
   return {
     topics: [], subscriptions: [], events: [], deliveries: [], deadLetters: [], history: [],
-    statistics: { published: 0, delivered: 0, retried: 0, deadLettered: 0, replayed: 0 },
+    statistics: { published: 0, delivered: 0, retried: 0, deadLettered: 0, replayed: 0, recovered: 0 },
     version: 1, updatedAt: nowIso(),
   }
 }
@@ -185,9 +186,27 @@ function retryDelay(subscription, attempts) {
   return Math.min(subscription.retry.maximumDelayMs, subscription.retry.baseDelayMs * (2 ** Math.max(0, attempts - 1)))
 }
 
+export async function recoverStaleEventDeliveries(options = {}) {
+  const lockTimeoutMs = Math.min(3600000, Math.max(1000, Number(options.lockTimeoutMs || DELIVERY_LOCK_TIMEOUT_MS)))
+  return mutate(registry => {
+    const cutoff = Date.now() - lockTimeoutMs
+    const stale = registry.deliveries.filter(item => item.status === 'processing' && (!item.lockedAt || new Date(item.lockedAt).getTime() <= cutoff))
+    for (const delivery of stale) {
+      delivery.status = 'pending'
+      delivery.nextAttemptAt = nowIso()
+      delivery.lockedAt = null
+      delivery.lockedBy = null
+      registry.history.unshift({ id: crypto.randomUUID(), action: 'event-delivery.recovered', deliveryId: delivery.id, createdAt: nowIso() })
+    }
+    registry.statistics.recovered += stale.length
+    return { recovered: stale.length }
+  })
+}
+
 export async function processEventDeliveries(options = {}) {
   const workerId = String(options.workerId || `worker-${process.pid}`)
   const limit = Math.min(100, Math.max(1, Number(options.limit || 25)))
+  await recoverStaleEventDeliveries({ lockTimeoutMs: options.lockTimeoutMs })
   const claimed = await mutate(registry => {
     const now = Date.now()
     const candidates = registry.deliveries.filter(item => item.status === 'pending' && new Date(item.nextAttemptAt).getTime() <= now).slice(-limit)
