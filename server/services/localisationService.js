@@ -62,7 +62,9 @@ async function mutate(id, operation) {
     const next = await operation(structuredClone(store))
     next.websiteId = id
     next.updatedAt = new Date().toISOString()
-    await writeJson(storePath(id), next)
+    const persisted = { ...next }
+    delete persisted.result
+    await writeJson(storePath(id), persisted)
     return next
   })
   mutations.set(id, current)
