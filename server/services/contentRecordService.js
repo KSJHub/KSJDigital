@@ -3,6 +3,7 @@ import path from 'node:path'
 import {
   getContentType,
   getRelationshipFields,
+  listContentTypes,
   normaliseContentFields,
   validateContentFields,
 } from './contentTypeRegistry.js'
@@ -19,6 +20,13 @@ import {
   listContentRevisions,
   saveContentRevision,
 } from './contentRevisionService.js'
+import {
+  appendWorkflowHistory,
+  applyWorkflowTransition,
+  listAvailableWorkflowTransitions,
+  listWorkflowHistory,
+  scheduledPublicationIsDue,
+} from './contentWorkflowService.js'
 import { DATA_DIR, paths, readJson, safeName, writeJson } from '../storage.js'
 
 export class ContentRecordError extends Error {
@@ -47,8 +55,24 @@ function recordsPath(websiteId, typeId) {
   return path.join(DATA_DIR, 'content-records', safeName(websiteId), `${safeName(typeId)}.json`)
 }
 
+function workflowProtectedInput(definition, input = {}) {
+  if (!definition.workflow) return input
+  const protectedFields = new Set([definition.workflow.field, 'scheduledAt', 'publishedAt'])
+  return Object.fromEntries(Object.entries(input).filter(([key]) => !protectedFields.has(key)))
+}
+
 function normalisedFields(typeId, input, existing = {}) {
   return validateContentFields(typeId, normaliseContentFields(typeId, input, existing))
+}
+
+function initialWorkflowFields(definition, fields) {
+  if (!definition.workflow) return fields
+  return {
+    ...fields,
+    [definition.workflow.field]: definition.workflow.initialState,
+    scheduledAt: null,
+    publishedAt: null,
+  }
 }
 
 async function migrateLegacyArticles(websiteId) {
@@ -62,14 +86,20 @@ async function migrateLegacyArticles(websiteId) {
     return []
   }
 
+  const definition = typeDefinition('article')
+  const validStates = new Set(definition.workflow?.states.map(state => state.id) || [])
   const migrated = []
   for (const article of legacy) {
     const { revisions, ...record } = article
+    const fields = normalisedFields('article', record, record)
+    if (definition.workflow && !validStates.has(fields[definition.workflow.field])) {
+      fields[definition.workflow.field] = definition.workflow.initialState
+    }
     const normalised = {
       id: article.id || crypto.randomUUID(),
       type: 'article',
       websiteId,
-      ...normalisedFields('article', record, record),
+      ...fields,
       createdAt: article.createdAt || new Date().toISOString(),
       updatedAt: article.updatedAt || new Date().toISOString(),
     }
@@ -100,12 +130,22 @@ async function validateRelationships(websiteId, typeId, fields) {
   ))
 }
 
-async function hydrateRecord(websiteId, typeId, record) {
+async function hydrateRecord(websiteId, typeId, record, actor = null) {
+  const definition = typeDefinition(typeId)
   const revisions = await listContentRevisions(websiteId, typeId, record.id)
   const hydrated = {
     ...record,
     revisions: revisions.map(revision => ({ id: revision.id, createdAt: revision.createdAt, ...revision.snapshot })),
   }
+
+  if (definition.workflow) {
+    hydrated.workflow = {
+      state: record[definition.workflow.field] || definition.workflow.initialState,
+      availableTransitions: actor ? listAvailableWorkflowTransitions(typeId, record, actor) : [],
+      history: await listWorkflowHistory(websiteId, typeId, record.id),
+    }
+  }
+
   if (!getRelationshipFields(typeId).length) return hydrated
   const relationships = await resolveContentRelationships(typeId, record, (targetType, targetId) => (
     resolveStoredRecord(websiteId, targetType, targetId)
@@ -114,29 +154,30 @@ async function hydrateRecord(websiteId, typeId, record) {
   return hasReferences ? { ...hydrated, relationships } : hydrated
 }
 
-export async function listContentRecords(websiteValue, typeValue) {
+export async function listContentRecords(websiteValue, typeValue, actor = null) {
   const websiteId = identity(websiteValue, 'Website id')
   const typeId = typeDefinition(typeValue).id
   const records = await getStoredRecords(websiteId, typeId)
-  const hydrated = await Promise.all(records.map(record => hydrateRecord(websiteId, typeId, record)))
+  const hydrated = await Promise.all(records.map(record => hydrateRecord(websiteId, typeId, record, actor)))
   return hydrated.sort((left, right) => new Date(right.updatedAt || 0) - new Date(left.updatedAt || 0))
 }
 
-export async function getContentRecord(websiteValue, typeValue, recordId) {
+export async function getContentRecord(websiteValue, typeValue, recordId, actor = null) {
   const websiteId = identity(websiteValue, 'Website id')
   const typeId = typeDefinition(typeValue).id
   const id = identity(recordId, 'Content record id')
   const records = await getStoredRecords(websiteId, typeId)
   const record = records.find(item => item.id === recordId || safeName(item.id) === id)
   if (!record) throw new ContentRecordError('Content record not found', 404)
-  return hydrateRecord(websiteId, typeId, record)
+  return hydrateRecord(websiteId, typeId, record, actor)
 }
 
-export async function createContentRecord(websiteValue, typeValue, input = {}) {
+export async function createContentRecord(websiteValue, typeValue, input = {}, actor = null) {
   const websiteId = identity(websiteValue, 'Website id')
-  const typeId = typeDefinition(typeValue).id
+  const definition = typeDefinition(typeValue)
+  const typeId = definition.id
   const timestamp = new Date().toISOString()
-  const fields = normalisedFields(typeId, input)
+  const fields = initialWorkflowFields(definition, normalisedFields(typeId, workflowProtectedInput(definition, input)))
   await validateRelationships(websiteId, typeId, fields)
   const record = {
     id: input.id || crypto.randomUUID(),
@@ -148,18 +189,19 @@ export async function createContentRecord(websiteValue, typeValue, input = {}) {
   }
   const records = await getStoredRecords(websiteId, typeId)
   await writeJson(recordsPath(websiteId, typeId), [record, ...records])
-  return hydrateRecord(websiteId, typeId, record)
+  return hydrateRecord(websiteId, typeId, record, actor)
 }
 
-export async function updateContentRecord(websiteValue, typeValue, recordId, input = {}) {
+export async function updateContentRecord(websiteValue, typeValue, recordId, input = {}, actor = null) {
   const websiteId = identity(websiteValue, 'Website id')
-  const typeId = typeDefinition(typeValue).id
+  const definition = typeDefinition(typeValue)
+  const typeId = definition.id
   const records = await getStoredRecords(websiteId, typeId)
   const index = records.findIndex(record => record.id === recordId)
   if (index < 0) throw new ContentRecordError('Content record not found', 404)
 
   const existing = records[index]
-  const fields = normalisedFields(typeId, input, existing)
+  const fields = normalisedFields(typeId, workflowProtectedInput(definition, input), existing)
   await validateRelationships(websiteId, typeId, fields)
   const updated = {
     ...existing,
@@ -171,17 +213,65 @@ export async function updateContentRecord(websiteValue, typeValue, recordId, inp
     updatedAt: new Date().toISOString(),
   }
   await saveContentRevision(websiteId, typeId, existing)
-  const next = records.map((record, recordIndex) => recordIndex === index ? updated : record)
-  await writeJson(recordsPath(websiteId, typeId), next)
-  return hydrateRecord(websiteId, typeId, updated)
+  records[index] = updated
+  await writeJson(recordsPath(websiteId, typeId), records)
+  return hydrateRecord(websiteId, typeId, updated, actor)
 }
 
-export async function restoreContentRecord(websiteValue, typeValue, recordId, revisionId) {
+export async function transitionContentRecord(websiteValue, typeValue, recordId, transitionId, actor = {}, input = {}) {
+  const websiteId = identity(websiteValue, 'Website id')
+  const typeId = typeDefinition(typeValue).id
+  const records = await getStoredRecords(websiteId, typeId)
+  const index = records.findIndex(record => record.id === recordId)
+  if (index < 0) throw new ContentRecordError('Content record not found', 404)
+
+  const existing = records[index]
+  const transition = applyWorkflowTransition(typeId, existing, transitionId, actor, input)
+  const updated = {
+    ...transition.record,
+    id: existing.id,
+    type: typeId,
+    websiteId,
+    createdAt: existing.createdAt,
+    updatedAt: transition.event.createdAt,
+  }
+
+  await saveContentRevision(websiteId, typeId, existing)
+  records[index] = updated
+  await writeJson(recordsPath(websiteId, typeId), records)
+  await appendWorkflowHistory(websiteId, typeId, recordId, transition.event)
+  return hydrateRecord(websiteId, typeId, updated, actor)
+}
+
+export async function restoreContentRecord(websiteValue, typeValue, recordId, revisionId, actor = null) {
   const websiteId = identity(websiteValue, 'Website id')
   const typeId = typeDefinition(typeValue).id
   const revision = await getContentRevision(websiteId, typeId, recordId, revisionId)
   if (!revision) throw new ContentRecordError('Revision not found', 404)
-  return updateContentRecord(websiteId, typeId, recordId, { ...revision.snapshot, status: 'Draft' })
+  return updateContentRecord(websiteId, typeId, recordId, revision.snapshot, actor)
+}
+
+export async function processScheduledContentRecords(websiteValue, now = new Date()) {
+  const websiteId = identity(websiteValue, 'Website id')
+  const actor = { id: 'system', name: 'Scheduled publication', role: 'owner' }
+  const published = []
+
+  for (const definition of listContentTypes().filter(item => item.workflow)) {
+    const records = await getStoredRecords(websiteId, definition.id)
+    for (const record of records) {
+      if (!scheduledPublicationIsDue(definition.id, record, now)) continue
+      published.push(await transitionContentRecord(
+        websiteId,
+        definition.id,
+        record.id,
+        'publish-scheduled',
+        actor,
+        { note: 'Published automatically at the scheduled time' },
+      ))
+    }
+  }
+
+  return published
 }
 
 async function applyNullifyPolicies(websiteId, incoming, targetTypeId, targetRecordId) {
