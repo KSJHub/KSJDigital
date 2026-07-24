@@ -12,6 +12,7 @@ import { createJobQueueRouter } from './jobQueueRouter.js'
 import { createMigrationRouter } from './migrationRouter.js'
 import { createNotificationRouter } from './notificationRouter.js'
 import { createReleaseRouter } from './releaseRouter.js'
+import { createServiceAccountRouter } from './serviceAccountRouter.js'
 import {
   assetServingGuard,
   assetUploadGuard,
@@ -144,6 +145,7 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, '/api/jobs', createJobQueueRouter())
     originalUse.call(this, '/api/notifications', createNotificationRouter())
     originalUse.call(this, '/api/feature-flags', createFeatureFlagRouter())
+    originalUse.call(this, '/api/service-accounts', createServiceAccountRouter())
     originalUse.call(this, '/api/system-health', createSystemHealthRouter())
     originalUse.call(this, '/api/backups', createBackupRouter())
     originalUse.call(this, '/api/configuration', createConfigurationRouter())
