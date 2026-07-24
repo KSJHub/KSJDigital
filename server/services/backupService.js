@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import path from 'node:path'
 import fs from 'node:fs/promises'
-import { BACKUP_DIR, DATA_DIR, ensureDir, readJson, safeName, writeJson } from '../storage.js'
+import { ASSET_DIR, BACKUP_DIR, DATA_DIR, ensureDir, readJson, safeName, writeJson } from '../storage.js'
 import { publishIntegrationEvent } from './integrationService.js'
 import { writeStructuredLog } from './systemHealthService.js'
 
@@ -83,6 +83,8 @@ async function verifyManifest(folder, manifest) {
 }
 
 export async function createBackup(input = {}) {
+  const registry = await readRegistry()
+  const includeAssets = input.includeAssets === undefined ? registry.settings.includeAssets !== false : input.includeAssets === true
   const id = `${new Date().toISOString().replace(/[:.]/g, '-')}-${crypto.randomBytes(4).toString('hex')}`
   const temporary = path.join(ROOT, `.${id}.tmp`)
   const destination = backupFolder(id)
@@ -90,18 +92,18 @@ export async function createBackup(input = {}) {
   try {
     await fs.cp(DATA_DIR, path.join(temporary, 'data'), {
       recursive: true,
-      filter: source => !contained(BACKUP_DIR, source),
+      filter: source => !contained(BACKUP_DIR, source) && (includeAssets || !contained(ASSET_DIR, source)),
     })
-    const manifest = { id, label: String(input.label || '').trim().slice(0, 200) || null, createdAt: nowIso(), ...await manifestFor(path.join(temporary, 'data')) }
+    const manifest = { id, label: String(input.label || '').trim().slice(0, 200) || null, createdAt: nowIso(), includeAssets, ...await manifestFor(path.join(temporary, 'data')) }
     await fs.writeFile(path.join(temporary, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8')
     await ensureDir(ROOT)
     await fs.rename(temporary, destination)
-    await mutate(registry => {
-      registry.backups.unshift({ ...manifest, status: 'available' })
-      registry.lastScheduledAt = input.scheduled ? nowIso() : registry.lastScheduledAt
+    await mutate(current => {
+      current.backups.unshift({ ...manifest, status: 'available' })
+      current.lastScheduledAt = input.scheduled ? nowIso() : current.lastScheduledAt
     })
-    await pruneBackups()
-    await writeStructuredLog('info', 'Backup created', { backupId: id, fileCount: manifest.fileCount, totalBytes: manifest.totalBytes })
+    if (!input.skipPrune) await pruneBackups()
+    await writeStructuredLog('info', 'Backup created', { backupId: id, fileCount: manifest.fileCount, totalBytes: manifest.totalBytes, includeAssets })
     return manifest
   } catch (error) {
     await fs.rm(temporary, { recursive: true, force: true }).catch(() => {})
@@ -132,15 +134,27 @@ async function atomicCopy(source, destination) {
   await ensureDir(path.dirname(destination))
   const temporary = `${destination}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.restore.tmp`
   await fs.copyFile(source, temporary)
-  await fs.rename(temporary, destination)
+  try { await fs.rename(temporary, destination) } catch (error) {
+    if (!['EPERM', 'EACCES', 'EEXIST'].includes(error.code)) throw error
+    await fs.copyFile(temporary, destination)
+    await fs.rm(temporary, { force: true })
+  }
+}
+async function clearActiveData() {
+  for (const entry of await fs.readdir(DATA_DIR, { withFileTypes: true }).catch(error => error.code === 'ENOENT' ? [] : Promise.reject(error))) {
+    const target = path.join(DATA_DIR, entry.name)
+    if (contained(BACKUP_DIR, target)) continue
+    await fs.rm(target, { recursive: true, force: true })
+  }
 }
 export async function restoreBackup(idValue, options = {}) {
   const preview = await previewRestore(idValue, options)
   if (!options.confirmationToken || options.confirmationToken !== preview.confirmationToken) throw new BackupError('Restore confirmation token is invalid', 409)
-  const recovery = await createBackup({ label: `Pre-restore recovery for ${preview.backupId}` })
+  const recovery = await createBackup({ label: `Pre-restore recovery for ${preview.backupId}`, skipPrune: true })
   const sourceRoot = path.join(backupFolder(preview.backupId), 'data')
   const restored = []
   try {
+    if (preview.mode === 'full') await clearActiveData()
     for (const entry of preview.files) {
       const source = path.join(sourceRoot, ...entry.path.split('/'))
       const destination = path.join(DATA_DIR, ...entry.path.split('/'))
@@ -150,6 +164,7 @@ export async function restoreBackup(idValue, options = {}) {
     }
     const record = { id: crypto.randomUUID(), backupId: preview.backupId, recoveryBackupId: recovery.id, mode: preview.mode, restoredFiles: restored, restoredAt: nowIso(), status: 'completed' }
     await mutate(registry => { registry.restores.unshift(record); registry.restores = registry.restores.slice(0, 500) })
+    await pruneBackups()
     await writeStructuredLog('warn', 'Backup restored', record)
     publishIntegrationEvent('global', 'backup.restored', record, { disasterRecovery: true }).catch(() => {})
     return record
