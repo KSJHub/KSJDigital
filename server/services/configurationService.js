@@ -8,52 +8,43 @@ const ROOT = path.join(DATA_DIR, 'configuration')
 const REGISTRY_FILE = path.join(ROOT, 'registry.json')
 const locks = new Map()
 const subscribers = new Set()
-
-const DEFAULT_SCHEMA = {
-  'runtime.environment': { type: 'enum', values: ['development', 'test', 'staging', 'production'], default: 'development', restartRequired: false },
-  'runtime.publicUrl': { type: 'url', nullable: true, default: null, restartRequired: false },
-  'runtime.trustedOrigins': { type: 'string-array', default: [], restartRequired: false },
-  'runtime.logLevel': { type: 'enum', values: ['debug', 'info', 'warn', 'error', 'fatal'], default: 'info', restartRequired: false },
-  'security.sessionSecret': { type: 'secret', requiredIn: ['production'], environment: 'SESSION_SECRET', restartRequired: true },
-  'security.integrationSigningSecret': { type: 'secret', requiredIn: ['production'], environment: 'INTEGRATION_SIGNING_SECRET', restartRequired: true },
-  'backup.enabled': { type: 'boolean', default: true, restartRequired: false },
-  'backup.intervalMs': { type: 'integer', min: 3600000, max: 31536000000, default: 86400000, restartRequired: false },
-  'observability.enabled': { type: 'boolean', default: true, restartRequired: false },
+const ENVIRONMENTS = ['development', 'test', 'staging', 'production']
+const SCHEMA = {
+  'runtime.environment': { type: 'enum', values: ENVIRONMENTS, default: 'development' },
+  'runtime.publicUrl': { type: 'url', nullable: true, default: null },
+  'runtime.trustedOrigins': { type: 'string-array', default: [] },
+  'runtime.logLevel': { type: 'enum', values: ['debug', 'info', 'warn', 'error', 'fatal'], default: 'info' },
+  'security.sessionSecret': { type: 'secret', environment: 'SESSION_SECRET', requiredIn: ['production'], restartRequired: true },
+  'security.integrationSigningSecret': { type: 'secret', environment: 'INTEGRATION_SIGNING_SECRET', requiredIn: ['production'], restartRequired: true },
+  'backup.enabled': { type: 'boolean', default: true },
+  'backup.intervalMs': { type: 'integer', min: 3600000, max: 31536000000, default: 86400000 },
+  'observability.enabled': { type: 'boolean', default: true },
 }
 
 export class ConfigurationError extends Error {
-  constructor(message, status = 400, details = null) {
-    super(message)
-    this.name = 'ConfigurationError'
-    this.status = status
-    this.details = details
-  }
+  constructor(message, status = 400, details = null) { super(message); this.name = 'ConfigurationError'; this.status = status; this.details = details }
 }
 
 function nowIso() { return new Date().toISOString() }
-function initialRegistry() {
-  return {
-    schema: structuredClone(DEFAULT_SCHEMA),
-    environments: { development: {}, test: {}, staging: {}, production: {} },
-    secrets: {},
-    history: [],
-    activeEnvironment: process.env.NODE_ENV || 'development',
-    version: 1,
-    updatedAt: nowIso(),
-  }
+function environmentName(value) {
+  const name = String(value || '').trim().toLowerCase()
+  if (!ENVIRONMENTS.includes(name)) throw new ConfigurationError('Environment is invalid', 422)
+  return name
 }
-
+function initialRegistry() {
+  return { schema: structuredClone(SCHEMA), environments: Object.fromEntries(ENVIRONMENTS.map(name => [name, {}])), secrets: {}, history: [], activeEnvironment: process.env.NODE_ENV || 'development', version: 1, updatedAt: nowIso() }
+}
 async function readRegistry() {
   const registry = await readJson(REGISTRY_FILE, null) || initialRegistry()
-  registry.schema = { ...structuredClone(DEFAULT_SCHEMA), ...(registry.schema || {}) }
-  registry.environments ||= { development: {}, test: {}, staging: {}, production: {} }
+  registry.schema = { ...structuredClone(SCHEMA), ...(registry.schema || {}) }
+  registry.environments ||= Object.fromEntries(ENVIRONMENTS.map(name => [name, {}]))
+  for (const name of ENVIRONMENTS) registry.environments[name] ||= {}
   registry.secrets ||= {}
   registry.history ||= []
-  registry.activeEnvironment ||= process.env.NODE_ENV || 'development'
+  registry.activeEnvironment = ENVIRONMENTS.includes(registry.activeEnvironment) ? registry.activeEnvironment : 'development'
   registry.version ||= 1
   return registry
 }
-
 async function mutate(operation) {
   const previous = locks.get('registry') || Promise.resolve()
   const current = previous.catch(() => {}).then(async () => {
@@ -68,120 +59,90 @@ async function mutate(operation) {
   try { return await current } finally { if (locks.get('registry') === current) locks.delete('registry') }
 }
 
-function normaliseEnvironment(value) {
-  const environment = String(value || '').trim().toLowerCase()
-  if (!['development', 'test', 'staging', 'production'].includes(environment)) throw new ConfigurationError('Environment is invalid', 422)
-  return environment
+function masterKey() {
+  const source = String(process.env.CONFIGURATION_MASTER_KEY || '')
+  if (source.length < 32) throw new ConfigurationError('CONFIGURATION_MASTER_KEY must contain at least 32 characters before stored secrets can be used', 503)
+  return crypto.createHash('sha256').update(source).digest()
 }
-
-function validateValue(key, value, definition) {
-  if (value === null && definition.nullable) return null
-  if (definition.type === 'string') {
-    if (typeof value !== 'string') throw new ConfigurationError(`${key} must be a string`, 422)
-    if (definition.minLength && value.length < definition.minLength) throw new ConfigurationError(`${key} is too short`, 422)
-    if (definition.maxLength && value.length > definition.maxLength) throw new ConfigurationError(`${key} is too long`, 422)
-    return value
-  }
-  if (definition.type === 'boolean') {
-    if (typeof value !== 'boolean') throw new ConfigurationError(`${key} must be a boolean`, 422)
-    return value
-  }
-  if (definition.type === 'integer') {
-    if (!Number.isInteger(value)) throw new ConfigurationError(`${key} must be an integer`, 422)
-    if (definition.min !== undefined && value < definition.min) throw new ConfigurationError(`${key} is below its minimum`, 422)
-    if (definition.max !== undefined && value > definition.max) throw new ConfigurationError(`${key} exceeds its maximum`, 422)
-    return value
-  }
-  if (definition.type === 'enum') {
-    if (!definition.values?.includes(value)) throw new ConfigurationError(`${key} must be one of: ${definition.values?.join(', ')}`, 422)
-    return value
-  }
-  if (definition.type === 'url') {
-    if (typeof value !== 'string') throw new ConfigurationError(`${key} must be a URL`, 422)
-    let parsed
-    try { parsed = new URL(value) } catch { throw new ConfigurationError(`${key} must be a valid URL`, 422) }
-    if (!['http:', 'https:'].includes(parsed.protocol)) throw new ConfigurationError(`${key} must use HTTP or HTTPS`, 422)
-    return parsed.toString()
-  }
-  if (definition.type === 'string-array') {
-    if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) throw new ConfigurationError(`${key} must be an array of strings`, 422)
-    return [...new Set(value.map(item => item.trim()).filter(Boolean))]
-  }
-  if (definition.type === 'secret') throw new ConfigurationError(`${key} must be managed through the secrets API`, 422)
-  throw new ConfigurationError(`Unsupported schema type for ${key}`, 422)
+function encrypt(value) {
+  const iv = crypto.randomBytes(12)
+  const cipher = crypto.createCipheriv('aes-256-gcm', masterKey(), iv)
+  const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()])
+  return { algorithm: 'aes-256-gcm', iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), ciphertext: ciphertext.toString('base64') }
 }
-
-function secretReference(name) { return `secret://${name}` }
-function maskSecret(record) {
-  if (!record) return null
-  return { name: record.name, reference: secretReference(record.name), source: record.source, configured: Boolean(record.value || record.environment), updatedAt: record.updatedAt }
+function decrypt(payload) {
+  const decipher = crypto.createDecipheriv('aes-256-gcm', masterKey(), Buffer.from(payload.iv, 'base64'))
+  decipher.setAuthTag(Buffer.from(payload.tag, 'base64'))
+  return Buffer.concat([decipher.update(Buffer.from(payload.ciphertext, 'base64')), decipher.final()]).toString('utf8')
 }
 function resolveSecretRecord(record) {
   if (!record) return null
   if (record.source === 'environment') return process.env[record.environment] || null
-  return record.value || null
+  return record.encrypted ? decrypt(record.encrypted) : null
+}
+function maskSecret(record) {
+  return { name: record.name, reference: `secret://${record.name}`, source: record.source, configured: record.source === 'environment' ? Boolean(process.env[record.environment]) : Boolean(record.encrypted), environment: record.environment || null, updatedAt: record.updatedAt }
 }
 
+function validateValue(key, value, definition) {
+  if (value === null && definition.nullable) return null
+  if (definition.type === 'boolean' && typeof value === 'boolean') return value
+  if (definition.type === 'integer' && Number.isInteger(value) && (definition.min === undefined || value >= definition.min) && (definition.max === undefined || value <= definition.max)) return value
+  if (definition.type === 'enum' && definition.values?.includes(value)) return value
+  if (definition.type === 'string-array' && Array.isArray(value) && value.every(item => typeof item === 'string')) return [...new Set(value.map(item => item.trim()).filter(Boolean))]
+  if (definition.type === 'url' && typeof value === 'string') {
+    try { const parsed = new URL(value); if (['http:', 'https:'].includes(parsed.protocol)) return parsed.toString() } catch {}
+  }
+  if (definition.type === 'string' && typeof value === 'string') return value
+  throw new ConfigurationError(`${key} does not satisfy its ${definition.type} schema`, 422)
+}
 function effectiveValue(registry, key, environment) {
   const definition = registry.schema[key]
-  const override = registry.environments[environment]?.[key]
-  if (override !== undefined) return override
-  if (definition?.type === 'secret') {
-    const name = definition.environment || key
-    return resolveSecretRecord(registry.secrets[name]) || process.env[definition.environment || ''] || null
-  }
+  if (registry.environments[environment]?.[key] !== undefined) return registry.environments[environment][key]
+  if (definition?.type === 'secret') return resolveSecretRecord(registry.secrets[definition.environment || key]) || process.env[definition.environment || ''] || null
   return definition?.default ?? null
 }
-
-function redactValue(definition, value) {
-  return definition?.type === 'secret' && value ? '[configured]' : value
-}
+function notify(event) { for (const listener of subscribers) Promise.resolve(listener(event)).catch(error => console.error('Configuration subscriber failed', error)) }
 
 export async function getConfiguration(environmentValue) {
   const registry = await readRegistry()
-  const environment = normaliseEnvironment(environmentValue || registry.activeEnvironment)
+  const environment = environmentName(environmentValue || registry.activeEnvironment)
   const values = {}
-  for (const [key, definition] of Object.entries(registry.schema)) values[key] = redactValue(definition, effectiveValue(registry, key, environment))
-  return {
-    environment,
-    activeEnvironment: registry.activeEnvironment,
-    version: registry.version,
-    values,
-    schema: registry.schema,
-    secrets: Object.values(registry.secrets).map(maskSecret),
-    updatedAt: registry.updatedAt,
+  for (const [key, definition] of Object.entries(registry.schema)) {
+    const value = effectiveValue(registry, key, environment)
+    values[key] = definition.type === 'secret' ? (value ? '[configured]' : null) : value
   }
+  return { environment, activeEnvironment: registry.activeEnvironment, version: registry.version, values, schema: registry.schema, secrets: Object.values(registry.secrets).map(maskSecret), updatedAt: registry.updatedAt }
 }
 
 export async function updateConfiguration(environmentValue, input = {}, actor = null) {
-  const environment = normaliseEnvironment(environmentValue)
+  const environment = environmentName(environmentValue)
   const changes = input.values && typeof input.values === 'object' ? input.values : input
-  return mutate(async registry => {
-    const before = structuredClone(registry.environments[environment] || {})
-    const next = { ...before }
+  const result = await mutate(registry => {
+    const before = structuredClone(registry.environments[environment])
+    const after = { ...before }
     const restartRequired = []
     for (const [key, value] of Object.entries(changes)) {
       const definition = registry.schema[key]
       if (!definition) throw new ConfigurationError(`Unknown configuration key: ${key}`, 422)
       if (definition.type === 'secret') throw new ConfigurationError(`${key} must be managed through the secrets API`, 422)
-      if (value === undefined) continue
-      if (value === null && !definition.nullable) delete next[key]
-      else next[key] = validateValue(key, value, definition)
+      if (value === null && !definition.nullable) delete after[key]
+      else after[key] = validateValue(key, value, definition)
       if (definition.restartRequired) restartRequired.push(key)
     }
-    registry.environments[environment] = next
-    const record = { id: crypto.randomUUID(), action: 'configuration.updated', environment, actor, before, after: next, restartRequired, createdAt: nowIso() }
-    registry.history.unshift(record)
+    registry.environments[environment] = after
+    registry.history.unshift({ id: crypto.randomUUID(), action: 'configuration.updated', environment, actor, before, after, restartRequired, createdAt: nowIso() })
     registry.history = registry.history.slice(0, 2000)
-    queueMicrotask(() => notifySubscribers({ environment, restartRequired }))
-    await writeStructuredLog('info', 'Configuration updated', { environment, actor, keys: Object.keys(changes), restartRequired })
-    return { environment, values: next, restartRequired, version: registry.version + 1 }
+    return { environment, values: after, restartRequired, version: registry.version + 1 }
   })
+  notify({ type: 'configuration.updated', environment, restartRequired: result.restartRequired })
+  await writeStructuredLog('info', 'Configuration updated', { environment, actor, keys: Object.keys(changes), restartRequired: result.restartRequired })
+  return result
 }
 
 export async function setSecret(nameValue, input = {}, actor = null) {
   const name = String(nameValue || '').trim()
-  if (!/^[A-Z0-9._-]{2,100}$/i.test(name)) throw new ConfigurationError('Secret name is invalid', 422)
+  if (!/^[A-Z_][A-Z0-9_]*$/i.test(name)) throw new ConfigurationError('Secret name is invalid', 422)
   const source = input.source === 'environment' ? 'environment' : 'stored'
   if (source === 'environment') {
     const environment = String(input.environment || name).trim()
@@ -195,8 +156,9 @@ export async function setSecret(nameValue, input = {}, actor = null) {
   }
   const value = String(input.value || '')
   if (value.length < 16) throw new ConfigurationError('Stored secrets must contain at least 16 characters', 422)
+  const encrypted = encrypt(value)
   return mutate(registry => {
-    registry.secrets[name] = { name, source, value, updatedAt: nowIso() }
+    registry.secrets[name] = { name, source, encrypted, updatedAt: nowIso() }
     registry.history.unshift({ id: crypto.randomUUID(), action: 'secret.updated', secret: name, source, actor, createdAt: nowIso() })
     registry.history = registry.history.slice(0, 2000)
     return maskSecret(registry.secrets[name])
@@ -206,26 +168,24 @@ export async function setSecret(nameValue, input = {}, actor = null) {
 export async function deleteSecret(nameValue, actor = null) {
   const name = String(nameValue || '').trim()
   return mutate(registry => {
-    const existed = Boolean(registry.secrets[name])
+    const deleted = Boolean(registry.secrets[name])
     delete registry.secrets[name]
     registry.history.unshift({ id: crypto.randomUUID(), action: 'secret.deleted', secret: name, actor, createdAt: nowIso() })
     registry.history = registry.history.slice(0, 2000)
-    return { deleted: existed, name }
+    return { deleted, name }
   })
 }
 
 export async function validateConfiguration(environmentValue) {
   const registry = await readRegistry()
-  const environment = normaliseEnvironment(environmentValue || registry.activeEnvironment)
+  const environment = environmentName(environmentValue || registry.activeEnvironment)
   const errors = []
   const warnings = []
   for (const [key, definition] of Object.entries(registry.schema)) {
-    const value = effectiveValue(registry, key, environment)
-    if ((definition.required || definition.requiredIn?.includes(environment)) && (value === null || value === undefined || value === '')) {
-      errors.push({ key, code: 'required', message: `${key} is required in ${environment}` })
-      continue
-    }
-    if (value !== null && value !== undefined && definition.type !== 'secret') {
+    let value
+    try { value = effectiveValue(registry, key, environment) } catch (error) { errors.push({ key, code: 'secret-unavailable', message: error.message }); continue }
+    if ((definition.required || definition.requiredIn?.includes(environment)) && (value === null || value === undefined || value === '')) errors.push({ key, code: 'required', message: `${key} is required in ${environment}` })
+    else if (value !== null && value !== undefined && definition.type !== 'secret') {
       try { validateValue(key, value, definition) } catch (error) { errors.push({ key, code: 'invalid', message: error.message }) }
     }
     if (definition.restartRequired && registry.environments[environment]?.[key] !== undefined) warnings.push({ key, code: 'restart-required', message: `${key} requires a process restart after changes` })
@@ -234,21 +194,22 @@ export async function validateConfiguration(environmentValue) {
 }
 
 export async function deploymentReadiness(environmentValue = 'production') {
-  const validation = await validateConfiguration(environmentValue)
+  const environment = environmentName(environmentValue)
+  const validation = await validateConfiguration(environment)
   const registry = await readRegistry()
-  const environment = normaliseEnvironment(environmentValue)
+  const publicUrl = effectiveValue(registry, 'runtime.publicUrl', environment)
+  const origins = effectiveValue(registry, 'runtime.trustedOrigins', environment) || []
   const checks = [
     { id: 'configuration-valid', status: validation.valid ? 'passed' : 'failed', details: validation.errors },
-    { id: 'production-mode', status: environment === 'production' ? 'passed' : 'warning' },
-    { id: 'public-url-https', status: String(effectiveValue(registry, 'runtime.publicUrl', environment) || '').startsWith('https://') ? 'passed' : 'failed' },
-    { id: 'trusted-origins', status: (effectiveValue(registry, 'runtime.trustedOrigins', environment) || []).length ? 'passed' : 'warning' },
+    { id: 'public-url-https', status: String(publicUrl || '').startsWith('https://') ? 'passed' : 'failed' },
+    { id: 'trusted-origins', status: origins.length ? 'passed' : 'warning' },
+    { id: 'master-key', status: process.env.CONFIGURATION_MASTER_KEY?.length >= 32 ? 'passed' : 'warning', message: 'Required only when encrypted stored secrets are used' },
   ]
-  const ready = checks.every(item => item.status !== 'failed')
-  return { environment, ready, checks, checkedAt: nowIso() }
+  return { environment, ready: checks.every(item => item.status !== 'failed'), checks, checkedAt: nowIso() }
 }
 
 export async function activateEnvironment(environmentValue, actor = null) {
-  const environment = normaliseEnvironment(environmentValue)
+  const environment = environmentName(environmentValue)
   const validation = await validateConfiguration(environment)
   if (!validation.valid) throw new ConfigurationError('Configuration cannot be activated because validation failed', 409, validation.errors)
   const result = await mutate(registry => {
@@ -256,29 +217,22 @@ export async function activateEnvironment(environmentValue, actor = null) {
     registry.activeEnvironment = environment
     registry.history.unshift({ id: crypto.randomUUID(), action: 'environment.activated', previous, environment, actor, createdAt: nowIso() })
     registry.history = registry.history.slice(0, 2000)
-    return { previous, environment, activatedAt: nowIso(), restartRequired: Object.values(registry.schema).some(item => item.restartRequired) }
+    return { previous, environment, activatedAt: nowIso() }
   })
-  notifySubscribers({ environment, activated: true })
+  notify({ type: 'environment.activated', environment })
   publishIntegrationEvent('global', 'configuration.activated', result, { configuration: true }).catch(() => {})
   return result
 }
 
 export async function configurationHistory(query = {}) {
   const registry = await readRegistry()
-  const limit = Math.min(500, Math.max(1, Number(query.limit || 100)))
-  return registry.history.slice(0, limit)
+  return registry.history.slice(0, Math.min(500, Math.max(1, Number(query.limit || 100))))
 }
-
 export function subscribeConfiguration(listener) {
   if (typeof listener !== 'function') throw new ConfigurationError('Configuration subscriber must be a function', 422)
   subscribers.add(listener)
   return () => subscribers.delete(listener)
 }
-
-function notifySubscribers(event) {
-  for (const listener of subscribers) Promise.resolve().then(() => listener(event)).catch(error => console.error('Configuration subscriber failed', error))
-}
-
 export async function resolveSecret(reference) {
   const match = /^secret:\/\/(.+)$/.exec(String(reference || ''))
   if (!match) throw new ConfigurationError('Secret reference is invalid', 422)
