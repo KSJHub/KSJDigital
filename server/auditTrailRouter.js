@@ -9,6 +9,8 @@ import {
   updateAuditConfig,
 } from './services/auditTrailService.js'
 
+const WEBSITE_SCOPED_MODULES = new Set(['dynamic-content', 'asset-library', 'taxonomies', 'localisation'])
+
 function requireOwner(req, res) {
   if (req.session?.role === 'owner') return true
   res.status(403).json({ error: 'Owner permission required' })
@@ -21,8 +23,18 @@ function sendError(res, error) {
   res.status(Number(error.status) || 400).json(response)
 }
 
-function websiteFromRequest(req) {
-  return req.params?.websiteId || req.body?.websiteId || req.query?.websiteId || 'global'
+function requestSegments(req) {
+  const pathname = String(req.originalUrl || req.url || '').split('?')[0]
+  const segments = pathname.split('/').filter(Boolean)
+  return segments[0] === 'api' ? segments.slice(1) : segments
+}
+
+function websiteFromRequest(req, segments) {
+  const explicit = req.body?.websiteId || req.query?.websiteId
+  if (explicit) return explicit
+  if (WEBSITE_SCOPED_MODULES.has(segments[0]) && segments[1]) return segments[1]
+  if (segments[0] === 'websites' && segments[1]) return segments[1]
+  return 'global'
 }
 
 export function createAuditCaptureMiddleware() {
@@ -30,8 +42,8 @@ export function createAuditCaptureMiddleware() {
     if (req.method === 'GET' || req.originalUrl?.startsWith('/api/audit')) return next()
     const startedAt = Date.now()
     res.on('finish', () => {
-      const segments = String(req.path || '').split('/').filter(Boolean)
-      const websiteId = websiteFromRequest(req) || segments[1] || 'global'
+      const segments = requestSegments(req)
+      const websiteId = websiteFromRequest(req, segments)
       appendAuditEvent({
         websiteId,
         category: segments[0] || 'api',
