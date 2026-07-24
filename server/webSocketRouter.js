@@ -1,4 +1,5 @@
 import express from 'express'
+import { getWebSocketEventBridgeState } from './services/webSocketEventBridgeService.js'
 import { disconnectWebSocketConnection, getWebSocketConnections, getWebSocketGatewayState } from './services/webSocketService.js'
 
 function requireOwner(req, res) {
@@ -11,7 +12,7 @@ export function createWebSocketRouter() {
   const router = express.Router()
   router.get('/status', (req, res) => {
     if (!requireOwner(req, res)) return
-    res.json(getWebSocketGatewayState())
+    res.json({ gateway: getWebSocketGatewayState(), eventBridge: getWebSocketEventBridgeState() })
   })
   router.get('/connections', (req, res) => {
     if (!requireOwner(req, res)) return
