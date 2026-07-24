@@ -7,6 +7,18 @@ const originalCwd = process.cwd()
 const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'ksj-job-queue-'))
 process.chdir(temporary)
 
+async function removeTemporaryDirectory() {
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    try {
+      await fs.rm(temporary, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 })
+      return
+    } catch (error) {
+      if (attempt === 5) throw error
+      await new Promise(resolve => setTimeout(resolve, attempt * 50))
+    }
+  }
+}
+
 try {
   const service = await import(path.join(originalCwd, 'server/services/jobQueueService.js'))
 
@@ -40,8 +52,9 @@ try {
   assert.match(startSource, /startJobQueueWorker/)
   assert.match(startSource, /\/api\/jobs/)
 
+  await new Promise(resolve => setTimeout(resolve, 100))
   console.log('Job queue checks passed')
 } finally {
   process.chdir(originalCwd)
-  await fs.rm(temporary, { recursive: true, force: true })
+  await removeTemporaryDirectory()
 }
