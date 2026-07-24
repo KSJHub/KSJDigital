@@ -73,7 +73,6 @@ function normalisePolicy(input = {}, existing = null) {
     tags: normaliseTags(input.tags ?? existing?.tags),
     enabled: input.enabled === undefined ? existing?.enabled !== false : input.enabled === true,
     priority: Math.min(10_000, Math.max(-10_000, Number(input.priority ?? existing?.priority ?? 0))),
-    cacheAuthenticated: input.cacheAuthenticated === true,
   }
 }
 function routeMatches(pattern, route) { return pattern === '*' || (pattern.endsWith('*') ? route.startsWith(pattern.slice(0, -1)) : route === pattern) }
@@ -152,7 +151,8 @@ export function createResponseCacheMiddleware() {
     try {
       const registry = await readRegistry()
       const route = req.path || req.originalUrl || '/'
-      const policy = registry.policies.find(item => item.enabled && item.methods.includes(req.method) && routeMatches(item.route, route) && (item.cacheAuthenticated || !req.session?.userId && !req.session?.email && !req.get?.('authorization')))
+      const carriesCredentials = Boolean(req.get?.('authorization') || req.get?.('cookie'))
+      const policy = registry.policies.find(item => item.enabled && !carriesCredentials && item.methods.includes(req.method) && routeMatches(item.route, route))
       if (!policy) return next()
       const cacheKey = `${req.method}:${req.originalUrl || route}`
       const cached = await getCacheEntry(policy.namespace, cacheKey)
