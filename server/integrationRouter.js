@@ -10,6 +10,7 @@ import {
   updateIntegrationSettings,
   upsertIntegration,
 } from './services/integrationService.js'
+import { publishDomainEvent } from './services/realtimeDomainEventService.js'
 
 function requireOwner(req, res) {
   if (req.session?.role === 'owner') return true
@@ -29,6 +30,13 @@ function requireEdit(req, res) {
   if (req.session?.role === 'owner' || req.session?.canEdit) return true
   res.status(403).json({ error: 'Edit permission required' })
   return false
+}
+
+function actor(req) {
+  return {
+    id: req.session?.userId || null,
+    email: req.session?.email || null,
+  }
 }
 
 function sendError(res, error) {
@@ -74,53 +82,148 @@ export function createIntegrationRouter() {
 
   router.get('/:websiteId', async (req, res) => {
     if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
-    try { res.json(await getIntegrationRegistry(req.params.websiteId)) } catch (error) { sendError(res, error) }
+    try {
+      res.json(await getIntegrationRegistry(req.params.websiteId))
+    } catch (error) {
+      sendError(res, error)
+    }
   })
 
   router.post('/:websiteId/subscriptions', async (req, res) => {
     if (!requireOwner(req, res)) return
-    try { res.status(201).json(await upsertIntegration(req.params.websiteId, req.body || {})) } catch (error) { sendError(res, error) }
+    try {
+      const requestedBy = actor(req)
+      const integration = await upsertIntegration(req.params.websiteId, req.body || {})
+      await publishDomainEvent('integration.subscription-created', {
+        websiteId: req.params.websiteId,
+        integrationId: integration.id,
+        provider: integration.provider,
+        enabled: integration.enabled,
+        events: integration.events,
+      }, requestedBy)
+      res.status(201).json(integration)
+    } catch (error) {
+      sendError(res, error)
+    }
   })
 
   router.patch('/:websiteId/subscriptions/:integrationId', async (req, res) => {
     if (!requireOwner(req, res)) return
-    try { res.json(await upsertIntegration(req.params.websiteId, { ...(req.body || {}), id: req.params.integrationId })) } catch (error) { sendError(res, error) }
+    try {
+      const requestedBy = actor(req)
+      const integration = await upsertIntegration(req.params.websiteId, { ...(req.body || {}), id: req.params.integrationId })
+      await publishDomainEvent('integration.subscription-updated', {
+        websiteId: req.params.websiteId,
+        integrationId: integration.id,
+        provider: integration.provider,
+        enabled: integration.enabled,
+        events: integration.events,
+      }, requestedBy)
+      res.json(integration)
+    } catch (error) {
+      sendError(res, error)
+    }
   })
 
   router.delete('/:websiteId/subscriptions/:integrationId', async (req, res) => {
     if (!requireOwner(req, res)) return
-    try { res.json(await deleteIntegration(req.params.websiteId, req.params.integrationId)) } catch (error) { sendError(res, error) }
+    try {
+      const requestedBy = actor(req)
+      const result = await deleteIntegration(req.params.websiteId, req.params.integrationId)
+      await publishDomainEvent('integration.subscription-deleted', {
+        websiteId: req.params.websiteId,
+        integrationId: req.params.integrationId,
+        deleted: result.deleted === true,
+      }, requestedBy)
+      res.json(result)
+    } catch (error) {
+      sendError(res, error)
+    }
   })
 
   router.get('/:websiteId/deliveries', async (req, res) => {
     if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
-    try { res.json(await searchIntegrationDeliveries(req.params.websiteId, req.query)) } catch (error) { sendError(res, error) }
+    try {
+      res.json(await searchIntegrationDeliveries(req.params.websiteId, req.query))
+    } catch (error) {
+      sendError(res, error)
+    }
   })
 
   router.post('/:websiteId/deliveries/:deliveryId/retry', async (req, res) => {
     if (!requireOwner(req, res)) return
-    try { res.json(await retryIntegrationDelivery(req.params.websiteId, req.params.deliveryId)) } catch (error) { sendError(res, error) }
+    try {
+      const requestedBy = actor(req)
+      const delivery = await retryIntegrationDelivery(req.params.websiteId, req.params.deliveryId)
+      await publishDomainEvent('integration.delivery-retried', {
+        websiteId: req.params.websiteId,
+        integrationId: delivery.integrationId,
+        deliveryId: delivery.id,
+        eventName: delivery.eventName,
+        status: delivery.status,
+      }, requestedBy)
+      res.json(delivery)
+    } catch (error) {
+      sendError(res, error)
+    }
   })
 
   router.post('/:websiteId/process', async (req, res) => {
     if (!requireOwner(req, res)) return
-    try { res.json(await processIntegrationQueue(req.params.websiteId, req.body || {})) } catch (error) { sendError(res, error) }
+    try {
+      const requestedBy = actor(req)
+      const result = await processIntegrationQueue(req.params.websiteId, req.body || {})
+      await publishDomainEvent('integration.queue-processed', {
+        websiteId: req.params.websiteId,
+        processed: result.processed,
+        deliveredCount: result.results.filter(item => item.status === 'delivered').length,
+        retryingCount: result.results.filter(item => item.status === 'retrying').length,
+        failedCount: result.results.filter(item => item.status === 'failed').length,
+        cancelledCount: result.results.filter(item => item.status === 'cancelled').length,
+        deliveryIds: result.results.map(item => item.id),
+      }, requestedBy)
+      res.json(result)
+    } catch (error) {
+      sendError(res, error)
+    }
   })
 
   router.patch('/:websiteId/settings', async (req, res) => {
     if (!requireOwner(req, res)) return
-    try { res.json(await updateIntegrationSettings(req.params.websiteId, req.body || {})) } catch (error) { sendError(res, error) }
+    try {
+      const requestedBy = actor(req)
+      const settings = await updateIntegrationSettings(req.params.websiteId, req.body || {})
+      await publishDomainEvent('integration.settings-updated', {
+        websiteId: req.params.websiteId,
+        enabled: settings.enabled,
+        workerIntervalMs: settings.workerIntervalMs,
+        deliveryRetentionDays: settings.deliveryRetentionDays,
+      }, requestedBy)
+      res.json(settings)
+    } catch (error) {
+      sendError(res, error)
+    }
   })
 
   router.post('/:websiteId/events/:eventName', async (req, res) => {
     if (!requireWebsiteAccess(req, res, req.params.websiteId) || !requireEdit(req, res)) return
     try {
-      res.status(202).json(await publishIntegrationEvent(req.params.websiteId, req.params.eventName, req.body?.data ?? req.body ?? {}, {
-        actorId: req.session?.userId || null,
-        actorEmail: req.session?.email || null,
+      const requestedBy = actor(req)
+      const result = await publishIntegrationEvent(req.params.websiteId, req.params.eventName, req.body?.data ?? req.body ?? {}, {
+        actorId: requestedBy.id,
+        actorEmail: requestedBy.email,
         manual: true,
-      }))
-    } catch (error) { sendError(res, error) }
+      })
+      await publishDomainEvent('integration.event-published', {
+        websiteId: req.params.websiteId,
+        eventName: req.params.eventName,
+        queued: result.queued,
+        deliveryIds: result.deliveryIds,
+      }, requestedBy)
+      res.status(202).json(result)
+    } catch (error) {
+      sendError(res, error)
+    }
   })
 
   return router
