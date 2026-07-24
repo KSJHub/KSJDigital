@@ -10,10 +10,12 @@ import {
   getContentRecord,
   listContentRecords,
   processScheduledContentRecords,
+  rebuildContentSearchIndexForWebsite,
   restoreContentRecord,
   transitionContentRecord,
   updateContentRecord,
 } from './services/contentRecordService.js'
+import { searchContent } from './services/contentSearchService.js'
 
 function requireEdit(req, res) {
   if (req.session?.role === 'owner' || req.session?.canEdit) return true
@@ -43,6 +45,23 @@ function workflowActor(req) {
   }
 }
 
+function searchOptions(query = {}) {
+  const filters = {}
+  for (const [key, value] of Object.entries(query)) {
+    if (!key.startsWith('filter.')) continue
+    const field = key.slice('filter.'.length)
+    if (field) filters[field] = Array.isArray(value) ? value : String(value).split(',').filter(Boolean)
+  }
+  return {
+    query: query.q || query.query || '',
+    types: query.types ? String(query.types).split(',').filter(Boolean) : query.type ? [String(query.type)] : [],
+    filters,
+    sort: query.sort,
+    limit: query.limit,
+    offset: query.offset,
+  }
+}
+
 function sendError(res, error) {
   const response = { error: error.message || 'Dynamic content request failed' }
   if (Array.isArray(error.errors)) response.validation = error.errors
@@ -65,6 +84,24 @@ export function createDynamicContentRouter() {
     const definition = describeContentType(req.params.typeId)
     if (!definition) return res.status(404).json({ error: 'Content type not found' })
     res.json(definition)
+  })
+
+  router.get('/:websiteId/search', async (req, res) => {
+    try {
+      res.json(await searchContent(req.params.websiteId, searchOptions(req.query), workflowActor(req)))
+    } catch (error) {
+      sendError(res, error)
+    }
+  })
+
+  router.post('/:websiteId/search/rebuild', async (req, res) => {
+    if (!requireOwner(req, res)) return
+    try {
+      const documents = await rebuildContentSearchIndexForWebsite(req.params.websiteId)
+      res.json({ count: documents.length })
+    } catch (error) {
+      sendError(res, error)
+    }
   })
 
   router.post('/:websiteId/process-scheduled', async (req, res) => {
@@ -96,12 +133,7 @@ export function createDynamicContentRouter() {
   router.post('/:websiteId/:typeId', async (req, res) => {
     if (!requireEdit(req, res)) return
     try {
-      const record = await createContentRecord(
-        req.params.websiteId,
-        req.params.typeId,
-        req.body || {},
-        workflowActor(req),
-      )
+      const record = await createContentRecord(req.params.websiteId, req.params.typeId, req.body || {}, workflowActor(req))
       res.status(201).json(record)
     } catch (error) {
       sendError(res, error)
@@ -111,13 +143,7 @@ export function createDynamicContentRouter() {
   router.patch('/:websiteId/:typeId/:recordId', async (req, res) => {
     if (!requireEdit(req, res)) return
     try {
-      res.json(await updateContentRecord(
-        req.params.websiteId,
-        req.params.typeId,
-        req.params.recordId,
-        req.body || {},
-        workflowActor(req),
-      ))
+      res.json(await updateContentRecord(req.params.websiteId, req.params.typeId, req.params.recordId, req.body || {}, workflowActor(req)))
     } catch (error) {
       sendError(res, error)
     }
@@ -126,14 +152,7 @@ export function createDynamicContentRouter() {
   router.post('/:websiteId/:typeId/:recordId/transitions/:transitionId', async (req, res) => {
     if (!requireWorkflow(req, res)) return
     try {
-      res.json(await transitionContentRecord(
-        req.params.websiteId,
-        req.params.typeId,
-        req.params.recordId,
-        req.params.transitionId,
-        workflowActor(req),
-        req.body || {},
-      ))
+      res.json(await transitionContentRecord(req.params.websiteId, req.params.typeId, req.params.recordId, req.params.transitionId, workflowActor(req), req.body || {}))
     } catch (error) {
       sendError(res, error)
     }
@@ -142,13 +161,7 @@ export function createDynamicContentRouter() {
   router.post('/:websiteId/:typeId/:recordId/restore/:revisionId', async (req, res) => {
     if (!requireEdit(req, res)) return
     try {
-      res.json(await restoreContentRecord(
-        req.params.websiteId,
-        req.params.typeId,
-        req.params.recordId,
-        req.params.revisionId,
-        workflowActor(req),
-      ))
+      res.json(await restoreContentRecord(req.params.websiteId, req.params.typeId, req.params.recordId, req.params.revisionId, workflowActor(req)))
     } catch (error) {
       sendError(res, error)
     }
