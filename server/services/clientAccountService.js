@@ -26,7 +26,7 @@ export async function createClientAccount(req, res) {
   const password = String(req.body?.password || req.body?.accessCode || '')
   if (!password) return res.status(422).json({ error: 'Password is required' })
   const client = { id, ...accountFields(req.body), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
-  await setPassword(id, password, { forcePasswordReset: req.body?.forcePasswordReset === true })
+  await setPassword(id, password, { enforcePolicy: true, forcePasswordReset: req.body?.forcePasswordReset === true })
   await writeJson(paths.clients(), [...clients, client])
   return res.status(201).json(sanitise(client))
 }
@@ -36,7 +36,7 @@ export async function updateClientAccount(req, res) {
   const current = clients.find(item => item.id === req.params.id)
   if (!current) return res.status(404).json({ error: 'Client not found' })
   const password = String(req.body?.password || req.body?.accessCode || '')
-  if (password) await setPassword(current.id, password, { forcePasswordReset: req.body?.forcePasswordReset === true })
+  if (password) await setPassword(current.id, password, { enforcePolicy: true, forcePasswordReset: req.body?.forcePasswordReset === true })
   const cleanInput = { ...req.body }; delete cleanInput.password; delete cleanInput.accessCode
   const updatedClient = { id: current.id, ...accountFields(cleanInput, current), updatedAt: new Date().toISOString() }
   await writeJson(paths.clients(), clients.map(item => item.id === current.id ? updatedClient : item))
