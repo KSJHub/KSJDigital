@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import express from 'express'
+import { createAbuseProtectionRouter } from './abuseProtectionRouter.js'
 import { createAutomationRouter } from './automationRouter.js'
 import { createBackupRouter } from './backupRouter.js'
 import { createConfigurationRouter } from './configurationRouter.js'
@@ -20,6 +21,7 @@ import {
   mountPublicRoutes,
   validateUploadedAsset,
 } from './routeExtensions.js'
+import { createAbuseProtectionMiddleware } from './services/abuseProtectionService.js'
 import { appendAuditEvent, auditRequestContext } from './services/auditTrailService.js'
 import { startAutomationWorker } from './services/automationService.js'
 import { startBackupScheduler } from './services/backupService.js'
@@ -119,6 +121,7 @@ express.application.use = function routeAwareUse(...args) {
 
   if (!publicRoutesMounted && middleware?.name === 'jsonParser') {
     publicRoutesMounted = true
+    originalUse.call(this, createAbuseProtectionMiddleware())
     mountPublicRoutes(this)
   }
 
@@ -146,6 +149,7 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, '/api/notifications', createNotificationRouter())
     originalUse.call(this, '/api/feature-flags', createFeatureFlagRouter())
     originalUse.call(this, '/api/service-accounts', createServiceAccountRouter())
+    originalUse.call(this, '/api/abuse-protection', createAbuseProtectionRouter())
     originalUse.call(this, '/api/system-health', createSystemHealthRouter())
     originalUse.call(this, '/api/backups', createBackupRouter())
     originalUse.call(this, '/api/configuration', createConfigurationRouter())
