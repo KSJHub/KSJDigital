@@ -9,7 +9,9 @@ import {
   deleteContentRecord,
   getContentRecord,
   listContentRecords,
+  processScheduledContentRecords,
   restoreContentRecord,
+  transitionContentRecord,
   updateContentRecord,
 } from './services/contentRecordService.js'
 
@@ -17,6 +19,22 @@ function requireEdit(req, res) {
   if (req.session?.role === 'owner' || req.session?.canEdit) return true
   res.status(403).json({ error: 'Edit permission required' })
   return false
+}
+
+function requireOwner(req, res) {
+  if (req.session?.role === 'owner') return true
+  res.status(403).json({ error: 'Owner permission required' })
+  return false
+}
+
+function workflowActor(req) {
+  return {
+    id: req.session?.userId || req.session?.email || 'session-user',
+    name: req.session?.displayName || req.session?.name || req.session?.email || 'Authenticated user',
+    role: req.session?.role,
+    canEdit: req.session?.canEdit === true,
+    canApprove: req.session?.canApprove === true,
+  }
 }
 
 function sendError(res, error) {
@@ -43,9 +61,19 @@ export function createDynamicContentRouter() {
     res.json(definition)
   })
 
+  router.post('/:websiteId/process-scheduled', async (req, res) => {
+    if (!requireOwner(req, res)) return
+    try {
+      const published = await processScheduledContentRecords(req.params.websiteId)
+      res.json({ published, count: published.length })
+    } catch (error) {
+      sendError(res, error)
+    }
+  })
+
   router.get('/:websiteId/:typeId', async (req, res) => {
     try {
-      res.json(await listContentRecords(req.params.websiteId, req.params.typeId))
+      res.json(await listContentRecords(req.params.websiteId, req.params.typeId, workflowActor(req)))
     } catch (error) {
       sendError(res, error)
     }
@@ -53,7 +81,7 @@ export function createDynamicContentRouter() {
 
   router.get('/:websiteId/:typeId/:recordId', async (req, res) => {
     try {
-      res.json(await getContentRecord(req.params.websiteId, req.params.typeId, req.params.recordId))
+      res.json(await getContentRecord(req.params.websiteId, req.params.typeId, req.params.recordId, workflowActor(req)))
     } catch (error) {
       sendError(res, error)
     }
@@ -62,7 +90,12 @@ export function createDynamicContentRouter() {
   router.post('/:websiteId/:typeId', async (req, res) => {
     if (!requireEdit(req, res)) return
     try {
-      const record = await createContentRecord(req.params.websiteId, req.params.typeId, req.body || {})
+      const record = await createContentRecord(
+        req.params.websiteId,
+        req.params.typeId,
+        req.body || {},
+        workflowActor(req),
+      )
       res.status(201).json(record)
     } catch (error) {
       sendError(res, error)
@@ -72,7 +105,29 @@ export function createDynamicContentRouter() {
   router.patch('/:websiteId/:typeId/:recordId', async (req, res) => {
     if (!requireEdit(req, res)) return
     try {
-      res.json(await updateContentRecord(req.params.websiteId, req.params.typeId, req.params.recordId, req.body || {}))
+      res.json(await updateContentRecord(
+        req.params.websiteId,
+        req.params.typeId,
+        req.params.recordId,
+        req.body || {},
+        workflowActor(req),
+      ))
+    } catch (error) {
+      sendError(res, error)
+    }
+  })
+
+  router.post('/:websiteId/:typeId/:recordId/transitions/:transitionId', async (req, res) => {
+    if (!requireEdit(req, res)) return
+    try {
+      res.json(await transitionContentRecord(
+        req.params.websiteId,
+        req.params.typeId,
+        req.params.recordId,
+        req.params.transitionId,
+        workflowActor(req),
+        req.body || {},
+      ))
     } catch (error) {
       sendError(res, error)
     }
@@ -86,6 +141,7 @@ export function createDynamicContentRouter() {
         req.params.typeId,
         req.params.recordId,
         req.params.revisionId,
+        workflowActor(req),
       ))
     } catch (error) {
       sendError(res, error)
