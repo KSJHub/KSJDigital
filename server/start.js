@@ -3,6 +3,7 @@ import path from 'node:path'
 import express from 'express'
 import { createAbuseProtectionRouter } from './abuseProtectionRouter.js'
 import { createApiKeyRouter } from './apiKeyRouter.js'
+import { createAuthenticationAdminRouter, createPasswordResetPublicRouter } from './authenticationAdminRouter.js'
 import { createAuthenticationPublicRouter } from './authenticationRouter.js'
 import { createAutomationRouter } from './automationRouter.js'
 import { createBackupRouter } from './backupRouter.js'
@@ -41,6 +42,7 @@ import {
 import { startAutomationWorker } from './services/automationService.js'
 import { startBackupScheduler } from './services/backupService.js'
 import { createResponseCacheMiddleware } from './services/cacheService.js'
+import { createClientAccount, updateClientAccount } from './services/clientAccountService.js'
 import { startCollaborationCleanup } from './services/collaborationService.js'
 import { startContentWorkflowScheduler } from './services/contentWorkflowScheduler.js'
 import { startEventBusWorker } from './services/eventBusService.js'
@@ -54,62 +56,43 @@ import { createSystemHealthRouter } from './systemHealthRouter.js'
 function loadLocalEnvironment() {
   const file = path.resolve(process.cwd(), '.env.local')
   if (!fs.existsSync(file)) return
-
   for (const rawLine of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
     const line = rawLine.trim()
     if (!line || line.startsWith('#')) continue
     const separator = line.indexOf('=')
     if (separator < 1) continue
-
     const key = line.slice(0, separator).trim()
     let value = line.slice(separator + 1).trim()
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1)
-    }
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1)
     if (!(key in process.env)) process.env[key] = value
   }
 }
-
 const credentialConfiguration = {
-  morgan: { environment: 'KSJ_OWNER_PASSWORD', development: 'owner-access' },
-  taj: { environment: 'TWOTONETAJ_CLIENT_PASSWORD', development: 'client-access' },
-  'goliath-admin': { environment: 'GOLIATH_CLIENT_PASSWORD', development: 'draft-access' },
+  morgan: { environment: 'KSJ_OWNER_PASSWORD', development: 'Owner-access1!' },
+  taj: { environment: 'TWOTONETAJ_CLIENT_PASSWORD', development: 'Client-access1!' },
+  'goliath-admin': { environment: 'GOLIATH_CLIENT_PASSWORD', development: 'Draft-access1!' },
 }
-
 async function synchroniseConfiguredCredentials() {
   const production = process.env.NODE_ENV === 'production'
-
   for (const [accountId, configuration] of Object.entries(credentialConfiguration)) {
     const configured = String(process.env[configuration.environment] || '').trim()
     const desired = configured || (!production ? configuration.development : '')
     if (!desired) continue
-
     const current = await getCredential(accountId)
     if (current?.passwordHash && await verifyPassword(desired, current.passwordHash)) continue
     await setPassword(accountId, desired)
   }
 }
-
 function authenticationAudit(action) {
   return function captureAuthentication(req, res, next) {
     const startedAt = Date.now()
     const email = action === 'login' ? String(req.body?.email || '').trim().toLowerCase() : null
     res.on('finish', () => {
-      appendAuditEvent({
-        websiteId: 'global',
-        category: 'authentication',
-        action,
-        outcome: res.statusCode < 400 ? 'success' : 'failure',
-        actor: email ? { email } : null,
-        request: auditRequestContext(req),
-        resource: { type: 'session', id: email },
-        metadata: { statusCode: res.statusCode, durationMs: Date.now() - startedAt },
-      }).catch(error => console.error('Could not append authentication audit event', error))
+      appendAuditEvent({ websiteId: 'global', category: 'authentication', action, outcome: res.statusCode < 400 ? 'success' : 'failure', actor: email ? { email } : null, request: auditRequestContext(req), resource: { type: 'session', id: email }, metadata: { statusCode: res.statusCode, durationMs: Date.now() - startedAt } }).catch(error => console.error('Could not append authentication audit event', error))
     })
     next()
   }
 }
-
 loadLocalEnvironment()
 await migratePlaintextCredentials()
 await synchroniseConfiguredCredentials()
@@ -122,61 +105,50 @@ startRetentionScheduler()
 startCollaborationCleanup()
 startSystemHealthMonitor()
 startBackupScheduler()
-
 const originalUse = express.application.use
 const originalGet = express.application.get
 const originalPost = express.application.post
+const originalPatch = express.application.patch
 let publicRoutesMounted = false
 let protectedRoutesMounted = false
 let assetServingMounted = false
 let assetUploadMounted = false
-
 express.application.get = function guardedGet(...args) {
   if (args[0] === '/api/me') return originalGet.call(this, args[0], getCurrentAuthenticationSession)
   return originalGet.apply(this, args)
 }
-
 express.application.post = function guardedPost(...args) {
-  if (args[0] === '/api/assets/:ownerId/:websiteId/:slotId' && args.length >= 3) {
-    return originalPost.call(this, args[0], args[1], validateUploadedAsset, ...args.slice(2))
-  }
+  if (args[0] === '/api/assets/:ownerId/:websiteId/:slotId' && args.length >= 3) return originalPost.call(this, args[0], args[1], validateUploadedAsset, ...args.slice(2))
   if (args[0] === '/api/login') return originalPost.call(this, args[0], authenticationAudit('login'), loginWithPassword)
   if (args[0] === '/api/logout') return originalPost.call(this, args[0], authenticationAudit('logout'), logoutAuthenticationSession)
+  if (args[0] === '/api/clients') return originalPost.call(this, args[0], createClientAccount)
   return originalPost.apply(this, args)
 }
-
+express.application.patch = function guardedPatch(...args) {
+  if (args[0] === '/api/clients/:id') return originalPatch.call(this, args[0], updateClientAccount)
+  return originalPatch.apply(this, args)
+}
 express.application.use = function routeAwareUse(...args) {
   const mountPath = typeof args[0] === 'string' ? args[0] : ''
   const middleware = mountPath ? args[1] : args[0]
-
   if (!publicRoutesMounted && middleware?.name === 'jsonParser') {
     publicRoutesMounted = true
     originalUse.call(this, createAbuseProtectionMiddleware())
     originalUse.call(this, createResponseCacheMiddleware())
     originalUse.call(this, createAuthenticationPublicRouter())
+    originalUse.call(this, createPasswordResetPublicRouter())
     mountPublicRoutes(this)
   }
-
-  if (!assetServingMounted && mountPath === '/assets') {
-    assetServingMounted = true
-    originalUse.call(this, '/assets', assetServingGuard)
-  }
-
-  if (!assetUploadMounted && mountPath === '/api') {
-    assetUploadMounted = true
-    originalUse.call(this, '/api/assets', assetUploadGuard)
-  }
-
+  if (!assetServingMounted && mountPath === '/assets') { assetServingMounted = true; originalUse.call(this, '/assets', assetServingGuard) }
+  if (!assetUploadMounted && mountPath === '/api') { assetUploadMounted = true; originalUse.call(this, '/api/assets', assetUploadGuard) }
   const replacingLegacySessionGuard = mountPath === '/api' && middleware?.name === 'requireSession'
-  const result = replacingLegacySessionGuard
-    ? originalUse.call(this, '/api', requireAuthenticationSession)
-    : originalUse.apply(this, args)
-
+  const result = replacingLegacySessionGuard ? originalUse.call(this, '/api', requireAuthenticationSession) : originalUse.apply(this, args)
   if (!protectedRoutesMounted && replacingLegacySessionGuard) {
     protectedRoutesMounted = true
     originalUse.call(this, '/api', createRequestMetricsMiddleware())
     originalUse.call(this, '/api', createIntegrationEventCaptureMiddleware())
     mountProtectedRoutes(this)
+    originalUse.call(this, '/api/auth', createAuthenticationAdminRouter())
     originalUse.call(this, '/api/field-registry', createFieldRegistryRouter())
     originalUse.call(this, '/api/integrations', createIntegrationRouter())
     originalUse.call(this, '/api/automations', createAutomationRouter())
@@ -199,12 +171,10 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, '/api/releases', createReleaseRouter())
     originalUse.call(this, '/api/migrations', createMigrationRouter())
   }
-
   return result
 }
-
 await import('./index.js')
-
 express.application.use = originalUse
 express.application.get = originalGet
 express.application.post = originalPost
+express.application.patch = originalPatch
