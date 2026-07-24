@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import express from 'express'
+import { createAutomationRouter } from './automationRouter.js'
 import { getCredential, setPassword, verifyPassword } from './credentialStore.js'
 import { createIntegrationEventCaptureMiddleware, createIntegrationRouter } from './integrationRouter.js'
 import {
@@ -11,6 +12,7 @@ import {
   validateUploadedAsset,
 } from './routeExtensions.js'
 import { appendAuditEvent, auditRequestContext } from './services/auditTrailService.js'
+import { startAutomationWorker } from './services/automationService.js'
 import { startContentWorkflowScheduler } from './services/contentWorkflowScheduler.js'
 import { startIntegrationWorker } from './services/integrationService.js'
 
@@ -77,6 +79,7 @@ loadLocalEnvironment()
 await synchroniseConfiguredCredentials()
 startContentWorkflowScheduler()
 startIntegrationWorker()
+startAutomationWorker()
 
 const originalUse = express.application.use
 const originalPost = express.application.post
@@ -120,6 +123,7 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, '/api', createIntegrationEventCaptureMiddleware())
     mountProtectedRoutes(this)
     originalUse.call(this, '/api/integrations', createIntegrationRouter())
+    originalUse.call(this, '/api/automations', createAutomationRouter())
   }
 
   return result
