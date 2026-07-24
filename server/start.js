@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import express from 'express'
+import { createAssetLibraryRouter } from './assetLibraryRouter.js'
 import { getCredential, setPassword, verifyPassword } from './credentialStore.js'
 import {
   assetServingGuard,
@@ -92,6 +93,7 @@ express.application.use = function routeAwareUse(...args) {
   if (!protectedRoutesMounted && mountPath === '/api' && middleware?.name === 'requireSession') {
     protectedRoutesMounted = true
     mountProtectedRoutes(this)
+    originalUse.call(this, '/api/asset-library', createAssetLibraryRouter())
   }
 
   return result
