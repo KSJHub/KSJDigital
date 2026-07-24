@@ -7,6 +7,7 @@ import { createBackupRouter } from './backupRouter.js'
 import { createCacheRouter } from './cacheRouter.js'
 import { createConfigurationRouter } from './configurationRouter.js'
 import { getCredential, setPassword, verifyPassword } from './credentialStore.js'
+import { createDataPortabilityRouter } from './dataPortabilityRouter.js'
 import { createEventBusRouter } from './eventBusRouter.js'
 import { createFeatureFlagRouter } from './featureFlagRouter.js'
 import { createFieldRegistryRouter } from './fieldRegistryRouter.js'
@@ -158,6 +159,7 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, '/api/abuse-protection', createAbuseProtectionRouter())
     originalUse.call(this, '/api/cache', createCacheRouter())
     originalUse.call(this, '/api/event-bus', createEventBusRouter())
+    originalUse.call(this, '/api/data-portability', createDataPortabilityRouter())
     originalUse.call(this, '/api/system-health', createSystemHealthRouter())
     originalUse.call(this, '/api/backups', createBackupRouter())
     originalUse.call(this, '/api/configuration', createConfigurationRouter())
