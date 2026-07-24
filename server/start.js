@@ -15,6 +15,8 @@ import { appendAuditEvent, auditRequestContext } from './services/auditTrailServ
 import { startAutomationWorker } from './services/automationService.js'
 import { startContentWorkflowScheduler } from './services/contentWorkflowScheduler.js'
 import { startIntegrationWorker } from './services/integrationService.js'
+import { createRequestMetricsMiddleware, startSystemHealthMonitor } from './services/systemHealthService.js'
+import { createSystemHealthRouter } from './systemHealthRouter.js'
 
 function loadLocalEnvironment() {
   const file = path.resolve(process.cwd(), '.env.local')
@@ -80,6 +82,7 @@ await synchroniseConfiguredCredentials()
 startContentWorkflowScheduler()
 startIntegrationWorker()
 startAutomationWorker()
+startSystemHealthMonitor()
 
 const originalUse = express.application.use
 const originalPost = express.application.post
@@ -120,10 +123,12 @@ express.application.use = function routeAwareUse(...args) {
 
   if (!protectedRoutesMounted && mountPath === '/api' && middleware?.name === 'requireSession') {
     protectedRoutesMounted = true
+    originalUse.call(this, '/api', createRequestMetricsMiddleware())
     originalUse.call(this, '/api', createIntegrationEventCaptureMiddleware())
     mountProtectedRoutes(this)
     originalUse.call(this, '/api/integrations', createIntegrationRouter())
     originalUse.call(this, '/api/automations', createAutomationRouter())
+    originalUse.call(this, '/api/system-health', createSystemHealthRouter())
   }
 
   return result
