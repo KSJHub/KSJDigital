@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import express from 'express'
 import { getCredential, setPassword, verifyPassword } from './credentialStore.js'
+import { createIntegrationEventCaptureMiddleware, createIntegrationRouter } from './integrationRouter.js'
 import {
   assetServingGuard,
   assetUploadGuard,
@@ -11,6 +12,7 @@ import {
 } from './routeExtensions.js'
 import { appendAuditEvent, auditRequestContext } from './services/auditTrailService.js'
 import { startContentWorkflowScheduler } from './services/contentWorkflowScheduler.js'
+import { startIntegrationWorker } from './services/integrationService.js'
 
 function loadLocalEnvironment() {
   const file = path.resolve(process.cwd(), '.env.local')
@@ -74,6 +76,7 @@ function authenticationAudit(action) {
 loadLocalEnvironment()
 await synchroniseConfiguredCredentials()
 startContentWorkflowScheduler()
+startIntegrationWorker()
 
 const originalUse = express.application.use
 const originalPost = express.application.post
@@ -114,7 +117,9 @@ express.application.use = function routeAwareUse(...args) {
 
   if (!protectedRoutesMounted && mountPath === '/api' && middleware?.name === 'requireSession') {
     protectedRoutesMounted = true
+    originalUse.call(this, '/api', createIntegrationEventCaptureMiddleware())
     mountProtectedRoutes(this)
+    originalUse.call(this, '/api/integrations', createIntegrationRouter())
   }
 
   return result
