@@ -60,7 +60,6 @@ function idValue(value, label) {
   if (!id || id === 'file') throw new ApiKeyError(`${label} is invalid`, 422)
   return id
 }
-function actorId(actor = {}) { return String(actor.id || actor.email || 'system').slice(0, 320) }
 function hashSecret(value) { return crypto.createHash('sha256').update(String(value)).digest('hex') }
 function createSecret(id) { return `ksj_${id}_${crypto.randomBytes(32).toString('base64url')}` }
 function safeKey(key) { const { secretHash, ...safe } = key; return structuredClone(safe) }
@@ -84,12 +83,19 @@ function isoOrNull(value, label) {
   if (!Number.isFinite(date.getTime())) throw new ApiKeyError(`${label} is invalid`, 422)
   return date.toISOString()
 }
+function maximumRequests(value, existing) {
+  if (value === undefined) return existing || null
+  if (value === null || value === '') return null
+  const result = Number(value)
+  if (!Number.isFinite(result) || result < 1) throw new ApiKeyError('Maximum requests is invalid', 422)
+  return Math.floor(result)
+}
 function normaliseRestrictions(input = {}, existing = {}) {
   return {
     allowedIps: normaliseList(input.allowedIps === undefined ? existing.allowedIps : input.allowedIps, 500),
     allowedOrigins: normaliseList(input.allowedOrigins === undefined ? existing.allowedOrigins : input.allowedOrigins, 500).map(value => value.toLowerCase()),
     allowedUserAgents: normaliseList(input.allowedUserAgents === undefined ? existing.allowedUserAgents : input.allowedUserAgents, 100),
-    maximumRequests: input.maximumRequests === undefined ? existing.maximumRequests || null : input.maximumRequests === null ? null : Math.max(1, Math.floor(Number(input.maximumRequests))),
+    maximumRequests: maximumRequests(input.maximumRequests, existing.maximumRequests),
   }
 }
 function activeStatus(key, at = Date.now()) {
@@ -205,6 +211,7 @@ export async function rotateApiKey(value, input = {}, actor = null) {
   if (!current) throw new ApiKeyError('API key not found', 404)
   if (activeStatus(current) === 'revoked') throw new ApiKeyError('Revoked API keys cannot be rotated', 409)
   const transitionSeconds = Math.min(86400, Math.max(0, Number(input.transitionSeconds || 0)))
+  if (!Number.isFinite(transitionSeconds)) throw new ApiKeyError('Transition period is invalid', 422)
   const replacement = await createApiKey({
     name: input.name || `${current.name} rotation`, scopes: current.scopes, websiteIds: current.websiteIds,
     environment: current.environment, readOnly: current.readOnly, activeAt: nowIso(), expiresAt: input.expiresAt ?? current.expiresAt,
@@ -244,14 +251,15 @@ export async function authenticateApiKey(secret, context = {}) {
   if (!originMatches(key.restrictions.allowedOrigins, context.origin)) return failure('API key origin restriction failed', 403, key.id)
   if (!userAgentMatches(key.restrictions.allowedUserAgents, context.userAgent)) return failure('API key User-Agent restriction failed', 403, key.id)
   if (key.restrictions.maximumRequests && key.usageCount >= key.restrictions.maximumRequests) return failure('API key request limit reached', 429, key.id)
+  const usedAt = nowIso()
   await mutate(state => {
     const item = state.keys.find(candidate => candidate.id === key.id)
-    item.usageCount += 1; item.lastUsedAt = nowIso(); item.lastIp = context.ip || null; item.lastOrigin = context.origin || null
+    item.usageCount += 1; item.lastUsedAt = usedAt; item.lastIp = context.ip || null; item.lastOrigin = context.origin || null
     state.statistics.authenticated += 1
     state.history.unshift({ id: crypto.randomUUID(), action: 'api-key.authenticated', keyId: key.id, scope: requiredScope, websiteId: context.websiteId || null, createdAt: item.lastUsedAt })
   })
   await writeStructuredLog('info', 'API key authenticated', { keyId: key.id, scope: requiredScope, websiteId: context.websiteId || null })
-  return safeKey({ ...key, usageCount: key.usageCount + 1, lastUsedAt: nowIso() })
+  return safeKey({ ...key, usageCount: key.usageCount + 1, lastUsedAt: usedAt })
 }
 
 export function createApiKeyAuthenticationMiddleware(options = {}) {
