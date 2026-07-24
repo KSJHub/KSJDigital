@@ -1,5 +1,4 @@
 import crypto from 'node:crypto'
-import fs from 'node:fs/promises'
 import path from 'node:path'
 import { DATA_DIR, readJson, safeName, writeJson } from '../storage.js'
 import { createBackup } from './backupService.js'
