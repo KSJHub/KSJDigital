@@ -17,6 +17,12 @@ function requireEdit(req, res) {
   return false
 }
 
+function requireWorkflow(req, res) {
+  if (req.session?.role === 'owner' || req.session?.canEdit || req.session?.canApprove) return true
+  res.status(403).json({ error: 'Workflow permission required' })
+  return false
+}
+
 function workflowActor(req) {
   return {
     id: req.session?.userId || req.session?.email || 'session-user',
@@ -76,7 +82,7 @@ export function createCmsRouter() {
   })
 
   router.post('/:websiteId/:articleId/transitions/:transitionId', async (req, res) => {
-    if (!requireEdit(req, res)) return
+    if (!requireWorkflow(req, res)) return
     try {
       const actor = workflowActor(req)
       const article = await transitionContentRecord(
