@@ -9,6 +9,7 @@ import {
   mountPublicRoutes,
   validateUploadedAsset,
 } from './routeExtensions.js'
+import { startContentWorkflowScheduler } from './services/contentWorkflowScheduler.js'
 
 function loadLocalEnvironment() {
   const file = path.resolve(process.cwd(), '.env.local')
@@ -51,6 +52,7 @@ async function synchroniseConfiguredCredentials() {
 
 loadLocalEnvironment()
 await synchroniseConfiguredCredentials()
+startContentWorkflowScheduler()
 
 const originalUse = express.application.use
 const originalPost = express.application.post
