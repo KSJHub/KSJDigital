@@ -3,6 +3,16 @@ import { DATA_DIR, readJson, safeName, writeJson } from '../storage.js'
 import { getContentType, listContentTypes } from './contentTypeRegistry.js'
 
 const MAX_RESULTS = 100
+const indexMutations = new Map()
+
+export class ContentSearchError extends Error {
+  constructor(message, status = 400, details = null) {
+    super(message)
+    this.name = 'ContentSearchError'
+    this.status = status
+    this.details = details
+  }
+}
 
 function searchPath(websiteId) {
   return path.join(DATA_DIR, 'content-search', `${safeName(websiteId)}.json`)
@@ -28,6 +38,27 @@ function normaliseFilterValue(value) {
 
 function actorCanSeeUnpublished(actor) {
   return actor?.role === 'owner' || actor?.canEdit === true || actor?.canApprove === true
+}
+
+function mutationKey(websiteId) {
+  return safeName(websiteId)
+}
+
+async function mutateIndex(websiteId, mutation) {
+  const key = mutationKey(websiteId)
+  const previous = indexMutations.get(key) || Promise.resolve()
+  const current = previous.catch(() => {}).then(async () => {
+    const documents = await readContentSearchIndex(websiteId)
+    const next = await mutation(documents)
+    await writeJson(searchPath(websiteId), next)
+    return next
+  })
+  indexMutations.set(key, current)
+  try {
+    return await current
+  } finally {
+    if (indexMutations.get(key) === current) indexMutations.delete(key)
+  }
 }
 
 export function projectContentSearchDocument(websiteId, typeId, record) {
@@ -66,23 +97,19 @@ export function projectContentSearchDocument(websiteId, typeId, record) {
 
 export async function readContentSearchIndex(websiteId) {
   const documents = await readJson(searchPath(websiteId), [])
-  return Array.isArray(documents) ? documents : []
+  if (!Array.isArray(documents)) throw new ContentSearchError('Stored content search index is invalid', 500)
+  return documents
 }
 
 export async function indexContentRecord(websiteId, typeId, record) {
   const document = projectContentSearchDocument(websiteId, typeId, record)
   if (!document) return null
-  const documents = await readContentSearchIndex(websiteId)
-  const next = [document, ...documents.filter(item => item.key !== document.key)]
-  await writeJson(searchPath(websiteId), next)
+  await mutateIndex(websiteId, documents => [document, ...documents.filter(item => item.key !== document.key)])
   return document
 }
 
 export async function removeContentSearchDocument(websiteId, typeId, recordId) {
-  const documents = await readContentSearchIndex(websiteId)
-  const next = documents.filter(item => item.key !== `${typeId}:${recordId}`)
-  if (next.length !== documents.length) await writeJson(searchPath(websiteId), next)
-  return next
+  return mutateIndex(websiteId, documents => documents.filter(item => item.key !== `${typeId}:${recordId}`))
 }
 
 export async function rebuildContentSearchIndex(websiteId, loadRecords) {
@@ -94,7 +121,7 @@ export async function rebuildContentSearchIndex(websiteId, loadRecords) {
       if (document) documents.push(document)
     }
   }
-  await writeJson(searchPath(websiteId), documents)
+  await mutateIndex(websiteId, () => documents)
   return documents
 }
 
@@ -104,6 +131,15 @@ function matchesFilter(document, field, expected) {
   const wanted = values.map(value => String(value).toLowerCase())
   if (Array.isArray(actual)) return wanted.some(value => actual.includes(value))
   return wanted.includes(String(actual ?? '').toLowerCase())
+}
+
+function matchesRelationship(document, relationship) {
+  if (!relationship?.id) return true
+  return (document.relationships || []).some(reference => (
+    reference.id === relationship.id
+    && (!relationship.type || reference.type === relationship.type)
+    && (!relationship.field || reference.field === relationship.field)
+  ))
 }
 
 function scoreDocument(document, queryTokens) {
@@ -119,11 +155,25 @@ function scoreDocument(document, queryTokens) {
   return score
 }
 
+function validateSearchOptions(options) {
+  const requestedTypes = Array.isArray(options.types) ? options.types : options.type ? [options.type] : []
+  const definitions = requestedTypes.length
+    ? requestedTypes.map(typeId => getContentType(typeId)).filter(Boolean)
+    : listContentTypes().filter(definition => definition.search)
+  const unknownTypes = requestedTypes.filter(typeId => !getContentType(typeId)?.search)
+  if (unknownTypes.length) throw new ContentSearchError('Unknown or unsearchable content type', 422, { types: unknownTypes })
+  const permittedFilters = new Set(definitions.flatMap(definition => definition.search?.filters || []))
+  const invalidFilters = Object.keys(options.filters || {}).filter(field => !permittedFilters.has(field))
+  if (invalidFilters.length) throw new ContentSearchError('Unsupported content search filter', 422, { filters: invalidFilters })
+  return requestedTypes
+}
+
 export async function searchContent(websiteId, options = {}, actor = null) {
   const documents = await readContentSearchIndex(websiteId)
   const queryTokens = tokens(options.query || options.q || '')
-  const types = Array.isArray(options.types) ? options.types : options.type ? [options.type] : []
+  const types = validateSearchOptions(options)
   const filters = options.filters && typeof options.filters === 'object' ? options.filters : {}
+  const relationship = options.relationship && typeof options.relationship === 'object' ? options.relationship : null
   const limit = Math.min(MAX_RESULTS, Math.max(1, Number(options.limit) || 20))
   const offset = Math.max(0, Number(options.offset) || 0)
   const allowUnpublished = actorCanSeeUnpublished(actor)
@@ -132,19 +182,27 @@ export async function searchContent(websiteId, options = {}, actor = null) {
     if (!allowUnpublished && !document.published) return false
     if (types.length && !types.includes(document.type)) return false
     if (Object.entries(filters).some(([field, expected]) => !matchesFilter(document, field, expected))) return false
+    if (!matchesRelationship(document, relationship)) return false
     return true
   }).map(document => ({ ...document, score: scoreDocument(document, queryTokens) }))
 
   if (queryTokens.length) results = results.filter(result => result.score > 0)
   const sort = String(options.sort || 'relevance')
   results.sort((left, right) => {
-    if (sort === 'updated-desc') return new Date(right.updatedAt || 0) - new Date(left.updatedAt || 0)
-    if (sort === 'published-desc') return new Date(right.publishedAt || 0) - new Date(left.publishedAt || 0)
-    if (sort === 'title-asc') return left.title.localeCompare(right.title)
-    return right.score - left.score || new Date(right.updatedAt || 0) - new Date(left.updatedAt || 0)
+    if (sort === 'updated-desc') return new Date(right.updatedAt || 0) - new Date(left.updatedAt || 0) || left.key.localeCompare(right.key)
+    if (sort === 'published-desc') return new Date(right.publishedAt || 0) - new Date(left.publishedAt || 0) || left.key.localeCompare(right.key)
+    if (sort === 'title-asc') return left.title.localeCompare(right.title) || left.key.localeCompare(right.key)
+    return right.score - left.score || new Date(right.updatedAt || 0) - new Date(left.updatedAt || 0) || left.key.localeCompare(right.key)
   })
 
   const total = results.length
-  const page = results.slice(offset, offset + limit).map(({ weighted, ...result }) => result)
-  return { query: options.query || options.q || '', total, offset, limit, results: page }
+  const page = results.slice(offset, offset + limit).map(({ weighted, key, ...result }) => result)
+  return {
+    query: options.query || options.q || '',
+    total,
+    offset,
+    limit,
+    hasMore: offset + limit < total,
+    results: page,
+  }
 }
