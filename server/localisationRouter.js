@@ -65,13 +65,12 @@ export function createLocalisationRouter() {
     try { res.json(await configureTranslatableFields(req.params.websiteId, req.params.contentType, req.body?.fields || [])) } catch (error) { sendError(res, error) }
   })
 
-  router.get('/:websiteId/content/:contentType/:recordId/:locale', async (req, res) => {
-    try { res.json(await getTranslation(req.params.websiteId, req.params.contentType, req.params.recordId, req.params.locale)) } catch (error) { sendError(res, error) }
+  router.get('/:websiteId/content/:contentType/:recordId/completeness', async (req, res) => {
+    try { res.json(await getTranslationCompleteness(req.params.websiteId, req.params.contentType, req.params.recordId)) } catch (error) { sendError(res, error) }
   })
 
-  router.put('/:websiteId/content/:contentType/:recordId/:locale', async (req, res) => {
-    if (!requireEdit(req, res)) return
-    try { res.json(await saveTranslation(req.params.websiteId, req.params.contentType, req.params.recordId, req.params.locale, req.body || {}, actor(req))) } catch (error) { sendError(res, error) }
+  router.get('/:websiteId/content/:contentType/:recordId/:locale/resolved', async (req, res) => {
+    try { res.json(await resolveLocalisedRecord(req.params.websiteId, req.params.contentType, req.params.recordId, req.params.locale, { publishedOnly: req.query.publishedOnly === 'true' })) } catch (error) { sendError(res, error) }
   })
 
   router.post('/:websiteId/content/:contentType/:recordId/:locale/publish', async (req, res) => {
@@ -79,12 +78,13 @@ export function createLocalisationRouter() {
     try { res.json(await publishTranslation(req.params.websiteId, req.params.contentType, req.params.recordId, req.params.locale, actor(req))) } catch (error) { sendError(res, error) }
   })
 
-  router.get('/:websiteId/content/:contentType/:recordId/:locale/resolved', async (req, res) => {
-    try { res.json(await resolveLocalisedRecord(req.params.websiteId, req.params.contentType, req.params.recordId, req.params.locale, { publishedOnly: req.query.publishedOnly === 'true' })) } catch (error) { sendError(res, error) }
+  router.get('/:websiteId/content/:contentType/:recordId/:locale', async (req, res) => {
+    try { res.json(await getTranslation(req.params.websiteId, req.params.contentType, req.params.recordId, req.params.locale)) } catch (error) { sendError(res, error) }
   })
 
-  router.get('/:websiteId/content/:contentType/:recordId/completeness', async (req, res) => {
-    try { res.json(await getTranslationCompleteness(req.params.websiteId, req.params.contentType, req.params.recordId)) } catch (error) { sendError(res, error) }
+  router.put('/:websiteId/content/:contentType/:recordId/:locale', async (req, res) => {
+    if (!requireEdit(req, res)) return
+    try { res.json(await saveTranslation(req.params.websiteId, req.params.contentType, req.params.recordId, req.params.locale, req.body || {}, actor(req))) } catch (error) { sendError(res, error) }
   })
 
   router.get('/:websiteId/published/:locale', async (req, res) => {
