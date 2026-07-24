@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import express from 'express'
 import { createAutomationRouter } from './automationRouter.js'
+import { createBackupRouter } from './backupRouter.js'
 import { getCredential, setPassword, verifyPassword } from './credentialStore.js'
 import { createIntegrationEventCaptureMiddleware, createIntegrationRouter } from './integrationRouter.js'
 import {
@@ -13,6 +14,7 @@ import {
 } from './routeExtensions.js'
 import { appendAuditEvent, auditRequestContext } from './services/auditTrailService.js'
 import { startAutomationWorker } from './services/automationService.js'
+import { startBackupScheduler } from './services/backupService.js'
 import { startContentWorkflowScheduler } from './services/contentWorkflowScheduler.js'
 import { startIntegrationWorker } from './services/integrationService.js'
 import { createRequestMetricsMiddleware, startSystemHealthMonitor } from './services/systemHealthService.js'
@@ -83,6 +85,7 @@ startContentWorkflowScheduler()
 startIntegrationWorker()
 startAutomationWorker()
 startSystemHealthMonitor()
+startBackupScheduler()
 
 const originalUse = express.application.use
 const originalPost = express.application.post
@@ -129,6 +132,7 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, '/api/integrations', createIntegrationRouter())
     originalUse.call(this, '/api/automations', createAutomationRouter())
     originalUse.call(this, '/api/system-health', createSystemHealthRouter())
+    originalUse.call(this, '/api/backups', createBackupRouter())
   }
 
   return result
