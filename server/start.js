@@ -52,6 +52,7 @@ import { startJobQueueWorker } from './services/jobQueueService.js'
 import { requireAssurance } from './services/mfaService.js'
 import { startRetentionScheduler } from './services/retentionComplianceService.js'
 import { createRequestMetricsMiddleware, startSystemHealthMonitor } from './services/systemHealthService.js'
+import { startWebSocketEventBridge } from './services/webSocketEventBridgeService.js'
 import { startWebSocketGateway } from './services/webSocketService.js'
 import { createSystemHealthRouter } from './systemHealthRouter.js'
 import { createWebSocketRouter } from './webSocketRouter.js'
@@ -103,6 +104,7 @@ startContentWorkflowScheduler()
 startIntegrationWorker()
 startAutomationWorker()
 startJobQueueWorker()
+await startWebSocketEventBridge()
 startEventBusWorker()
 startRetentionScheduler()
 startCollaborationCleanup()
