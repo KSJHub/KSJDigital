@@ -61,6 +61,22 @@ function normaliseBlocks(value, input = {}, existing = {}) {
   return legacyContent ? [normaliseBlock({ type: 'richText', body: legacyContent }, 0)] : []
 }
 
+function isEmpty(value) {
+  if (value === null || value === undefined) return true
+  if (typeof value === 'string') return value.trim() === ''
+  if (Array.isArray(value)) return value.length === 0
+  return false
+}
+
+export class ContentSchemaValidationError extends Error {
+  constructor(errors) {
+    super('Content record validation failed')
+    this.name = 'ContentSchemaValidationError'
+    this.status = 422
+    this.errors = errors
+  }
+}
+
 export function registerContentType(definition) {
   const id = stringValue(definition?.id).trim()
   if (!id) throw new Error('Content type id is required')
@@ -92,6 +108,20 @@ export function listContentTypes() {
   return [...contentTypes.values()]
 }
 
+export function describeContentType(id) {
+  const definition = getContentType(id)
+  if (!definition) return null
+  return {
+    id: definition.id,
+    label: definition.label,
+    fields: definition.fields.map(field => ({ ...field })),
+  }
+}
+
+export function listContentTypeDescriptions() {
+  return listContentTypes().map(definition => describeContentType(definition.id))
+}
+
 export function normaliseContentFields(typeId, input = {}, existing = {}) {
   const definition = getContentType(typeId)
   if (!definition) throw new Error(`Unknown content type: ${typeId}`)
@@ -108,24 +138,36 @@ export function normaliseContentFields(typeId, input = {}, existing = {}) {
   return definition.normalise ? definition.normalise(fields, input, existing) : fields
 }
 
+export function validateContentFields(typeId, fields) {
+  const definition = getContentType(typeId)
+  if (!definition) throw new Error(`Unknown content type: ${typeId}`)
+
+  const errors = definition.fields
+    .filter(field => field.required && isEmpty(fields[field.id]))
+    .map(field => ({ field: field.id, code: 'required', message: `${field.label || field.id} is required` }))
+
+  if (errors.length) throw new ContentSchemaValidationError(errors)
+  return fields
+}
+
 registerContentType({
   id: 'article',
   label: 'Article',
   fields: [
-    { id: 'title', type: 'text', default: 'Untitled Article', required: true },
-    { id: 'slug', type: 'text' },
-    { id: 'excerpt', type: 'text' },
-    { id: 'content', type: 'richText' },
-    { id: 'blocks', type: 'blocks' },
-    { id: 'featuredImage', type: 'image' },
-    { id: 'category', type: 'text', default: 'Uncategorised' },
-    { id: 'tags', type: 'stringList' },
-    { id: 'author', type: 'text', default: 'KSJ Digital' },
-    { id: 'locale', type: 'text', default: 'en-GB' },
-    { id: 'status', type: 'text', default: 'Draft' },
-    { id: 'scheduledAt', type: 'date' },
-    { id: 'publishedAt', type: 'date' },
-    { id: 'seo', type: 'object' },
+    { id: 'title', label: 'Title', type: 'text', default: 'Untitled Article', required: true },
+    { id: 'slug', label: 'Slug', type: 'text' },
+    { id: 'excerpt', label: 'Excerpt', type: 'text' },
+    { id: 'content', label: 'Legacy content', type: 'richText' },
+    { id: 'blocks', label: 'Content', type: 'blocks' },
+    { id: 'featuredImage', label: 'Featured image', type: 'image' },
+    { id: 'category', label: 'Category', type: 'text', default: 'Uncategorised' },
+    { id: 'tags', label: 'Tags', type: 'stringList' },
+    { id: 'author', label: 'Author', type: 'text', default: 'KSJ Digital' },
+    { id: 'locale', label: 'Locale', type: 'text', default: 'en-GB' },
+    { id: 'status', label: 'Status', type: 'text', default: 'Draft' },
+    { id: 'scheduledAt', label: 'Scheduled at', type: 'date' },
+    { id: 'publishedAt', label: 'Published at', type: 'date' },
+    { id: 'seo', label: 'SEO', type: 'object' },
   ],
   normalise(fields, input, existing) {
     const title = fields.title.trim() || 'Untitled Article'
