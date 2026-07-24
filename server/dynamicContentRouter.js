@@ -52,10 +52,16 @@ function searchOptions(query = {}) {
     const field = key.slice('filter.'.length)
     if (field) filters[field] = Array.isArray(value) ? value : String(value).split(',').filter(Boolean)
   }
+  const relationshipId = String(query.relationshipId || '').trim()
   return {
     query: query.q || query.query || '',
     types: query.types ? String(query.types).split(',').filter(Boolean) : query.type ? [String(query.type)] : [],
     filters,
+    relationship: relationshipId ? {
+      id: relationshipId,
+      type: String(query.relationshipType || '').trim() || null,
+      field: String(query.relationshipField || '').trim() || null,
+    } : null,
     sort: query.sort,
     limit: query.limit,
     offset: query.offset,
