@@ -11,6 +11,7 @@ import { starterWebsites } from './defaults.js'
 import { createDispatchRouter } from './dispatchRouter.js'
 import { createDynamicContentRouter } from './dynamicContentRouter.js'
 import { createInventoryRouter } from './inventoryRouter.js'
+import { createLocalisationRouter } from './localisationRouter.js'
 import { createOrdersRouter, createPublicOrdersRouter } from './ordersRouter.js'
 import { createPayPalOrder, createPayPalRouter, verifyPayPalWebhook } from './paypalCheckout.js'
 import { getPublishedContent } from './publishedContent.js'
@@ -227,6 +228,7 @@ export function mountProtectedRoutes(app) {
   app.use('/api/dynamic-content', createDynamicContentRouter())
   app.use('/api/asset-library', createAssetLibraryRouter())
   app.use('/api/taxonomies', createTaxonomyRouter())
+  app.use('/api/localisation', createLocalisationRouter())
   app.use('/api/cms', createCmsRouter())
   app.use('/api/team', createTeamRouter())
   app.use('/api/orders', createDispatchRouter())
