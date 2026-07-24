@@ -5,6 +5,7 @@ import { createAutomationRouter } from './automationRouter.js'
 import { createBackupRouter } from './backupRouter.js'
 import { createConfigurationRouter } from './configurationRouter.js'
 import { getCredential, setPassword, verifyPassword } from './credentialStore.js'
+import { createFieldRegistryRouter } from './fieldRegistryRouter.js'
 import { createIntegrationEventCaptureMiddleware, createIntegrationRouter } from './integrationRouter.js'
 import { createJobQueueRouter } from './jobQueueRouter.js'
 import { createMigrationRouter } from './migrationRouter.js'
@@ -135,6 +136,7 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, '/api', createRequestMetricsMiddleware())
     originalUse.call(this, '/api', createIntegrationEventCaptureMiddleware())
     mountProtectedRoutes(this)
+    originalUse.call(this, '/api/field-registry', createFieldRegistryRouter())
     originalUse.call(this, '/api/integrations', createIntegrationRouter())
     originalUse.call(this, '/api/automations', createAutomationRouter())
     originalUse.call(this, '/api/jobs', createJobQueueRouter())
