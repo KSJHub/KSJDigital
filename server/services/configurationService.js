@@ -91,7 +91,12 @@ function validateValue(key, value, definition) {
   if (definition.type === 'enum' && definition.values?.includes(value)) return value
   if (definition.type === 'string-array' && Array.isArray(value) && value.every(item => typeof item === 'string')) return [...new Set(value.map(item => item.trim()).filter(Boolean))]
   if (definition.type === 'url' && typeof value === 'string') {
-    try { const parsed = new URL(value); if (['http:', 'https:'].includes(parsed.protocol)) return parsed.toString() } catch {}
+    try {
+      const parsed = new URL(value)
+      if (['http:', 'https:'].includes(parsed.protocol)) return parsed.toString()
+    } catch {
+      // Invalid URLs fall through to the schema error below.
+    }
   }
   if (definition.type === 'string' && typeof value === 'string') return value
   throw new ConfigurationError(`${key} does not satisfy its ${definition.type} schema`, 422)
