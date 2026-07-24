@@ -1,8 +1,9 @@
 import crypto from 'node:crypto'
-import { getFieldType } from './fieldTypeRegistry.js'
+import { getFieldType, isRelationshipFieldType } from './fieldTypeRegistry.js'
 
 const VALID_STATUSES = new Set(['Draft', 'Scheduled', 'Published', 'Archived'])
 const VALID_BLOCK_TYPES = new Set(['richText', 'image', 'quote', 'callToAction', 'faq'])
+const VALID_RELATIONSHIP_DELETE_POLICIES = new Set(['restrict', 'nullify'])
 const contentTypes = new Map()
 
 function stringValue(value, fallback = '') {
@@ -68,6 +69,19 @@ function isEmpty(value) {
   return false
 }
 
+function relationshipFieldDefinition(contentTypeId, field, type) {
+  if (!isRelationshipFieldType(type.id)) return field
+  const targetTypes = Array.isArray(field.targetTypes)
+    ? [...new Set(field.targetTypes.map(value => stringValue(value).trim()).filter(Boolean))]
+    : []
+  if (!targetTypes.length) throw new Error(`Content type ${contentTypeId} relationship field ${field.id} requires targetTypes`)
+  const onDelete = stringValue(field.onDelete, 'restrict').trim()
+  if (!VALID_RELATIONSHIP_DELETE_POLICIES.has(onDelete)) {
+    throw new Error(`Content type ${contentTypeId} relationship field ${field.id} has an invalid onDelete policy`)
+  }
+  return { ...field, targetTypes: Object.freeze(targetTypes), onDelete }
+}
+
 export class ContentSchemaValidationError extends Error {
   constructor(errors) {
     super('Content record validation failed')
@@ -87,7 +101,7 @@ export function registerContentType(definition) {
     const type = getFieldType(field?.type)
     if (!fieldId) throw new Error(`Content type ${id} has a field without an id`)
     if (!type) throw new Error(`Content type ${id} field ${fieldId} uses an unknown field type`)
-    return Object.freeze({ ...field, id: fieldId, type: type.id })
+    return Object.freeze(relationshipFieldDefinition(id, { ...field, id: fieldId, type: type.id }, type))
   }) : []
 
   const registered = Object.freeze({
@@ -108,13 +122,18 @@ export function listContentTypes() {
   return [...contentTypes.values()]
 }
 
+export function getRelationshipFields(typeId) {
+  const definition = getContentType(typeId)
+  return definition ? definition.fields.filter(field => isRelationshipFieldType(field.type)) : []
+}
+
 export function describeContentType(id) {
   const definition = getContentType(id)
   if (!definition) return null
   return {
     id: definition.id,
     label: definition.label,
-    fields: definition.fields.map(field => ({ ...field })),
+    fields: definition.fields.map(field => ({ ...field, targetTypes: field.targetTypes ? [...field.targetTypes] : undefined })),
   }
 }
 
@@ -168,6 +187,7 @@ registerContentType({
     { id: 'scheduledAt', label: 'Scheduled at', type: 'date' },
     { id: 'publishedAt', label: 'Published at', type: 'date' },
     { id: 'seo', label: 'SEO', type: 'object' },
+    { id: 'relatedArticles', label: 'Related articles', type: 'references', targetTypes: ['article'], onDelete: 'restrict' },
   ],
   normalise(fields, input, existing) {
     const title = fields.title.trim() || 'Untitled Article'
