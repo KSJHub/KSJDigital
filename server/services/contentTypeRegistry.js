@@ -1,7 +1,6 @@
 import crypto from 'node:crypto'
 import { getFieldType, isRelationshipFieldType } from './fieldTypeRegistry.js'
 
-const VALID_STATUSES = new Set(['Draft', 'Scheduled', 'Published', 'Archived'])
 const VALID_BLOCK_TYPES = new Set(['richText', 'image', 'quote', 'callToAction', 'faq'])
 const VALID_RELATIONSHIP_DELETE_POLICIES = new Set(['restrict', 'nullify'])
 const contentTypes = new Map()
@@ -82,6 +81,60 @@ function relationshipFieldDefinition(contentTypeId, field, type) {
   return { ...field, targetTypes: Object.freeze(targetTypes), onDelete }
 }
 
+function workflowDefinition(contentTypeId, definition, fields) {
+  if (!definition) return null
+  const field = stringValue(definition.field, 'status').trim()
+  if (!fields.some(item => item.id === field)) {
+    throw new Error(`Content type ${contentTypeId} workflow field ${field} is not registered`)
+  }
+
+  const states = Array.isArray(definition.states)
+    ? definition.states.map(state => Object.freeze({
+        id: stringValue(state?.id).trim(),
+        label: stringValue(state?.label, state?.id).trim(),
+      }))
+    : []
+  if (!states.length || states.some(state => !state.id)) {
+    throw new Error(`Content type ${contentTypeId} workflow requires valid states`)
+  }
+
+  const stateIds = new Set(states.map(state => state.id))
+  const initialState = stringValue(definition.initialState, states[0].id).trim()
+  if (!stateIds.has(initialState)) {
+    throw new Error(`Content type ${contentTypeId} workflow initial state is invalid`)
+  }
+
+  const transitions = Array.isArray(definition.transitions)
+    ? definition.transitions.map(transition => {
+        const id = stringValue(transition?.id).trim()
+        const from = Array.isArray(transition?.from)
+          ? [...new Set(transition.from.map(value => stringValue(value).trim()).filter(Boolean))]
+          : []
+        const to = stringValue(transition?.to).trim()
+        const roles = Array.isArray(transition?.roles)
+          ? [...new Set(transition.roles.map(value => stringValue(value).trim()).filter(Boolean))]
+          : []
+        if (!id || !from.length || !to || from.some(state => !stateIds.has(state)) || !stateIds.has(to)) {
+          throw new Error(`Content type ${contentTypeId} has an invalid workflow transition`)
+        }
+        return Object.freeze({
+          id,
+          label: stringValue(transition.label, id),
+          from: Object.freeze(from),
+          to,
+          roles: Object.freeze(roles),
+        })
+      })
+    : []
+
+  return Object.freeze({
+    field,
+    initialState,
+    states: Object.freeze(states),
+    transitions: Object.freeze(transitions),
+  })
+}
+
 export class ContentSchemaValidationError extends Error {
   constructor(errors) {
     super('Content record validation failed')
@@ -108,6 +161,7 @@ export function registerContentType(definition) {
     id,
     label: stringValue(definition.label, id),
     fields: Object.freeze(fields),
+    workflow: workflowDefinition(id, definition.workflow, fields),
     normalise: typeof definition.normalise === 'function' ? definition.normalise : null,
   })
   contentTypes.set(id, registered)
@@ -134,6 +188,12 @@ export function describeContentType(id) {
     id: definition.id,
     label: definition.label,
     fields: definition.fields.map(field => ({ ...field, targetTypes: field.targetTypes ? [...field.targetTypes] : undefined })),
+    workflow: definition.workflow ? {
+      field: definition.workflow.field,
+      initialState: definition.workflow.initialState,
+      states: definition.workflow.states.map(state => ({ ...state })),
+      transitions: definition.workflow.transitions.map(transition => ({ ...transition, from: [...transition.from], roles: [...transition.roles] })),
+    } : null,
   }
 }
 
@@ -189,21 +249,36 @@ registerContentType({
     { id: 'seo', label: 'SEO', type: 'object' },
     { id: 'relatedArticles', label: 'Related articles', type: 'references', targetTypes: ['article'], onDelete: 'restrict' },
   ],
+  workflow: {
+    field: 'status',
+    initialState: 'Draft',
+    states: [
+      { id: 'Draft', label: 'Draft' },
+      { id: 'In Review', label: 'In review' },
+      { id: 'Scheduled', label: 'Scheduled' },
+      { id: 'Published', label: 'Published' },
+      { id: 'Archived', label: 'Archived' },
+    ],
+    transitions: [
+      { id: 'submit', label: 'Submit for review', from: ['Draft'], to: 'In Review', roles: ['editor', 'approver', 'owner'] },
+      { id: 'return', label: 'Return to draft', from: ['In Review'], to: 'Draft', roles: ['approver', 'owner'] },
+      { id: 'approve', label: 'Approve and publish', from: ['In Review'], to: 'Published', roles: ['approver', 'owner'] },
+      { id: 'schedule', label: 'Schedule publication', from: ['In Review'], to: 'Scheduled', roles: ['approver', 'owner'] },
+      { id: 'publish-scheduled', label: 'Publish scheduled content', from: ['Scheduled'], to: 'Published', roles: ['owner'] },
+      { id: 'archive', label: 'Archive', from: ['Published'], to: 'Archived', roles: ['approver', 'owner'] },
+      { id: 'restore', label: 'Restore draft', from: ['Archived', 'Published', 'Scheduled'], to: 'Draft', roles: ['approver', 'owner'] },
+    ],
+  },
   normalise(fields, input, existing) {
     const title = fields.title.trim() || 'Untitled Article'
     const slugSource = fields.slug || existing.slug || title
     const slug = slugSource.toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/(^-|-$)/g, '').replace(/[._]+/g, '-') || 'untitled-article'
-    const status = VALID_STATUSES.has(fields.status) ? fields.status : existing.status || 'Draft'
-    const timestamp = new Date().toISOString()
 
     return {
       ...fields,
       title,
       slug,
       blocks: normaliseBlocks(input.blocks ?? existing.blocks, input, existing),
-      status,
-      scheduledAt: status === 'Scheduled' ? fields.scheduledAt : null,
-      publishedAt: status === 'Published' ? fields.publishedAt || existing.publishedAt || timestamp : fields.publishedAt,
       seo: {
         title: stringValue(fields.seo?.title),
         description: stringValue(fields.seo?.description),
