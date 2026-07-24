@@ -3,12 +3,13 @@ import path from 'node:path'
 import express from 'express'
 import { createAbuseProtectionRouter } from './abuseProtectionRouter.js'
 import { createApiKeyRouter } from './apiKeyRouter.js'
+import { createAuthenticationPublicRouter } from './authenticationRouter.js'
 import { createAutomationRouter } from './automationRouter.js'
 import { createBackupRouter } from './backupRouter.js'
 import { createCacheRouter } from './cacheRouter.js'
 import { createCollaborationRouter } from './collaborationRouter.js'
 import { createConfigurationRouter } from './configurationRouter.js'
-import { getCredential, setPassword, verifyPassword } from './credentialStore.js'
+import { getCredential, migratePlaintextCredentials, setPassword, verifyPassword } from './credentialStore.js'
 import { createDataPortabilityRouter } from './dataPortabilityRouter.js'
 import { createEventBusRouter } from './eventBusRouter.js'
 import { createFeatureFlagRouter } from './featureFlagRouter.js'
@@ -31,6 +32,12 @@ import {
 } from './routeExtensions.js'
 import { createAbuseProtectionMiddleware } from './services/abuseProtectionService.js'
 import { appendAuditEvent, auditRequestContext } from './services/auditTrailService.js'
+import {
+  getCurrentAuthenticationSession,
+  loginWithPassword,
+  logoutAuthenticationSession,
+  requireAuthenticationSession,
+} from './services/authenticationService.js'
 import { startAutomationWorker } from './services/automationService.js'
 import { startBackupScheduler } from './services/backupService.js'
 import { createResponseCacheMiddleware } from './services/cacheService.js'
@@ -39,6 +46,7 @@ import { startContentWorkflowScheduler } from './services/contentWorkflowSchedul
 import { startEventBusWorker } from './services/eventBusService.js'
 import { startIntegrationWorker } from './services/integrationService.js'
 import { startJobQueueWorker } from './services/jobQueueService.js'
+import { requireAssurance } from './services/mfaService.js'
 import { startRetentionScheduler } from './services/retentionComplianceService.js'
 import { createRequestMetricsMiddleware, startSystemHealthMonitor } from './services/systemHealthService.js'
 import { createSystemHealthRouter } from './systemHealthRouter.js'
@@ -103,6 +111,7 @@ function authenticationAudit(action) {
 }
 
 loadLocalEnvironment()
+await migratePlaintextCredentials()
 await synchroniseConfiguredCredentials()
 startContentWorkflowScheduler()
 startIntegrationWorker()
@@ -115,18 +124,24 @@ startSystemHealthMonitor()
 startBackupScheduler()
 
 const originalUse = express.application.use
+const originalGet = express.application.get
 const originalPost = express.application.post
 let publicRoutesMounted = false
 let protectedRoutesMounted = false
 let assetServingMounted = false
 let assetUploadMounted = false
 
+express.application.get = function guardedGet(...args) {
+  if (args[0] === '/api/me') return originalGet.call(this, args[0], getCurrentAuthenticationSession)
+  return originalGet.apply(this, args)
+}
+
 express.application.post = function guardedPost(...args) {
   if (args[0] === '/api/assets/:ownerId/:websiteId/:slotId' && args.length >= 3) {
     return originalPost.call(this, args[0], args[1], validateUploadedAsset, ...args.slice(2))
   }
-  if (args[0] === '/api/login') return originalPost.call(this, args[0], authenticationAudit('login'), ...args.slice(1))
-  if (args[0] === '/api/logout') return originalPost.call(this, args[0], authenticationAudit('logout'), ...args.slice(1))
+  if (args[0] === '/api/login') return originalPost.call(this, args[0], authenticationAudit('login'), loginWithPassword)
+  if (args[0] === '/api/logout') return originalPost.call(this, args[0], authenticationAudit('logout'), logoutAuthenticationSession)
   return originalPost.apply(this, args)
 }
 
@@ -138,6 +153,7 @@ express.application.use = function routeAwareUse(...args) {
     publicRoutesMounted = true
     originalUse.call(this, createAbuseProtectionMiddleware())
     originalUse.call(this, createResponseCacheMiddleware())
+    originalUse.call(this, createAuthenticationPublicRouter())
     mountPublicRoutes(this)
   }
 
@@ -151,9 +167,12 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, '/api/assets', assetUploadGuard)
   }
 
-  const result = originalUse.apply(this, args)
+  const replacingLegacySessionGuard = mountPath === '/api' && middleware?.name === 'requireSession'
+  const result = replacingLegacySessionGuard
+    ? originalUse.call(this, '/api', requireAuthenticationSession)
+    : originalUse.apply(this, args)
 
-  if (!protectedRoutesMounted && mountPath === '/api' && middleware?.name === 'requireSession') {
+  if (!protectedRoutesMounted && replacingLegacySessionGuard) {
     protectedRoutesMounted = true
     originalUse.call(this, '/api', createRequestMetricsMiddleware())
     originalUse.call(this, '/api', createIntegrationEventCaptureMiddleware())
@@ -165,7 +184,7 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, '/api/notifications', createNotificationRouter())
     originalUse.call(this, '/api/feature-flags', createFeatureFlagRouter())
     originalUse.call(this, '/api/service-accounts', createServiceAccountRouter())
-    originalUse.call(this, '/api/api-keys', createApiKeyRouter())
+    originalUse.call(this, '/api/api-keys', requireAssurance(2), createApiKeyRouter())
     originalUse.call(this, '/api/mfa', createMfaRouter())
     originalUse.call(this, '/api/abuse-protection', createAbuseProtectionRouter())
     originalUse.call(this, '/api/cache', createCacheRouter())
@@ -187,4 +206,5 @@ express.application.use = function routeAwareUse(...args) {
 await import('./index.js')
 
 express.application.use = originalUse
+express.application.get = originalGet
 express.application.post = originalPost
