@@ -18,24 +18,15 @@ export class ReleaseError extends Error {
 function nowIso() { return new Date().toISOString() }
 function initialRegistry() {
   return {
-    releases: [],
-    deployments: [],
+    releases: [], deployments: [],
     environments: Object.fromEntries(ENVIRONMENTS.map(name => [name, { currentReleaseId: null, previousReleaseId: null, updatedAt: null }])),
     maintenance: Object.fromEntries(ENVIRONMENTS.map(name => [name, { enabled: false, message: null, enabledAt: null, enabledBy: null }])),
-    deploymentLocks: {},
-    history: [],
-    version: 1,
-    updatedAt: nowIso(),
+    deploymentLocks: {}, history: [], version: 1, updatedAt: nowIso(),
   }
 }
 async function readRegistry() {
   const registry = await readJson(REGISTRY_FILE, null) || initialRegistry()
-  registry.releases ||= []
-  registry.deployments ||= []
-  registry.environments ||= {}
-  registry.maintenance ||= {}
-  registry.deploymentLocks ||= {}
-  registry.history ||= []
+  registry.releases ||= []; registry.deployments ||= []; registry.environments ||= {}; registry.maintenance ||= {}; registry.deploymentLocks ||= {}; registry.history ||= []
   for (const name of ENVIRONMENTS) {
     registry.environments[name] ||= { currentReleaseId: null, previousReleaseId: null, updatedAt: null }
     registry.maintenance[name] ||= { enabled: false, message: null, enabledAt: null, enabledBy: null }
@@ -48,8 +39,7 @@ async function mutate(operation) {
   const current = previous.catch(() => {}).then(async () => {
     const registry = structuredClone(await readRegistry())
     const result = await operation(registry)
-    registry.version += 1
-    registry.updatedAt = nowIso()
+    registry.version += 1; registry.updatedAt = nowIso()
     await writeJson(REGISTRY_FILE, registry)
     return result === undefined ? registry : result
   })
@@ -64,9 +54,7 @@ function environmentName(value) {
 function actorId(actor) { return actor?.id || actor?.email || 'unknown' }
 function cleanExpiredLocks(registry) {
   const now = Date.now()
-  for (const [environment, lock] of Object.entries(registry.deploymentLocks)) {
-    if (new Date(lock.expiresAt).getTime() <= now) delete registry.deploymentLocks[environment]
-  }
+  for (const [environment, lock] of Object.entries(registry.deploymentLocks)) if (new Date(lock.expiresAt).getTime() <= now) delete registry.deploymentLocks[environment]
 }
 function requireLock(registry, environment, token) {
   cleanExpiredLocks(registry)
@@ -83,8 +71,7 @@ function findRelease(registry, idValue) {
 }
 
 export async function listReleaseState(query = {}) {
-  const registry = await readRegistry()
-  cleanExpiredLocks(registry)
+  const registry = await readRegistry(); cleanExpiredLocks(registry)
   const limit = Math.min(500, Math.max(1, Number(query.limit || 100)))
   return { ...registry, releases: registry.releases.slice(0, limit), deployments: registry.deployments.slice(0, limit), history: registry.history.slice(0, limit) }
 }
@@ -98,8 +85,8 @@ export async function createRelease(input = {}, actor = null) {
   return mutate(registry => {
     if (registry.releases.some(item => item.version === version)) throw new ReleaseError('Release version already exists', 409)
     const release = {
-      id: safeName(`${version}-${crypto.randomBytes(4).toString('hex')}`), version,
-      status: 'registered', notes: String(input.notes || '').trim().slice(0, 5000) || null,
+      id: safeName(`${version}-${crypto.randomBytes(4).toString('hex')}`), version, status: 'registered',
+      notes: String(input.notes || '').trim().slice(0, 5000) || null,
       source: { commitSha: String(input.commitSha || '').trim() || null, branch: String(input.branch || '').trim() || null },
       artifact: { name: String(artifact.name || '').trim() || null, uri: String(artifact.uri || '').trim() || null, sha256: checksum || null, size: Number.isFinite(Number(artifact.size)) ? Number(artifact.size) : null },
       createdAt: nowIso(), createdBy: actor,
@@ -141,8 +128,13 @@ export async function deploymentPlan(releaseId, environmentValue) {
   const release = findRelease(registry, releaseId)
   const readiness = await deploymentReadiness(environment)
   const current = registry.environments[environment]
+  const configurationChecks = readiness.checks.map(check => (
+    environment !== 'production' && ['public-url-https', 'trusted-origins'].includes(check.id) && check.status === 'failed'
+      ? { ...check, status: 'warning', message: `${check.id} is enforced for production promotion` }
+      : check
+  ))
   const checks = [
-    ...readiness.checks,
+    ...configurationChecks,
     { id: 'release-artifact', status: release.artifact.name || release.source.commitSha ? 'passed' : 'warning' },
     { id: 'release-not-current', status: current.currentReleaseId === release.id ? 'failed' : 'passed' },
   ]
@@ -156,22 +148,22 @@ export async function promoteRelease(releaseId, environmentValue, input = {}, ac
   const plan = await deploymentPlan(releaseId, environment)
   if (!plan.ready) throw new ReleaseError('Deployment readiness gates failed', 409, plan.checks)
   if (!input.confirmationToken || input.confirmationToken !== plan.confirmationToken) throw new ReleaseError('Deployment confirmation token is invalid', 409)
+  const preflightRegistry = await readRegistry()
+  requireLock(preflightRegistry, environment, input.lockToken)
   let backup = null
   if (input.createBackup !== false) backup = await createBackup({ label: `Pre-deployment ${plan.release.version} to ${environment}`, skipPrune: true })
   const result = await mutate(registry => {
     const lock = requireLock(registry, environment, input.lockToken)
     const release = findRelease(registry, releaseId)
     const target = registry.environments[environment]
+    if (target.currentReleaseId !== plan.currentReleaseId) throw new ReleaseError('Environment changed after the deployment plan was created', 409)
     const deployment = {
       id: crypto.randomUUID(), releaseId: release.id, version: release.version, environment,
       previousReleaseId: target.currentReleaseId, backupId: backup?.id || null, status: 'completed',
       checks: plan.checks, startedAt: nowIso(), completedAt: nowIso(), deployedBy: actor,
     }
-    target.previousReleaseId = target.currentReleaseId
-    target.currentReleaseId = release.id
-    target.updatedAt = nowIso()
-    release.status = environment === 'production' ? 'released' : 'promoted'
-    release.lastPromotedAt = nowIso()
+    target.previousReleaseId = target.currentReleaseId; target.currentReleaseId = release.id; target.updatedAt = nowIso()
+    release.status = environment === 'production' ? 'released' : 'promoted'; release.lastPromotedAt = nowIso()
     registry.deployments.unshift(deployment)
     registry.history.unshift({ id: crypto.randomUUID(), action: 'release.promoted', releaseId: release.id, environment, deploymentId: deployment.id, lockOwner: lock.owner, actor, createdAt: nowIso() })
     registry.history = registry.history.slice(0, 5000)
@@ -183,8 +175,7 @@ export async function promoteRelease(releaseId, environmentValue, input = {}, ac
 }
 
 export async function setMaintenanceMode(environmentValue, input = {}, actor = null) {
-  const environment = environmentName(environmentValue)
-  const enabled = input.enabled === true
+  const environment = environmentName(environmentValue); const enabled = input.enabled === true
   const result = await mutate(registry => {
     const state = { enabled, message: enabled ? String(input.message || 'Scheduled maintenance is in progress.').trim().slice(0, 500) : null, enabledAt: enabled ? nowIso() : null, enabledBy: enabled ? actor : null }
     registry.maintenance[environment] = state
@@ -215,11 +206,9 @@ export async function rollbackRelease(environmentValue, input = {}, actor = null
   const result = await mutate(current => {
     requireLock(current, environment, input.lockToken)
     const state = current.environments[environment]
-    const fromReleaseId = state.currentReleaseId
-    const toReleaseId = state.previousReleaseId
-    state.currentReleaseId = toReleaseId
-    state.previousReleaseId = fromReleaseId
-    state.updatedAt = nowIso()
+    if (state.currentReleaseId !== target.currentReleaseId || state.previousReleaseId !== target.previousReleaseId) throw new ReleaseError('Environment changed before rollback completed', 409)
+    const fromReleaseId = state.currentReleaseId; const toReleaseId = state.previousReleaseId
+    state.currentReleaseId = toReleaseId; state.previousReleaseId = fromReleaseId; state.updatedAt = nowIso()
     const record = { id: crypto.randomUUID(), environment, fromReleaseId, toReleaseId, restoreId: restoreRecord?.id || null, backupId: latest?.backupId || null, status: 'completed', rolledBackAt: nowIso(), rolledBackBy: actor }
     current.deployments.unshift({ ...record, type: 'rollback' })
     current.history.unshift({ id: crypto.randomUUID(), action: 'release.rolled-back', environment, fromReleaseId, toReleaseId, lockOwner: lock.owner, actor, createdAt: nowIso() })
