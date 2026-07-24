@@ -6,6 +6,7 @@ import { createBackupRouter } from './backupRouter.js'
 import { createConfigurationRouter } from './configurationRouter.js'
 import { getCredential, setPassword, verifyPassword } from './credentialStore.js'
 import { createIntegrationEventCaptureMiddleware, createIntegrationRouter } from './integrationRouter.js'
+import { createJobQueueRouter } from './jobQueueRouter.js'
 import { createMigrationRouter } from './migrationRouter.js'
 import { createReleaseRouter } from './releaseRouter.js'
 import {
@@ -20,6 +21,7 @@ import { startAutomationWorker } from './services/automationService.js'
 import { startBackupScheduler } from './services/backupService.js'
 import { startContentWorkflowScheduler } from './services/contentWorkflowScheduler.js'
 import { startIntegrationWorker } from './services/integrationService.js'
+import { startJobQueueWorker } from './services/jobQueueService.js'
 import { createRequestMetricsMiddleware, startSystemHealthMonitor } from './services/systemHealthService.js'
 import { createSystemHealthRouter } from './systemHealthRouter.js'
 
@@ -87,6 +89,7 @@ await synchroniseConfiguredCredentials()
 startContentWorkflowScheduler()
 startIntegrationWorker()
 startAutomationWorker()
+startJobQueueWorker()
 startSystemHealthMonitor()
 startBackupScheduler()
 
@@ -134,6 +137,7 @@ express.application.use = function routeAwareUse(...args) {
     mountProtectedRoutes(this)
     originalUse.call(this, '/api/integrations', createIntegrationRouter())
     originalUse.call(this, '/api/automations', createAutomationRouter())
+    originalUse.call(this, '/api/jobs', createJobQueueRouter())
     originalUse.call(this, '/api/system-health', createSystemHealthRouter())
     originalUse.call(this, '/api/backups', createBackupRouter())
     originalUse.call(this, '/api/configuration', createConfigurationRouter())
