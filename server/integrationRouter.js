@@ -17,6 +17,14 @@ function requireOwner(req, res) {
   return false
 }
 
+function requireWebsiteAccess(req, res, websiteId) {
+  if (req.session?.role === 'owner') return true
+  const assigned = new Set(req.session?.websiteIds || (req.session?.websiteId ? [req.session.websiteId] : []))
+  if (assigned.has(websiteId)) return true
+  res.status(403).json({ error: 'Website access denied' })
+  return false
+}
+
 function requireEdit(req, res) {
   if (req.session?.role === 'owner' || req.session?.canEdit) return true
   res.status(403).json({ error: 'Edit permission required' })
@@ -65,6 +73,7 @@ export function createIntegrationRouter() {
   router.get('/providers', (_req, res) => res.json(listIntegrationProviders()))
 
   router.get('/:websiteId', async (req, res) => {
+    if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
     try { res.json(await getIntegrationRegistry(req.params.websiteId)) } catch (error) { sendError(res, error) }
   })
 
@@ -84,6 +93,7 @@ export function createIntegrationRouter() {
   })
 
   router.get('/:websiteId/deliveries', async (req, res) => {
+    if (!requireWebsiteAccess(req, res, req.params.websiteId)) return
     try { res.json(await searchIntegrationDeliveries(req.params.websiteId, req.query)) } catch (error) { sendError(res, error) }
   })
 
@@ -103,7 +113,7 @@ export function createIntegrationRouter() {
   })
 
   router.post('/:websiteId/events/:eventName', async (req, res) => {
-    if (!requireEdit(req, res)) return
+    if (!requireWebsiteAccess(req, res, req.params.websiteId) || !requireEdit(req, res)) return
     try {
       res.status(202).json(await publishIntegrationEvent(req.params.websiteId, req.params.eventName, req.body?.data ?? req.body ?? {}, {
         actorId: req.session?.userId || null,
