@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { createServer } from 'node:http'
 import path from 'node:path'
 import express from 'express'
 import { createAbuseProtectionRouter } from './abuseProtectionRouter.js'
@@ -51,7 +52,9 @@ import { startJobQueueWorker } from './services/jobQueueService.js'
 import { requireAssurance } from './services/mfaService.js'
 import { startRetentionScheduler } from './services/retentionComplianceService.js'
 import { createRequestMetricsMiddleware, startSystemHealthMonitor } from './services/systemHealthService.js'
+import { startWebSocketGateway } from './services/webSocketService.js'
 import { createSystemHealthRouter } from './systemHealthRouter.js'
+import { createWebSocketRouter } from './webSocketRouter.js'
 
 function loadLocalEnvironment() {
   const file = path.resolve(process.cwd(), '.env.local')
@@ -109,6 +112,7 @@ const originalUse = express.application.use
 const originalGet = express.application.get
 const originalPost = express.application.post
 const originalPatch = express.application.patch
+const originalListen = express.application.listen
 let publicRoutesMounted = false
 let protectedRoutesMounted = false
 let assetServingMounted = false
@@ -170,11 +174,19 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, '/api/configuration', createConfigurationRouter())
     originalUse.call(this, '/api/releases', createReleaseRouter())
     originalUse.call(this, '/api/migrations', createMigrationRouter())
+    originalUse.call(this, '/api/websockets', createWebSocketRouter())
   }
   return result
+}
+express.application.listen = function webSocketAwareListen(...args) {
+  const server = createServer(this)
+  startWebSocketGateway(server)
+  server.listen(...args)
+  return server
 }
 await import('./index.js')
 express.application.use = originalUse
 express.application.get = originalGet
 express.application.post = originalPost
 express.application.patch = originalPatch
+express.application.listen = originalListen
