@@ -21,6 +21,12 @@ function requireEdit(req, res) {
   return false
 }
 
+function requireWorkflow(req, res) {
+  if (req.session?.role === 'owner' || req.session?.canEdit || req.session?.canApprove) return true
+  res.status(403).json({ error: 'Workflow permission required' })
+  return false
+}
+
 function requireOwner(req, res) {
   if (req.session?.role === 'owner') return true
   res.status(403).json({ error: 'Owner permission required' })
@@ -118,7 +124,7 @@ export function createDynamicContentRouter() {
   })
 
   router.post('/:websiteId/:typeId/:recordId/transitions/:transitionId', async (req, res) => {
-    if (!requireEdit(req, res)) return
+    if (!requireWorkflow(req, res)) return
     try {
       res.json(await transitionContentRecord(
         req.params.websiteId,
