@@ -8,6 +8,7 @@ import { createCommerceSettingsRouter, createWebsiteOrderPrefixGuard } from './c
 import { createContentRouter } from './contentRouter.js'
 import { starterWebsites } from './defaults.js'
 import { createDispatchRouter } from './dispatchRouter.js'
+import { createDynamicContentRouter } from './dynamicContentRouter.js'
 import { createInventoryRouter } from './inventoryRouter.js'
 import { createOrdersRouter, createPublicOrdersRouter } from './ordersRouter.js'
 import { createPayPalOrder, createPayPalRouter, verifyPayPalWebhook } from './paypalCheckout.js'
@@ -221,6 +222,7 @@ export function mountProtectedRoutes(app) {
   app.use('/api/websites', createWebsiteOrderPrefixGuard())
   app.use('/api/websites', createWebsiteRouter())
   app.use('/api/content', createContentRouter())
+  app.use('/api/dynamic-content', createDynamicContentRouter())
   app.use('/api/cms', createCmsRouter())
   app.use('/api/team', createTeamRouter())
   app.use('/api/orders', createDispatchRouter())
