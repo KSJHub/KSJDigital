@@ -16,6 +16,7 @@ import { createJobQueueRouter } from './jobQueueRouter.js'
 import { createMigrationRouter } from './migrationRouter.js'
 import { createNotificationRouter } from './notificationRouter.js'
 import { createReleaseRouter } from './releaseRouter.js'
+import { createRetentionComplianceRouter } from './retentionComplianceRouter.js'
 import { createServiceAccountRouter } from './serviceAccountRouter.js'
 import {
   assetServingGuard,
@@ -33,6 +34,7 @@ import { startContentWorkflowScheduler } from './services/contentWorkflowSchedul
 import { startEventBusWorker } from './services/eventBusService.js'
 import { startIntegrationWorker } from './services/integrationService.js'
 import { startJobQueueWorker } from './services/jobQueueService.js'
+import { startRetentionScheduler } from './services/retentionComplianceService.js'
 import { createRequestMetricsMiddleware, startSystemHealthMonitor } from './services/systemHealthService.js'
 import { createSystemHealthRouter } from './systemHealthRouter.js'
 
@@ -102,6 +104,7 @@ startIntegrationWorker()
 startAutomationWorker()
 startJobQueueWorker()
 startEventBusWorker()
+startRetentionScheduler()
 startSystemHealthMonitor()
 startBackupScheduler()
 
@@ -160,6 +163,7 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, '/api/cache', createCacheRouter())
     originalUse.call(this, '/api/event-bus', createEventBusRouter())
     originalUse.call(this, '/api/data-portability', createDataPortabilityRouter())
+    originalUse.call(this, '/api/retention-compliance', createRetentionComplianceRouter())
     originalUse.call(this, '/api/system-health', createSystemHealthRouter())
     originalUse.call(this, '/api/backups', createBackupRouter())
     originalUse.call(this, '/api/configuration', createConfigurationRouter())
