@@ -288,8 +288,9 @@ export async function retentionPlan(policyId) {
     const date = getAt(item, policy.dateKey)
     return date.exists && Number.isFinite(new Date(date.value).getTime()) && new Date(date.value).getTime() < cutoff
   })
-  const confirmationToken = crypto.createHash('sha256').update(`${policy.id}:${registry.version}:${removable.length}:${cutoff}`).digest('hex')
-  return { policy, total: array.value.length, removable: removable.length, retained: array.value.length - removable.length, cutoff: new Date(cutoff).toISOString(), confirmationToken, plannedAt: nowIso(), registryVersion: registry.version }
+  const sourceChecksum = crypto.createHash('sha256').update(JSON.stringify(array.value)).digest('hex')
+  const confirmationToken = crypto.createHash('sha256').update(JSON.stringify({ policyId: policy.id, registryVersion: registry.version, sourceChecksum, retentionDays: policy.retentionDays, removable: removable.length })).digest('hex')
+  return { policy, total: array.value.length, removable: removable.length, retained: array.value.length - removable.length, cutoff: new Date(cutoff).toISOString(), confirmationToken, plannedAt: nowIso(), registryVersion: registry.version, sourceChecksum }
 }
 export async function executeRetention(policyId, input = {}, actor = null) {
   const plan = await retentionPlan(policyId)
@@ -301,6 +302,8 @@ export async function executeRetention(policyId, input = {}, actor = null) {
   const target = safeRelativeFile(plan.policy.file)
   const document = await readJson(target.resolved, {})
   const location = getAt(document, plan.policy.arrayKey)
+  const currentChecksum = crypto.createHash('sha256').update(JSON.stringify(location.value)).digest('hex')
+  if (currentChecksum !== plan.sourceChecksum) throw new MigrationError('Retention source data changed after planning', 409)
   const cutoff = new Date(plan.cutoff).getTime()
   const retained = location.value.filter(item => {
     const date = getAt(item, plan.policy.dateKey)
