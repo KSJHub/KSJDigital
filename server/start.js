@@ -7,6 +7,7 @@ import { createBackupRouter } from './backupRouter.js'
 import { createCacheRouter } from './cacheRouter.js'
 import { createConfigurationRouter } from './configurationRouter.js'
 import { getCredential, setPassword, verifyPassword } from './credentialStore.js'
+import { createEventBusRouter } from './eventBusRouter.js'
 import { createFeatureFlagRouter } from './featureFlagRouter.js'
 import { createFieldRegistryRouter } from './fieldRegistryRouter.js'
 import { createIntegrationEventCaptureMiddleware, createIntegrationRouter } from './integrationRouter.js'
@@ -28,6 +29,7 @@ import { startAutomationWorker } from './services/automationService.js'
 import { startBackupScheduler } from './services/backupService.js'
 import { createResponseCacheMiddleware } from './services/cacheService.js'
 import { startContentWorkflowScheduler } from './services/contentWorkflowScheduler.js'
+import { startEventBusWorker } from './services/eventBusService.js'
 import { startIntegrationWorker } from './services/integrationService.js'
 import { startJobQueueWorker } from './services/jobQueueService.js'
 import { createRequestMetricsMiddleware, startSystemHealthMonitor } from './services/systemHealthService.js'
@@ -98,6 +100,7 @@ startContentWorkflowScheduler()
 startIntegrationWorker()
 startAutomationWorker()
 startJobQueueWorker()
+startEventBusWorker()
 startSystemHealthMonitor()
 startBackupScheduler()
 
@@ -154,6 +157,7 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, '/api/service-accounts', createServiceAccountRouter())
     originalUse.call(this, '/api/abuse-protection', createAbuseProtectionRouter())
     originalUse.call(this, '/api/cache', createCacheRouter())
+    originalUse.call(this, '/api/event-bus', createEventBusRouter())
     originalUse.call(this, '/api/system-health', createSystemHealthRouter())
     originalUse.call(this, '/api/backups', createBackupRouter())
     originalUse.call(this, '/api/configuration', createConfigurationRouter())
