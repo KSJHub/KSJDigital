@@ -166,7 +166,7 @@ export async function appendCollaborationChange(input = {}, actor = null) {
   const resource = resourceKey(input)
   const sessionId = required(input.sessionId, 'Session ID', 100)
   const baseVersion = Math.max(0, Number(input.baseVersion || 0))
-  return mutate(registry => {
+  const result = await mutate(registry => {
     const session = registry.sessions.find(item => item.id === sessionId && activeSession(item))
     if (!session) throw new CollaborationError('Active collaboration session not found', 404)
     if (session.participantId !== actorId(actor) && actor?.role !== 'owner') throw new CollaborationError('Session ownership required', 403)
@@ -176,7 +176,7 @@ export async function appendCollaborationChange(input = {}, actor = null) {
       registry.conflicts.unshift(conflict)
       registry.statistics.conflictsDetected += 1
       registry.history.unshift({ id: crypto.randomUUID(), action: 'collaboration-conflict.detected', conflictId: conflict.id, resourceKey: resource.key, actor, createdAt: conflict.createdAt })
-      throw new CollaborationError('Collaboration version conflict', 409, conflict)
+      return { conflict }
     }
     const change = {
       id: crypto.randomUUID(), ...resource, sessionId, participantId: session.participantId, version: latestVersion + 1, baseVersion,
@@ -186,8 +186,10 @@ export async function appendCollaborationChange(input = {}, actor = null) {
     registry.changes.unshift(change)
     registry.statistics.changesApplied += 1
     registry.history.unshift({ id: crypto.randomUUID(), action: 'collaboration-change.applied', changeId: change.id, resourceKey: resource.key, version: change.version, actor, createdAt: change.createdAt })
-    return change
+    return { change }
   })
+  if (result.conflict) throw new CollaborationError('Collaboration version conflict', 409, result.conflict)
+  return result.change
 }
 
 export async function resolveCollaborationConflict(conflictIdValue, input = {}, actor = null) {
