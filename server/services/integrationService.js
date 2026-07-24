@@ -1,12 +1,19 @@
 import crypto from 'node:crypto'
+import dns from 'node:dns/promises'
+import net from 'node:net'
 import path from 'node:path'
 import { DATA_DIR, readJson, safeName, writeJson } from '../storage.js'
 
 const ROOT = path.join(DATA_DIR, 'integrations')
 const locks = new Map()
 const workers = new Map()
+const workerRuns = new Map()
 const DEFAULT_TIMEOUT_MS = 10_000
 const MAX_RESPONSE_TEXT = 2_000
+const MAX_PAYLOAD_BYTES = 1_000_000
+const DELIVERY_LEASE_MS = 10 * 60 * 1000
+const PROTECTED_HEADERS = new Set(['content-type', 'user-agent', 'x-ksj-event', 'x-ksj-delivery', 'x-ksj-timestamp', 'x-ksj-signature-256'])
+const SECRET_HEADERS = /authorization|cookie|token|secret|api[-_]?key/i
 
 export class IntegrationError extends Error {
   constructor(message, status = 400, details = null) {
@@ -22,6 +29,13 @@ const providers = new Map([
   ['discord', { id: 'discord', label: 'Discord Webhook', contentType: 'application/json', supportsSigning: true }],
   ['slack', { id: 'slack', label: 'Slack Incoming Webhook', contentType: 'application/json', supportsSigning: true }],
 ])
+
+export function registerIntegrationProvider(definition) {
+  const id = String(definition?.id || '').trim()
+  if (!/^[a-z][a-z0-9-]*$/.test(id)) throw new IntegrationError('Provider id is invalid', 422)
+  providers.set(id, { id, label: String(definition.label || id), contentType: definition.contentType || 'application/json', supportsSigning: definition.supportsSigning !== false })
+  return { ...providers.get(id) }
+}
 
 function siteId(value) {
   const id = safeName(value)
@@ -50,9 +64,7 @@ async function readStore(id) {
     await writeJson(file(id), created)
     return created
   }
-  if (!Array.isArray(stored.subscriptions) || !Array.isArray(stored.deliveries)) {
-    throw new IntegrationError('Stored integration registry is invalid', 500)
-  }
+  if (!Array.isArray(stored.subscriptions) || !Array.isArray(stored.deliveries)) throw new IntegrationError('Stored integration registry is invalid', 500)
   return stored
 }
 
@@ -77,15 +89,27 @@ function text(value, label, max = 200) {
   return result
 }
 
+function isPrivateAddress(address) {
+  if (!address) return true
+  if (net.isIPv4(address)) return address.startsWith('10.') || address.startsWith('127.') || address.startsWith('192.168.') || /^172\.(1[6-9]|2\d|3[01])\./.test(address) || address.startsWith('169.254.') || address === '0.0.0.0'
+  const value = address.toLowerCase()
+  return value === '::1' || value === '::' || value.startsWith('fc') || value.startsWith('fd') || value.startsWith('fe80:') || value.startsWith('::ffff:127.') || value.startsWith('::ffff:10.') || value.startsWith('::ffff:192.168.')
+}
+
 function validateUrl(value) {
   let url
   try { url = new URL(String(value || '')) } catch { throw new IntegrationError('Webhook URL is invalid', 422) }
   if (url.protocol !== 'https:') throw new IntegrationError('Webhook URL must use HTTPS', 422)
   const host = url.hostname.toLowerCase()
-  if (host === 'localhost' || host.endsWith('.localhost') || host === '127.0.0.1' || host === '::1' || host.startsWith('10.') || host.startsWith('192.168.') || /^172\.(1[6-9]|2\d|3[01])\./.test(host)) {
-    throw new IntegrationError('Webhook URL cannot target a private network', 422)
-  }
+  if (host === 'localhost' || host.endsWith('.localhost') || isPrivateAddress(host)) throw new IntegrationError('Webhook URL cannot target a private network', 422)
+  if (url.username || url.password) throw new IntegrationError('Webhook URL cannot contain credentials', 422)
   return url.toString()
+}
+
+async function assertPublicDestination(urlValue) {
+  const url = new URL(urlValue)
+  const addresses = await dns.lookup(url.hostname, { all: true, verbatim: true })
+  if (!addresses.length || addresses.some(item => isPrivateAddress(item.address))) throw new IntegrationError('Webhook destination resolved to a private network', 422)
 }
 
 function provider(id) {
@@ -101,6 +125,19 @@ function events(value) {
   return list
 }
 
+function headers(value, existing = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return existing
+  const result = {}
+  for (const [rawName, rawValue] of Object.entries(value)) {
+    const name = String(rawName).trim().toLowerCase()
+    if (!/^[a-z0-9-]+$/.test(name) || PROTECTED_HEADERS.has(name)) throw new IntegrationError('Integration header is invalid or protected', 422, { header: rawName })
+    const headerValue = String(rawValue)
+    if (headerValue.length > 2000 || /[\r\n]/.test(headerValue)) throw new IntegrationError('Integration header value is invalid', 422, { header: rawName })
+    result[name] = headerValue
+  }
+  return result
+}
+
 function matches(pattern, eventName) {
   if (pattern === '*') return true
   if (pattern.endsWith('.*')) return eventName === pattern.slice(0, -2) || eventName.startsWith(pattern.slice(0, -1))
@@ -108,7 +145,8 @@ function matches(pattern, eventName) {
 }
 
 function redactSubscription(subscription) {
-  return { ...subscription, secret: subscription.secret ? '[configured]' : null }
+  const redactedHeaders = Object.fromEntries(Object.entries(subscription.headers || {}).map(([name, value]) => [name, SECRET_HEADERS.test(name) ? '[configured]' : value]))
+  return { ...subscription, secret: subscription.secret ? '[configured]' : null, headers: redactedHeaders }
 }
 
 function normaliseSubscription(input, existing = null) {
@@ -122,7 +160,7 @@ function normaliseSubscription(input, existing = null) {
     events: events(input.events ?? existing?.events),
     enabled: input.enabled === undefined ? existing?.enabled !== false : input.enabled === true,
     secret: input.secret === undefined ? existing?.secret || crypto.randomBytes(32).toString('hex') : text(input.secret, 'Signing secret', 500),
-    headers: input.headers && typeof input.headers === 'object' ? input.headers : existing?.headers || {},
+    headers: input.headers === undefined ? existing?.headers || {} : headers(input.headers),
     maxAttempts: Math.min(12, Math.max(1, Number(input.maxAttempts ?? existing?.maxAttempts ?? 6))),
     timeoutMs: Math.min(30_000, Math.max(1_000, Number(input.timeoutMs ?? existing?.timeoutMs ?? DEFAULT_TIMEOUT_MS))),
     createdAt: existing?.createdAt || now,
@@ -162,14 +200,9 @@ export async function deleteIntegration(websiteValue, integrationId) {
 }
 
 function deliveryPayload(eventName, payload, context) {
-  return {
-    id: crypto.randomUUID(),
-    event: eventName,
-    createdAt: new Date().toISOString(),
-    websiteId: context.websiteId,
-    data: payload,
-    context: context.metadata || {},
-  }
+  const serialised = JSON.stringify(payload)
+  if (Buffer.byteLength(serialised) > MAX_PAYLOAD_BYTES) throw new IntegrationError('Integration event payload is too large', 413)
+  return { id: crypto.randomUUID(), event: eventName, createdAt: new Date().toISOString(), websiteId: context.websiteId, data: payload, context: context.metadata || {} }
 }
 
 export async function publishIntegrationEvent(websiteValue, eventNameValue, payload = {}, metadata = {}) {
@@ -179,19 +212,11 @@ export async function publishIntegrationEvent(websiteValue, eventNameValue, payl
     if (store.settings?.enabled === false) return { queued: 0, deliveryIds: [] }
     const matched = store.subscriptions.filter(item => item.enabled && item.events.some(pattern => matches(pattern, eventName)))
     const now = new Date().toISOString()
+    const eventPayload = deliveryPayload(eventName, payload, { websiteId: id, metadata })
     const created = matched.map(subscription => ({
-      id: crypto.randomUUID(),
-      integrationId: subscription.id,
-      eventName,
-      payload: deliveryPayload(eventName, payload, { websiteId: id, metadata }),
-      status: 'pending',
-      attempts: 0,
-      nextAttemptAt: now,
-      createdAt: now,
-      updatedAt: now,
-      lastError: null,
-      responseStatus: null,
-      responseBody: null,
+      id: crypto.randomUUID(), integrationId: subscription.id, eventName, payload: eventPayload,
+      status: 'pending', attempts: 0, nextAttemptAt: now, leaseUntil: null,
+      createdAt: now, updatedAt: now, lastError: null, responseStatus: null, responseBody: null,
     }))
     store.deliveries.push(...created)
     return { queued: created.length, deliveryIds: created.map(item => item.id) }
@@ -209,32 +234,25 @@ function signature(secret, timestamp, body) {
 }
 
 async function deliver(subscription, delivery) {
+  await assertPublicDestination(subscription.url)
   const body = bodyFor(subscription, delivery)
   const timestamp = Math.floor(Date.now() / 1000).toString()
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), subscription.timeoutMs)
   try {
     const response = await fetch(subscription.url, {
-      method: 'POST',
-      redirect: 'error',
-      signal: controller.signal,
+      method: 'POST', redirect: 'error', signal: controller.signal,
       headers: {
-        'content-type': 'application/json',
-        'user-agent': 'KSJDigital-Webhook/1.0',
-        'x-ksj-event': delivery.eventName,
-        'x-ksj-delivery': delivery.id,
-        'x-ksj-timestamp': timestamp,
+        'content-type': 'application/json', 'user-agent': 'KSJDigital-Webhook/1.0',
+        'x-ksj-event': delivery.eventName, 'x-ksj-delivery': delivery.id, 'x-ksj-timestamp': timestamp,
         'x-ksj-signature-256': `sha256=${signature(subscription.secret, timestamp, body)}`,
         ...subscription.headers,
-      },
-      body,
+      }, body,
     })
     const responseBody = (await response.text()).slice(0, MAX_RESPONSE_TEXT)
     if (!response.ok) throw Object.assign(new Error(`Webhook returned HTTP ${response.status}`), { responseStatus: response.status, responseBody })
     return { status: response.status, body: responseBody }
-  } finally {
-    clearTimeout(timeout)
-  }
+  } finally { clearTimeout(timeout) }
 }
 
 function retryAt(attempts) {
@@ -242,18 +260,33 @@ function retryAt(attempts) {
   return new Date(Date.now() + seconds * 1000).toISOString()
 }
 
+async function claimDeliveries(id, limit) {
+  return mutate(id, store => {
+    const now = Date.now()
+    for (const item of store.deliveries) {
+      if (item.status === 'processing' && (!item.leaseUntil || new Date(item.leaseUntil).getTime() <= now)) {
+        Object.assign(item, { status: 'retrying', nextAttemptAt: new Date().toISOString(), leaseUntil: null, lastError: 'Recovered after interrupted delivery' })
+      }
+    }
+    const due = store.deliveries.filter(item => ['pending', 'retrying'].includes(item.status) && new Date(item.nextAttemptAt).getTime() <= now).slice(0, limit)
+    const leaseUntil = new Date(now + DELIVERY_LEASE_MS).toISOString()
+    for (const item of due) Object.assign(item, { status: 'processing', leaseUntil, updatedAt: new Date().toISOString() })
+    return structuredClone(due)
+  })
+}
+
 export async function processIntegrationQueue(websiteValue, options = {}) {
   const id = siteId(websiteValue)
   const limit = Math.min(100, Math.max(1, Number(options.limit || 20)))
-  const store = await readStore(id)
-  const due = store.deliveries.filter(item => ['pending', 'retrying'].includes(item.status) && new Date(item.nextAttemptAt).getTime() <= Date.now()).slice(0, limit)
+  const claimed = await claimDeliveries(id, limit)
   const results = []
-  for (const queued of due) {
-    const subscription = store.subscriptions.find(item => item.id === queued.integrationId)
+  for (const queued of claimed) {
+    const currentStore = await readStore(id)
+    const subscription = currentStore.subscriptions.find(item => item.id === queued.integrationId)
     if (!subscription || !subscription.enabled) {
       await mutate(id, current => {
         const item = current.deliveries.find(entry => entry.id === queued.id)
-        if (item) Object.assign(item, { status: 'cancelled', updatedAt: new Date().toISOString(), lastError: 'Integration is disabled or missing' })
+        if (item) Object.assign(item, { status: 'cancelled', leaseUntil: null, updatedAt: new Date().toISOString(), lastError: 'Integration is disabled or missing' })
       })
       results.push({ id: queued.id, status: 'cancelled' })
       continue
@@ -262,25 +295,23 @@ export async function processIntegrationQueue(websiteValue, options = {}) {
       const response = await deliver(subscription, queued)
       await mutate(id, current => {
         const item = current.deliveries.find(entry => entry.id === queued.id)
-        if (item) Object.assign(item, { status: 'delivered', attempts: item.attempts + 1, deliveredAt: new Date().toISOString(), updatedAt: new Date().toISOString(), responseStatus: response.status, responseBody: response.body, lastError: null })
+        if (item) Object.assign(item, { status: 'delivered', attempts: item.attempts + 1, leaseUntil: null, deliveredAt: new Date().toISOString(), updatedAt: new Date().toISOString(), responseStatus: response.status, responseBody: response.body, lastError: null })
       })
       results.push({ id: queued.id, status: 'delivered' })
     } catch (error) {
+      let resultStatus = 'failed'
       await mutate(id, current => {
         const item = current.deliveries.find(entry => entry.id === queued.id)
         if (!item) return
         const attempts = item.attempts + 1
+        resultStatus = attempts >= subscription.maxAttempts ? 'failed' : 'retrying'
         Object.assign(item, {
-          attempts,
-          status: attempts >= subscription.maxAttempts ? 'failed' : 'retrying',
-          nextAttemptAt: retryAt(attempts),
-          updatedAt: new Date().toISOString(),
+          attempts, status: resultStatus, leaseUntil: null, nextAttemptAt: retryAt(attempts), updatedAt: new Date().toISOString(),
           lastError: error.name === 'AbortError' ? 'Webhook request timed out' : String(error.message || error),
-          responseStatus: error.responseStatus || null,
-          responseBody: error.responseBody || null,
+          responseStatus: error.responseStatus || null, responseBody: error.responseBody || null,
         })
       })
-      results.push({ id: queued.id, status: 'failed' })
+      results.push({ id: queued.id, status: resultStatus })
     }
   }
   return { processed: results.length, results }
@@ -291,7 +322,7 @@ export async function retryIntegrationDelivery(websiteValue, deliveryId) {
   return mutate(id, store => {
     const delivery = store.deliveries.find(item => item.id === deliveryId)
     if (!delivery) throw new IntegrationError('Delivery not found', 404)
-    Object.assign(delivery, { status: 'pending', attempts: 0, nextAttemptAt: new Date().toISOString(), updatedAt: new Date().toISOString(), lastError: null })
+    Object.assign(delivery, { status: 'pending', attempts: 0, nextAttemptAt: new Date().toISOString(), leaseUntil: null, updatedAt: new Date().toISOString(), lastError: null })
     return delivery
   })
 }
@@ -336,15 +367,23 @@ export async function listIntegrationWebsiteIds() {
 }
 
 export function startIntegrationWorker(options = {}) {
-  const intervalMs = Math.max(5_000, Number(options.intervalMs || 15_000))
+  const tickMs = Math.max(5_000, Number(options.tickMs || 5_000))
   const key = 'global-worker'
   if (workers.has(key)) return workers.get(key)
   const run = async () => {
     for (const id of await listIntegrationWebsiteIds()) {
-      try { await processIntegrationQueue(id); await pruneIntegrationDeliveries(id) } catch (error) { console.error(`Integration worker failed for ${id}`, error) }
+      try {
+        const store = await readStore(id)
+        const intervalMs = Math.max(5_000, Number(store.settings?.workerIntervalMs || 15_000))
+        const lastRun = workerRuns.get(id) || 0
+        if (Date.now() - lastRun < intervalMs) continue
+        workerRuns.set(id, Date.now())
+        await processIntegrationQueue(id)
+        await pruneIntegrationDeliveries(id)
+      } catch (error) { console.error(`Integration worker failed for ${id}`, error) }
     }
   }
-  const timer = setInterval(run, intervalMs)
+  const timer = setInterval(run, tickMs)
   timer.unref?.()
   workers.set(key, timer)
   run().catch(error => console.error('Integration worker startup failed', error))
