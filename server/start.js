@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import express from 'express'
 import { createAbuseProtectionRouter } from './abuseProtectionRouter.js'
+import { createApiKeyRouter } from './apiKeyRouter.js'
 import { createAutomationRouter } from './automationRouter.js'
 import { createBackupRouter } from './backupRouter.js'
 import { createCacheRouter } from './cacheRouter.js'
@@ -163,6 +164,7 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, '/api/notifications', createNotificationRouter())
     originalUse.call(this, '/api/feature-flags', createFeatureFlagRouter())
     originalUse.call(this, '/api/service-accounts', createServiceAccountRouter())
+    originalUse.call(this, '/api/api-keys', createApiKeyRouter())
     originalUse.call(this, '/api/abuse-protection', createAbuseProtectionRouter())
     originalUse.call(this, '/api/cache', createCacheRouter())
     originalUse.call(this, '/api/event-bus', createEventBusRouter())
