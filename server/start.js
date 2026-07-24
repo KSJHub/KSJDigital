@@ -15,6 +15,7 @@ import { createFeatureFlagRouter } from './featureFlagRouter.js'
 import { createFieldRegistryRouter } from './fieldRegistryRouter.js'
 import { createIntegrationEventCaptureMiddleware, createIntegrationRouter } from './integrationRouter.js'
 import { createJobQueueRouter } from './jobQueueRouter.js'
+import { createMfaRouter } from './mfaRouter.js'
 import { createMigrationRouter } from './migrationRouter.js'
 import { createNotificationRouter } from './notificationRouter.js'
 import { createPrivacyRightsRouter } from './privacyRightsRouter.js'
@@ -165,6 +166,7 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, '/api/feature-flags', createFeatureFlagRouter())
     originalUse.call(this, '/api/service-accounts', createServiceAccountRouter())
     originalUse.call(this, '/api/api-keys', createApiKeyRouter())
+    originalUse.call(this, '/api/mfa', createMfaRouter())
     originalUse.call(this, '/api/abuse-protection', createAbuseProtectionRouter())
     originalUse.call(this, '/api/cache', createCacheRouter())
     originalUse.call(this, '/api/event-bus', createEventBusRouter())
