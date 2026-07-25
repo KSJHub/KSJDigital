@@ -67,7 +67,7 @@ function closeConnection(connection, code = 1000, reason = '') {
   if (!connection || connection.closed) return
   connection.closed = true
   const reasonBuffer = Buffer.from(String(reason).slice(0, 123)); const payload = Buffer.alloc(2 + reasonBuffer.length); payload.writeUInt16BE(code, 0); reasonBuffer.copy(payload, 2)
-  try { connection.socket.write(encodeWebSocketFrame(0x8, payload)) } catch {}
+  try { connection.socket.write(encodeWebSocketFrame(0x8, payload)) } catch { /* Socket may already be closed. */ }
   connection.socket.end(); connections.delete(connection.id)
 }
 function handleMessage(connection, payload) {
