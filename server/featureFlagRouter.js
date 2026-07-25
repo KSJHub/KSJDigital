@@ -30,6 +30,10 @@ export function createFeatureFlagRouter() {
     try {
       const currentActor = actor(req)
       const flag = await upsertFeatureFlag({ ...req.body, key: req.params.flagKey }, currentActor)
+      const websiteTargetCount = flag.websiteIds.length
+      const userTargetCount = flag.userIds.length
+      const excludedWebsiteCount = flag.excludedWebsiteIds.length
+      const excludedUserCount = flag.excludedUserIds.length
       await publishDomainEvent('feature-flag.updated', {
         accountId: currentActor.id,
         flagKey: flag.key,
@@ -37,10 +41,10 @@ export function createFeatureFlagRouter() {
         killSwitch: flag.killSwitch,
         percentage: flag.percentage,
         environments: flag.environments,
-        websiteTargetCount: flag.websiteIds.length,
-        userTargetCount: flag.userIds.length,
-        excludedWebsiteCount: flag.excludedWebsiteIds.length,
-        excludedUserCount: flag.excludedUserIds.length,
+        websiteTargetCount,
+        userTargetCount,
+        excludedWebsiteCount,
+        excludedUserCount,
         updatedAt: flag.updatedAt,
       }, currentActor)
       res.json(flag)
