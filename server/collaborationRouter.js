@@ -20,6 +20,9 @@ function actor(req) { return { id: req.session?.userId || req.session?.email || 
 function handle(res, next, operation, success = 200) {
   Promise.resolve().then(operation).then(result => res.status(success).json(result)).catch(next)
 }
+function resourceMetadata(record = {}) {
+  return { websiteId: record.websiteId, resourceType: record.resourceType, resourceId: record.resourceId }
+}
 
 export function createCollaborationRouter() {
   const router = express.Router()
@@ -29,7 +32,15 @@ export function createCollaborationRouter() {
     const currentActor = actor(req)
     handle(res, next, async () => {
       const session = await createCollaborationSession(req.body || {}, currentActor)
-      await publishDomainEvent('collaboration.session-created', { accountId: currentActor.id, websiteId: session.websiteId, session }, currentActor)
+      await publishDomainEvent('collaboration.session-created', {
+        accountId: currentActor.id,
+        ...resourceMetadata(session),
+        sessionId: session.id,
+        participantId: session.participantId,
+        status: session.status,
+        createdAt: session.createdAt,
+        expiresAt: session.expiresAt,
+      }, currentActor)
       return session
     }, 201)
   })
@@ -37,7 +48,16 @@ export function createCollaborationRouter() {
     const currentActor = actor(req)
     handle(res, next, async () => {
       const session = await heartbeatSession(req.params.sessionId, req.body || {}, currentActor)
-      await publishDomainEvent('collaboration.session-heartbeat', { accountId: currentActor.id, websiteId: session.websiteId, sessionId: session.id, cursor: session.cursor, selection: session.selection, lastSeenAt: session.lastSeenAt, expiresAt: session.expiresAt }, currentActor)
+      await publishDomainEvent('collaboration.session-heartbeat', {
+        accountId: currentActor.id,
+        ...resourceMetadata(session),
+        sessionId: session.id,
+        participantId: session.participantId,
+        lastSeenAt: session.lastSeenAt,
+        expiresAt: session.expiresAt,
+        hasCursor: Boolean(session.cursor),
+        hasSelection: Boolean(session.selection),
+      }, currentActor)
       return session
     })
   })
@@ -45,7 +65,14 @@ export function createCollaborationRouter() {
     const currentActor = actor(req)
     handle(res, next, async () => {
       const session = await closeCollaborationSession(req.params.sessionId, currentActor)
-      await publishDomainEvent('collaboration.session-closed', { accountId: currentActor.id, websiteId: session.websiteId, sessionId: session.id, closedAt: session.closedAt }, currentActor)
+      await publishDomainEvent('collaboration.session-closed', {
+        accountId: currentActor.id,
+        ...resourceMetadata(session),
+        sessionId: session.id,
+        participantId: session.participantId,
+        status: session.status,
+        closedAt: session.closedAt,
+      }, currentActor)
       return session
     })
   })
@@ -53,7 +80,15 @@ export function createCollaborationRouter() {
     const currentActor = actor(req)
     handle(res, next, async () => {
       const session = await recoverCollaborationSession(req.params.sessionId, currentActor)
-      await publishDomainEvent('collaboration.session-recovered', { accountId: currentActor.id, websiteId: session.websiteId, session }, currentActor)
+      await publishDomainEvent('collaboration.session-recovered', {
+        accountId: currentActor.id,
+        ...resourceMetadata(session),
+        sessionId: session.id,
+        participantId: session.participantId,
+        recoveredFromSessionId: session.recoveredFromSessionId,
+        createdAt: session.createdAt,
+        expiresAt: session.expiresAt,
+      }, currentActor)
       return session
     }, 201)
   })
@@ -61,7 +96,15 @@ export function createCollaborationRouter() {
     const currentActor = actor(req)
     handle(res, next, async () => {
       const lock = await acquireRecordLock(req.body || {}, currentActor)
-      await publishDomainEvent('collaboration.lock-acquired', { accountId: currentActor.id, websiteId: lock.websiteId, lock }, currentActor)
+      await publishDomainEvent('collaboration.lock-acquired', {
+        accountId: currentActor.id,
+        ...resourceMetadata(lock),
+        lockId: lock.id,
+        sessionId: lock.sessionId,
+        participantId: lock.participantId,
+        status: lock.status,
+        expiresAt: lock.expiresAt,
+      }, currentActor)
       return lock
     }, 201)
   })
@@ -69,7 +112,15 @@ export function createCollaborationRouter() {
     const currentActor = actor(req)
     handle(res, next, async () => {
       const lock = await releaseRecordLock(req.params.lockId, currentActor)
-      await publishDomainEvent('collaboration.lock-released', { accountId: currentActor.id, websiteId: lock.websiteId, lockId: lock.id, releasedAt: lock.releasedAt }, currentActor)
+      await publishDomainEvent('collaboration.lock-released', {
+        accountId: currentActor.id,
+        ...resourceMetadata(lock),
+        lockId: lock.id,
+        sessionId: lock.sessionId,
+        participantId: lock.participantId,
+        status: lock.status,
+        releasedAt: lock.releasedAt,
+      }, currentActor)
       return lock
     })
   })
@@ -78,10 +129,33 @@ export function createCollaborationRouter() {
     handle(res, next, async () => {
       try {
         const change = await appendCollaborationChange(req.body || {}, currentActor)
-        await publishDomainEvent('collaboration.change-applied', { accountId: currentActor.id, websiteId: change.websiteId, change }, currentActor)
+        await publishDomainEvent('collaboration.change-applied', {
+          accountId: currentActor.id,
+          ...resourceMetadata(change),
+          changeId: change.id,
+          sessionId: change.sessionId,
+          participantId: change.participantId,
+          version: change.version,
+          baseVersion: change.baseVersion,
+          operation: change.operation,
+          path: change.path,
+          clientChangeId: change.clientChangeId,
+          createdAt: change.createdAt,
+        }, currentActor)
         return change
       } catch (error) {
-        if (error.status === 409 && error.details) await publishDomainEvent('collaboration.conflict-detected', { accountId: currentActor.id, websiteId: error.details.websiteId, conflict: error.details }, currentActor)
+        if (error.status === 409 && error.details) {
+          await publishDomainEvent('collaboration.conflict-detected', {
+            accountId: currentActor.id,
+            ...resourceMetadata(error.details),
+            conflictId: error.details.id,
+            sessionId: error.details.sessionId,
+            baseVersion: error.details.baseVersion,
+            currentVersion: error.details.currentVersion,
+            status: error.details.status,
+            createdAt: error.details.createdAt,
+          }, currentActor)
+        }
         throw error
       }
     }, 201)
@@ -90,7 +164,17 @@ export function createCollaborationRouter() {
     const currentActor = actor(req)
     handle(res, next, async () => {
       const conflict = await resolveCollaborationConflict(req.params.conflictId, req.body || {}, currentActor)
-      await publishDomainEvent('collaboration.conflict-resolved', { accountId: currentActor.id, websiteId: conflict.websiteId, conflict }, currentActor)
+      await publishDomainEvent('collaboration.conflict-resolved', {
+        accountId: currentActor.id,
+        ...resourceMetadata(conflict),
+        conflictId: conflict.id,
+        sessionId: conflict.sessionId,
+        baseVersion: conflict.baseVersion,
+        currentVersion: conflict.currentVersion,
+        status: conflict.status,
+        resolution: conflict.resolution,
+        resolvedAt: conflict.resolvedAt,
+      }, currentActor)
       return conflict
     })
   })
