@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { DATA_DIR, readJson, safeName, writeJson } from '../storage.js'
+import { publishDomainEvent } from './realtimeDomainEventService.js'
 import { writeStructuredLog } from './systemHealthService.js'
 
 const scrypt = promisify(crypto.scrypt)
@@ -96,6 +97,15 @@ function parsePresentedKey(value) {
   const match = /^ksj_([a-z0-9_-]{6,80})\.([A-Za-z0-9_-]{32,})$/.exec(presented)
   if (!match) throw new ServiceAccountError('API key format is invalid', 401)
   return { keyId: match[1], secret: match[2] }
+}
+function authenticationFailure(error) {
+  const message = String(error?.message || '')
+  if (message === 'API key has expired') return { topic: 'api-key.expired', reason: 'expired' }
+  if (message === 'API key rate limit exceeded') return { topic: 'api-key.rate-limit-exceeded', reason: 'rate-limit-exceeded' }
+  if (message === 'Service account is disabled') return { topic: 'api-key.authentication-failed', reason: 'account-disabled' }
+  if (message === 'API key does not grant the required scope') return { topic: 'api-key.authentication-failed', reason: 'scope-denied' }
+  if (message === 'API key format is invalid') return { topic: 'api-key.authentication-failed', reason: 'invalid-format' }
+  return { topic: 'api-key.authentication-failed', reason: 'invalid-credentials' }
 }
 
 export async function getServiceAccountState(query = {}) {
@@ -215,8 +225,25 @@ export function createApiKeyAuthMiddleware(requiredScope = null) {
       const authenticated = await authenticateApiKey(req.get('authorization') || req.get('x-api-key'), { scope: requiredScope, resource: req.originalUrl })
       req.serviceAccount = authenticated.account
       req.apiKey = authenticated.key
+      await publishDomainEvent('api-key.authenticated', {
+        accountId: authenticated.account.id,
+        keyId: authenticated.key.id,
+        method: req.method,
+        requiredScope: requiredScope || null,
+        status: 'authenticated',
+        authenticatedAt: authenticated.usage.createdAt,
+      }, { id: authenticated.account.id, type: 'service-account' })
       next()
     } catch (error) {
+      const failure = authenticationFailure(error)
+      await publishDomainEvent(failure.topic, {
+        method: req.method,
+        requiredScope: requiredScope || null,
+        status: Number(error.status) || 401,
+        reason: failure.reason,
+        retryable: Number(error.status) === 429,
+        occurredAt: nowIso(),
+      }, { type: 'service-account' })
       res.status(Number(error.status) || 401).json({ error: error.message || 'API key authentication failed', ...(error.details ? { details: error.details } : {}) })
     }
   }
