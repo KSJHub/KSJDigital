@@ -3,6 +3,7 @@ import path from 'node:path'
 import { DATA_DIR, readJson, safeName, writeJson } from '../storage.js'
 import { enqueueJob, registerJobHandler } from './jobQueueService.js'
 import { publishIntegrationEvent } from './integrationService.js'
+import { publishDomainEvent } from './realtimeDomainEventService.js'
 import { writeStructuredLog } from './systemHealthService.js'
 
 const REGISTRY_FILE = path.join(DATA_DIR, 'notifications', 'registry.json')
@@ -207,21 +208,31 @@ export async function queueNotification(input = {}, actor = null) {
 export async function deliverNotification(input = {}) {
   const templateIdValue = templateId(input.templateId)
   const recipientId = safeName(input.recipientId)
+  const currentActor = input.requestedBy || null
   const delivery = await mutate(async registry => {
     const template = registry.templates.find(item => item.id === templateIdValue)
     const recipient = registry.recipients.find(item => item.id === recipientId)
     if (!template || !template.enabled) throw new NotificationError('Notification template was not found or is disabled', 404)
     if (!recipient || !recipient.enabled) throw new NotificationError('Notification recipient was not found or is disabled', 404)
     const duplicate = registry.deliveries.find(item => item.deduplicationKey === input.deduplicationKey && item.recipientId === recipient.id && item.status === 'delivered')
-    if (duplicate) return duplicate
+    if (duplicate) return { ...duplicate, duplicate: true }
     consumeRateLimit(registry, recipient)
     const message = renderTemplate(template, input.variables || {})
     const record = { id: crypto.randomUUID(), templateId: template.id, recipientId: recipient.id, provider: recipient.provider, deduplicationKey: String(input.deduplicationKey || ''), message, status: 'sending', attempts: 1, createdAt: nowIso(), deliveredAt: null, failedAt: null, error: null, providerResult: null }
     registry.deliveries.unshift(record)
     registry.history.unshift({ id: crypto.randomUUID(), action: 'notification.delivery-started', deliveryId: record.id, recipientId: recipient.id, createdAt: nowIso() })
-    return { ...record, recipient }
+    return { ...record, recipient, duplicate: false }
   })
-  if (delivery.status === 'delivered') return delivery
+  if (delivery.duplicate) return delivery
+  await publishDomainEvent('notification.delivery-started', {
+    accountId: currentActor?.id || null,
+    deliveryId: delivery.id,
+    templateId: delivery.templateId,
+    provider: delivery.provider,
+    status: delivery.status,
+    attempts: delivery.attempts,
+    createdAt: delivery.createdAt,
+  }, currentActor)
   const provider = providers.get(delivery.provider)
   try {
     const result = await provider.send({ recipient: delivery.recipient, delivery, message: delivery.message })
@@ -231,14 +242,34 @@ export async function deliverNotification(input = {}) {
       registry.history.unshift({ id: crypto.randomUUID(), action: 'notification.delivered', deliveryId: record.id, recipientId: record.recipientId, createdAt: nowIso() })
       return structuredClone(record)
     })
+    await publishDomainEvent('notification.delivered', {
+      accountId: currentActor?.id || null,
+      deliveryId: completed.id,
+      templateId: completed.templateId,
+      provider: completed.provider,
+      status: completed.status,
+      attempts: completed.attempts,
+      deliveredAt: completed.deliveredAt,
+    }, currentActor)
     await writeStructuredLog('info', 'Notification delivered', { deliveryId: completed.id, provider: completed.provider, recipientId: completed.recipientId })
     return completed
   } catch (error) {
-    await mutate(registry => {
+    const failed = await mutate(registry => {
       const record = registry.deliveries.find(item => item.id === delivery.id)
       if (record) { record.status = 'failed'; record.failedAt = nowIso(); record.error = error?.message || 'Notification delivery failed' }
       registry.history.unshift({ id: crypto.randomUUID(), action: 'notification.failed', deliveryId: delivery.id, recipientId: delivery.recipientId, error: error?.message || 'Notification delivery failed', createdAt: nowIso() })
+      return record ? structuredClone(record) : { id: delivery.id, templateId: delivery.templateId, provider: delivery.provider, status: 'failed', attempts: delivery.attempts, failedAt: nowIso() }
     })
+    await publishDomainEvent('notification.failed', {
+      accountId: currentActor?.id || null,
+      deliveryId: failed.id,
+      templateId: failed.templateId,
+      provider: failed.provider,
+      status: failed.status,
+      attempts: failed.attempts,
+      failedAt: failed.failedAt,
+      retryable: error?.status !== 400 && error?.status !== 401 && error?.status !== 403 && error?.status !== 404 && error?.status !== 422,
+    }, currentActor)
     throw error
   }
 }
