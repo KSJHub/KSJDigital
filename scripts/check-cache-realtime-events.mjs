@@ -55,7 +55,8 @@ const forbiddenPayloads = [
   'route:',
   'namespace:',
   'tags:',
-  'req.body',
+  'payload: req.body',
+  '...req.body',
   'headers:',
   'authorization',
   'cookie',
@@ -66,6 +67,7 @@ for (const fragment of forbiddenPayloads) {
 }
 
 if (!events.includes('invalidatedCount: result.invalidated')) throw new Error('Cache invalidation events must publish only aggregate invalidation counts')
+if (!events.includes('namespaceFiltered: Boolean(req.body?.namespace)')) throw new Error('Targeted cache invalidation must publish only a namespace-filter signal')
 if (!events.includes('tagFilterCount: Array.isArray(req.body?.tags) ? req.body.tags.length : 0')) throw new Error('Targeted cache invalidation must publish only the tag-filter count')
 if (!events.includes('methodCount: result.methods.length') || !events.includes('tagCount: result.tags.length')) {
   throw new Error('Cache policy events must publish bounded method and tag counts')
