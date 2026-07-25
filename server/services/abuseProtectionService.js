@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import net from 'node:net'
 import path from 'node:path'
 import { DATA_DIR, readJson, safeName, writeJson } from '../storage.js'
+import { publishDomainEvent } from './realtimeDomainEventService.js'
 import { writeStructuredLog } from './systemHealthService.js'
 
 const REGISTRY_FILE = path.join(DATA_DIR, 'abuse-protection', 'registry.json')
@@ -147,6 +148,13 @@ export function createAbuseProtectionMiddleware() {
       if (!decision.allowed) {
         res.set('Retry-After', String(Math.max(1, Math.ceil((decision.retryAfterMs || 1000) / 1000))))
         await writeStructuredLog('warn', 'Request blocked by abuse protection', { route: req.path, method: req.method, policyId: decision.policyId, subjectType: decision.subjectType })
+        await publishDomainEvent('abuse-protection.request-blocked', {
+          policyId: decision.policyId,
+          subjectType: decision.subjectType,
+          method: req.method,
+          reason: decision.reason,
+          retryAfterMs: decision.retryAfterMs,
+        })
         return res.status(decision.status || 429).json({ error: 'Too many requests', reason: decision.reason, retryAfterMs: decision.retryAfterMs })
       }
       req.abuseProtection = decision; next()
