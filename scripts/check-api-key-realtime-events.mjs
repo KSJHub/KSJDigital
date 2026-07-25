@@ -22,17 +22,49 @@ assert.match(service, /requiredScope:\s*requiredScope \|\| null/, 'Authenticatio
 assert.match(service, /reason:\s*failure\.reason/, 'Failure events must use bounded reason codes')
 assert.match(service, /retryable:\s*Number\(error\.status\) === 429/, 'Rate-limit events must expose retryability metadata')
 
+function domainEventCalls(code) {
+  const calls = []
+  const marker = 'publishDomainEvent('
+  let start = 0
+  while ((start = code.indexOf(marker, start)) !== -1) {
+    let depth = 0
+    let quote = null
+    let escaped = false
+    let end = start + marker.length
+    for (; end < code.length; end += 1) {
+      const character = code[end]
+      if (quote) {
+        if (escaped) escaped = false
+        else if (character === '\\') escaped = true
+        else if (character === quote) quote = null
+        continue
+      }
+      if (character === "'" || character === '"' || character === '`') { quote = character; continue }
+      if (character === '(') depth += 1
+      else if (character === ')') {
+        if (depth === 0) { end += 1; break }
+        depth -= 1
+      }
+    }
+    calls.push(code.slice(start, end))
+    start = end
+  }
+  return calls
+}
+
+const eventCalls = domainEventCalls(service).join('\n')
+
 for (const forbidden of [
-  /publishDomainEvent[\s\S]{0,700}\bsecret\b/,
-  /publishDomainEvent[\s\S]{0,700}\bsecretHash\b/,
-  /publishDomainEvent[\s\S]{0,700}\bsalt\b/,
-  /publishDomainEvent[\s\S]{0,700}\bauthorization\b/,
-  /publishDomainEvent[\s\S]{0,700}\bx-api-key\b/,
-  /publishDomainEvent[\s\S]{0,700}\boriginalUrl\b/,
-  /publishDomainEvent[\s\S]{0,700}\bresource\b/,
-  /publishDomainEvent[\s\S]{0,700}\berror\.message\b/,
+  /\bsecret\b/,
+  /\bsecretHash\b/,
+  /\bsalt\b/,
+  /\bauthorization\b/,
+  /\bx-api-key\b/,
+  /\boriginalUrl\b/,
+  /\bresource\b/,
+  /\berror\.message\b/,
 ]) {
-  assert.doesNotMatch(service, forbidden, `API key events expose forbidden authentication data: ${forbidden}`)
+  assert.doesNotMatch(eventCalls, forbidden, `API key events expose forbidden authentication data: ${forbidden}`)
 }
 
 console.log('API key real-time event checks passed')
