@@ -23,9 +23,9 @@ for (const topic of requiredTopics) {
   if (!router.includes(`'${topic}'`)) throw new Error(`Missing MFA real-time event: ${topic}`)
 }
 
-function domainEventCalls(code) {
+function functionCalls(code, functionName) {
   const calls = []
-  const marker = 'publishDomainEvent('
+  const marker = `${functionName}(`
   let start = 0
   while ((start = code.indexOf(marker, start)) !== -1) {
     let depth = 0
@@ -53,7 +53,7 @@ function domainEventCalls(code) {
   return calls
 }
 
-const events = domainEventCalls(router).join('\n')
+const events = functionCalls(router, 'publishMfaEvent').slice(1).join('\n')
 const forbiddenPayloads = [
   'secret:',
   'otpauthUri:',
