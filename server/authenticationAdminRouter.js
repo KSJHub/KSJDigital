@@ -8,7 +8,7 @@ import { publishDomainEvent } from './services/realtimeDomainEventService.js'
 function requireOwner(req, res, next) { if (req.session?.role === 'owner') return next(); return res.status(403).json({ error: 'Owner permission required' }) }
 function actor(req) { return { id: req.session?.id || req.session?.email || 'owner', email: req.session?.email || null } }
 function handle(res, next, operation, success = 200) { Promise.resolve().then(operation).then(result => res.status(success).json(result)).catch(next) }
-async function publishAuthenticationEvent(topic, payload, eventActor = null) { await publishDomainEvent(topic, payload, eventActor) }
+async function publishAuthenticationEvent(topic, payload) { await publishDomainEvent(topic, payload) }
 
 export function createAuthenticationAdminRouter() {
   const router = express.Router()
@@ -20,7 +20,7 @@ export function createAuthenticationAdminRouter() {
       revoked: Boolean(result.revokedAt),
       reason: result.revocationReason || 'administrative-revocation',
       assuranceLevel: 2,
-    }, actor(req))
+    })
     return result
   }))
   router.post('/logout-all', (req, res, next) => Promise.resolve(logoutAllAuthenticationSessions(req, res)).catch(next))
@@ -30,7 +30,7 @@ export function createAuthenticationAdminRouter() {
       revokedCount: result.revoked,
       reason: 'administrative-global-logout',
       assuranceLevel: 2,
-    }, actor(req))
+    })
     return result
   }))
   router.post('/accounts/:accountId/password-reset', requireAssurance(2), (req, res, next) => handle(res, next, async () => {
@@ -38,7 +38,7 @@ export function createAuthenticationAdminRouter() {
     await publishAuthenticationEvent('authentication.password-reset-issued', {
       expiresAt: result.expiresAt,
       assuranceLevel: 2,
-    }, actor(req))
+    })
     return result
   }, 201))
   return router
