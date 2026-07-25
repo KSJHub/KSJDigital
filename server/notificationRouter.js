@@ -37,7 +37,13 @@ export function createNotificationRouter() {
     try {
       const currentActor = actor(req)
       const template = await upsertNotificationTemplate({ ...req.body, id: req.params.templateId }, currentActor)
-      await publishDomainEvent('notification.template-updated', { templateId: template.id, accountId: currentActor.id, enabled: template.enabled }, currentActor)
+      await publishDomainEvent('notification.template-updated', {
+        accountId: currentActor.id,
+        templateId: template.id,
+        enabled: template.enabled,
+        createdAt: template.createdAt,
+        updatedAt: template.updatedAt,
+      }, currentActor)
       res.json(template)
     } catch (error) { sendError(res, error) }
   })
@@ -45,7 +51,15 @@ export function createNotificationRouter() {
     try {
       const currentActor = actor(req)
       const recipient = await upsertNotificationRecipient({ ...req.body, id: req.params.recipientId }, currentActor)
-      await publishDomainEvent('notification.recipient-updated', { recipientId: recipient.id, provider: recipient.provider, accountId: currentActor.id, websiteId: recipient.metadata?.websiteId || null, enabled: recipient.enabled }, currentActor)
+      await publishDomainEvent('notification.recipient-updated', {
+        accountId: currentActor.id,
+        recipientId: recipient.id,
+        provider: recipient.provider,
+        websiteId: recipient.metadata?.websiteId || null,
+        enabled: recipient.enabled,
+        createdAt: recipient.createdAt,
+        updatedAt: recipient.updatedAt,
+      }, currentActor)
       res.json(recipient)
     } catch (error) { sendError(res, error) }
   })
@@ -53,7 +67,12 @@ export function createNotificationRouter() {
     try {
       const currentActor = actor(req)
       const policy = await updateNotificationRateLimit(req.params.provider, req.body || {}, currentActor)
-      await publishDomainEvent('notification.rate-limit-updated', { provider: req.params.provider, policy, accountId: currentActor.id }, currentActor)
+      await publishDomainEvent('notification.rate-limit-updated', {
+        accountId: currentActor.id,
+        provider: req.params.provider,
+        windowMs: policy.windowMs,
+        maximum: policy.maximum,
+      }, currentActor)
       res.json(policy)
     } catch (error) { sendError(res, error) }
   })
@@ -61,7 +80,13 @@ export function createNotificationRouter() {
     try {
       const currentActor = actor(req)
       const queued = await queueNotification(req.body || {}, currentActor)
-      await publishDomainEvent('notification.queued', { accountId: currentActor.id, templateId: req.body?.templateId || null, recipientIds: req.body?.recipientIds || (req.body?.recipientId ? [req.body.recipientId] : []), queued: queued.queued, jobIds: queued.jobs.map(job => job.id), deduplicationKey: queued.deduplicationKey }, currentActor)
+      await publishDomainEvent('notification.queued', {
+        accountId: currentActor.id,
+        templateId: req.body?.templateId || null,
+        queuedCount: queued.queued,
+        scheduled: Boolean(req.body?.scheduledFor),
+        priority: req.body?.priority ?? null,
+      }, currentActor)
       res.status(202).json(queued)
     } catch (error) { sendError(res, error) }
   })
