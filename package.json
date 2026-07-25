@@ -56,6 +56,7 @@
     "check:collaboration": "node scripts/check-collaboration.mjs",
     "check:collaboration-realtime": "node scripts/check-collaboration-realtime-events.mjs",
     "check:system-health": "node scripts/check-system-health.mjs",
+    "check:system-health-realtime": "node scripts/check-system-health-realtime-events.mjs",
     "check:backups": "node scripts/check-backups.mjs",
     "check:backup-realtime": "node scripts/check-backup-realtime-events.mjs",
     "check:configuration": "node scripts/check-configuration.mjs",
@@ -67,7 +68,7 @@
     "check:components": "node scripts/check-component-registry.mjs",
     "check:component-inspector": "node scripts/check-component-inspector.mjs",
     "check:launch": "node scripts/check-launch.mjs",
-    "check": "npm run lint && npm run check:server && npm run check:publication && npm run check:workspace && npm run check:data && npm run check:auth && npm run check:credentials && npm run check:sessions && npm run check:login-mfa && npm run check:auth-persistence && npm run check:origins && npm run check:capabilities && npm run check:capability-api && npm run check:services && npm run check:content-service && npm run check:dynamic-content && npm run check:content-workflow && npm run check:content-search && npm run check:asset-library && npm run check:taxonomy && npm run check:localisation && npm run check:audit-trail && npm run check:integrations && npm run check:integration-realtime && npm run check:automations && npm run check:automation-realtime && npm run check:jobs && npm run check:job-realtime && npm run check:notifications && npm run check:feature-flags && npm run check:service-accounts && npm run check:api-keys && npm run check:mfa && npm run check:abuse-protection && npm run check:cache && npm run check:event-bus && npm run check:websocket && npm run check:websocket-events && npm run check:realtime-domain-events && npm run check:data-portability && npm run check:data-portability-realtime && npm run check:retention-compliance && npm run check:privacy-rights && npm run check:privacy-rights-realtime && npm run check:collaboration && npm run check:collaboration-realtime && npm run check:system-health && npm run check:backups && npm run check:backup-realtime && npm run check:configuration && npm run check:configuration-realtime && npm run check:releases && npm run check:release-realtime && npm run check:migrations && npm run check:migration-realtime && npm run check:components && npm run check:component-inspector && npm run build",
+    "check": "npm run lint && npm run check:server && npm run check:publication && npm run check:workspace && npm run check:data && npm run check:auth && npm run check:credentials && npm run check:sessions && npm run check:login-mfa && npm run check:auth-persistence && npm run check:origins && npm run check:capabilities && npm run check:capability-api && npm run check:services && npm run check:content-service && npm run check:dynamic-content && npm run check:content-workflow && npm run check:content-search && npm run check:asset-library && npm run check:taxonomy && npm run check:localisation && npm run check:audit-trail && npm run check:integrations && npm run check:integration-realtime && npm run check:automations && npm run check:automation-realtime && npm run check:jobs && npm run check:job-realtime && npm run check:notifications && npm run check:feature-flags && npm run check:service-accounts && npm run check:api-keys && npm run check:mfa && npm run check:abuse-protection && npm run check:cache && npm run check:event-bus && npm run check:websocket && npm run check:websocket-events && npm run check:realtime-domain-events && npm run check:data-portability && npm run check:data-portability-realtime && npm run check:retention-compliance && npm run check:privacy-rights && npm run check:privacy-rights-realtime && npm run check:collaboration && npm run check:collaboration-realtime && npm run check:system-health && npm run check:system-health-realtime && npm run check:backups && npm run check:backup-realtime && npm run check:configuration && npm run check:configuration-realtime && npm run check:releases && npm run check:release-realtime && npm run check:migrations && npm run check:migration-realtime && npm run check:components && npm run check:component-inspector && npm run build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "preview": "vite preview"
@@ -87,7 +88,7 @@
   "devDependencies": {
     "eslint": "10.3.0",
     "@eslint/js": "10.0.1",
-    "eslint-plugin-react-hooks": "6.0.1",
+    "eslint-plugin-react-hooks": "10.3.0",
     "eslint-plugin-react-refresh": "0.5.2",
     "globals": "17.6.0",
     "prettier": "3.4.2"
