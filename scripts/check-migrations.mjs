@@ -63,7 +63,7 @@ try {
   assert.ok(state.history.some(item => item.action === 'retention.executed'))
 } finally {
   process.chdir(root)
-  await fs.rm(temporary, { recursive: true, force: true })
+  await fs.rm(temporary, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
 }
 
 console.log('Migration and data lifecycle checks passed')
