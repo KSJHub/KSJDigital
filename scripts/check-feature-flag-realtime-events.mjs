@@ -19,8 +19,14 @@ for (const topic of [
 
 assert.match(router, /accountId:\s*currentActor\.id/, 'Feature flag events must identify the authenticated account')
 assert.match(router, /role:\s*req\.session\?\.role/, 'Feature flag event actors must include the authenticated role')
-assert.match(router, /websiteTargetCount:\s*flag\.websiteIds\.length/, 'Feature flag events must publish website target counts only')
-assert.match(router, /userTargetCount:\s*flag\.userIds\.length/, 'Feature flag events must publish user target counts only')
+assert.match(router, /const\s+websiteTargetCount\s*=\s*flag\.websiteIds\.length/, 'Feature flag events must derive website target counts only')
+assert.match(router, /const\s+userTargetCount\s*=\s*flag\.userIds\.length/, 'Feature flag events must derive user target counts only')
+assert.match(router, /const\s+excludedWebsiteCount\s*=\s*flag\.excludedWebsiteIds\.length/, 'Feature flag events must derive excluded website counts only')
+assert.match(router, /const\s+excludedUserCount\s*=\s*flag\.excludedUserIds\.length/, 'Feature flag events must derive excluded user counts only')
+assert.match(router, /publishDomainEvent\('feature-flag\.updated',[\s\S]{0,500}\bwebsiteTargetCount\b/, 'Updated feature flag events must publish the website target count')
+assert.match(router, /publishDomainEvent\('feature-flag\.updated',[\s\S]{0,500}\buserTargetCount\b/, 'Updated feature flag events must publish the user target count')
+assert.match(router, /publishDomainEvent\('feature-flag\.updated',[\s\S]{0,500}\bexcludedWebsiteCount\b/, 'Updated feature flag events must publish the excluded website count')
+assert.match(router, /publishDomainEvent\('feature-flag\.updated',[\s\S]{0,500}\bexcludedUserCount\b/, 'Updated feature flag events must publish the excluded user count')
 assert.match(router, /hasWebsiteContext:\s*Boolean\(evaluation\.context\.websiteId\)/, 'Evaluation events must reduce website context to presence metadata')
 assert.match(router, /hasUserContext:\s*Boolean\(evaluation\.context\.userId\)/, 'Evaluation events must reduce user context to presence metadata')
 
