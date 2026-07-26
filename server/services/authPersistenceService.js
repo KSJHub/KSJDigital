@@ -94,13 +94,21 @@ export async function resolvePersistentSession(token) {
 }
 export async function revokeSessionByToken(token, reason = 'logout') {
   const tokenHash = hashSessionToken(token)
-  return mutate(state => {
+  const revoked = await mutate(state => {
     const session = state.sessions.find(item => item.tokenHash === tokenHash)
     if (!session || session.revokedAt) return false
     session.revokedAt = nowIso(); session.revocationReason = reason
     state.securityEvents.unshift({ id: crypto.randomUUID(), action: 'session.revoked', accountId: session.accountId, sessionId: session.id, reason, createdAt: session.revokedAt })
     return true
   })
+  if (revoked) {
+    await publishAuthenticationPersistenceEvent('authentication.session-ended', {
+      userInitiated: reason === 'logout',
+      sessionRotated: reason === 'session-rotation' || reason === 'mfa-session-rotation',
+      mfaRotation: reason === 'mfa-session-rotation',
+    })
+  }
+  return revoked
 }
 export async function revokeSessionById(id, actor = null) {
   return mutate(state => {
