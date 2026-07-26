@@ -7,6 +7,7 @@ const fullCheck = String(scripts.check || '')
 const realtimeChecks = [
   ['check:authentication-realtime', 'scripts/check-authentication-realtime-events.mjs'],
   ['check:authentication-persistence-realtime', 'scripts/check-authentication-persistence-realtime-events.mjs'],
+  ['check:credential-realtime', 'scripts/check-credential-realtime-events.mjs'],
   ['check:client-account-realtime', 'scripts/check-client-account-realtime-events.mjs'],
   ['check:website-realtime', 'scripts/check-website-realtime-events.mjs'],
   ['check:team-realtime', 'scripts/check-team-realtime-events.mjs'],
