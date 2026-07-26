@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { DATA_DIR, paths, readJson, safeName, writeJson } from '../storage.js'
 import { listContentTypes } from './contentTypeRegistry.js'
+import { publishDomainEvent } from './realtimeDomainEventService.js'
 
 const librariesDir = path.join(DATA_DIR, 'asset-libraries')
 const contentRecordsDir = path.join(DATA_DIR, 'content-records')
@@ -92,6 +93,26 @@ function normaliseAsset(websiteId, input = {}, existing = null) {
     createdAt: existing?.createdAt || stringValue(input.createdAt) || now,
     updatedAt: now,
   }
+}
+
+function assetEventPayload(asset = {}, librarySize = 0, extras = {}) {
+  return {
+    kind: VALID_KINDS.has(asset.kind) ? asset.kind : 'other',
+    hasDimensions: Number(asset.width) > 0 && Number(asset.height) > 0,
+    hasDescription: Boolean(asset.description),
+    hasAltText: Boolean(asset.alt),
+    hasFolder: Boolean(asset.folder),
+    hasStoredFile: Boolean(asset.storagePath),
+    collectionCount: Array.isArray(asset.collections) ? asset.collections.length : 0,
+    tagCount: Array.isArray(asset.tags) ? asset.tags.length : 0,
+    variantCount: Array.isArray(asset.variants) ? asset.variants.length : 0,
+    librarySize: Math.max(0, Number(librarySize) || 0),
+    ...extras,
+  }
+}
+
+async function publishAssetEvent(topic, asset, librarySize, extras = {}) {
+  await publishDomainEvent(topic, assetEventPayload(asset, librarySize, extras))
 }
 
 async function withMutation(websiteId, operation) {
@@ -196,7 +217,9 @@ export async function createAsset(websiteValue, input = {}) {
     const assets = await readLibrary(websiteId)
     const asset = normaliseAsset(websiteId, input)
     if (assets.some(item => item.id === asset.id)) throw new AssetLibraryError('Asset id already exists', 409)
-    await writeJson(libraryPath(websiteId), [asset, ...assets])
+    const nextAssets = [asset, ...assets]
+    await writeJson(libraryPath(websiteId), nextAssets)
+    await publishAssetEvent('asset.created', asset, nextAssets.length)
     return asset
   })
 }
@@ -211,6 +234,7 @@ export async function updateAsset(websiteValue, assetValue, input = {}) {
     const updated = normaliseAsset(websiteId, input, assets[index])
     assets[index] = updated
     await writeJson(libraryPath(websiteId), assets)
+    await publishAssetEvent('asset.updated', updated, assets.length)
     return updated
   })
 }
@@ -231,12 +255,22 @@ export async function deleteAsset(websiteValue, assetValue, options = {}) {
     const assets = await readLibrary(websiteId)
     const asset = assets.find(item => item.id === assetId)
     if (!asset) throw new AssetLibraryError('Asset not found', 404)
-    await writeJson(libraryPath(websiteId), assets.filter(item => item.id !== assetId))
+    const nextAssets = assets.filter(item => item.id !== assetId)
+    await writeJson(libraryPath(websiteId), nextAssets)
+    let storedFileDeleted = false
     if (options.deleteFile === true && asset.storagePath) {
       const resolved = path.resolve(asset.storagePath)
       const root = path.resolve(DATA_DIR, 'assets')
-      if (resolved.startsWith(`${root}${path.sep}`)) await fs.rm(resolved, { force: true })
+      if (resolved.startsWith(`${root}${path.sep}`)) {
+        await fs.rm(resolved, { force: true })
+        storedFileDeleted = true
+      }
     }
+    await publishAssetEvent('asset.deleted', asset, nextAssets.length, {
+      usageCount: usage.length,
+      forced: options.force === true,
+      storedFileDeleted,
+    })
     return { deleted: true, asset, usage }
   })
 }
