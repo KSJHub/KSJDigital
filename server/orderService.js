@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import { paths, readJson, safeName, writeJson } from './storage.js'
+import { publishDomainEvent } from './services/realtimeDomainEventService.js'
 
 const ORDER_STATUSES = new Set([
   'New',
@@ -9,6 +10,12 @@ const ORDER_STATUSES = new Set([
   'Delivered',
   'Cancelled',
   'Refunded',
+])
+
+const ORDER_EVENT_TOPICS = new Map([
+  ['order.created', 'order.created'],
+  ['order.refunded', 'order.refunded'],
+  ['order.status_changed', 'order.status-changed'],
 ])
 
 let orderCreationQueue = Promise.resolve()
@@ -181,6 +188,28 @@ function validateOrderInput(input = {}) {
   return errors
 }
 
+function orderEventPayload(order = {}, details = {}) {
+  const items = Array.isArray(order.items) ? order.items : []
+  return {
+    itemCount: items.length,
+    unitCount: items.reduce((total, item) => total + Math.max(1, Number(item.quantity || 1)), 0),
+    physicalItemCount: items.filter(item => item.fulfilment !== 'digital').length,
+    digitalItemCount: items.filter(item => item.fulfilment === 'digital').length,
+    madeToOrderItemCount: items.filter(item => item.madeToOrder === true).length,
+    isTestOrder: order.isTestOrder === true,
+    paymentStatus: String(order.paymentStatus || '').toLowerCase(),
+    fulfilmentStatus: String(order.fulfilmentStatus || '').toLowerCase(),
+    hasTracking: Boolean(order.tracking?.number),
+    fullyRefunded: order.refund?.fullyRefunded === true,
+    stockRestored: order.refund?.stockRestored === true,
+    ...details,
+  }
+}
+
+async function publishOrderEvent(topic, payload) {
+  await publishDomainEvent(topic, payload)
+}
+
 export async function findOrderByProviderReference(provider, providerOrderId) {
   const orders = await readJson(paths.orders(), [])
   return orders.find(order => order.provider === provider && order.providerOrderId === providerOrderId)
@@ -313,6 +342,11 @@ export async function purgeTestOrders(websiteId = '') {
     writeJson(paths.orderEvents(), events.filter(event => !removedIds.has(event.orderId))),
     writeJson(paths.notificationLog(), notifications.filter(log => !removedIds.has(log.orderId))),
   ])
+  await publishOrderEvent('order.test-data-purged', {
+    removedOrderCount: removed.length,
+    remainingOrderCount: keptOrders.length,
+    scoped: Boolean(safeWebsiteId),
+  })
   return { removed: removed.length, websiteId: safeWebsiteId || 'all' }
 }
 
@@ -369,5 +403,7 @@ export async function appendOrderEvent(order, type, message, metadata = {}) {
     createdAt: new Date().toISOString(),
   }
   await writeJson(paths.orderEvents(), [event, ...events])
+  const topic = ORDER_EVENT_TOPICS.get(type)
+  if (topic) await publishOrderEvent(topic, orderEventPayload(order))
   return event
 }
