@@ -1,4 +1,5 @@
 import { paths, readJson, safeName, writeJson } from './storage.js'
+import { publishDomainEvent } from './services/realtimeDomainEventService.js'
 
 const inventoryQueues = new Map()
 
@@ -33,6 +34,26 @@ function totalTrackedStock(product = {}) {
     return records.reduce((total, item) => total + Math.max(0, Number(item.quantity || 0)), 0)
   }
   return Math.max(0, Number(product.inventory?.quantity || 0))
+}
+
+function inventoryEventPayload(product, quantity, variant = {}, direction = -1) {
+  const inventory = product?.inventory || {}
+  const totalQuantity = Math.max(0, Number(inventory.quantity || 0))
+  const lowStockThreshold = Math.max(0, Number(inventory.lowStockThreshold || 0))
+  return {
+    direction: direction > 0 ? 'restored' : 'decreased',
+    quantity: Math.max(1, Number(quantity || 1)),
+    totalQuantity,
+    hasVariants: variantStock(product).length > 0,
+    selectedVariant: Boolean(text(variant.size) || text(variant.colour)),
+    lowStock: totalQuantity > 0 && totalQuantity <= lowStockThreshold,
+    outOfStock: totalQuantity <= 0,
+    checkoutEnabled: product?.checkout?.enabled === true,
+  }
+}
+
+async function publishInventoryEvent(topic, payload) {
+  await publishDomainEvent(topic, payload)
 }
 
 function validateProduct(product, index) {
@@ -203,6 +224,7 @@ async function adjustProductStock(websiteId, productId, quantity, variant = {}, 
       ...content,
       merch: { ...content.merch, products: nextProducts },
     })
+    await publishInventoryEvent('inventory.stock-adjusted', inventoryEventPayload(nextProducts[index], quantity, variant, direction))
     return nextProducts[index].inventory || null
   })
 }
@@ -228,6 +250,12 @@ export async function decrementBasketStock(websiteId, items = []) {
     await writeJson(paths.content(safeWebsiteId), {
       ...content,
       merch: { ...content.merch, products: nextProducts },
+    })
+    await publishInventoryEvent('inventory.basket-stock-decremented', {
+      itemCount: items.length,
+      unitCount: items.reduce((total, item) => total + Math.max(1, Number(item.quantity || 1)), 0),
+      trackedProductCount: nextProducts.filter(product => product.inventory?.trackStock === true).length,
+      outOfStockProductCount: nextProducts.filter(product => product.inventory?.trackStock === true && Number(product.inventory?.quantity || 0) <= 0).length,
     })
     return nextProducts
   })
