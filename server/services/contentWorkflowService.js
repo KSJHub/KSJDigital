@@ -2,6 +2,9 @@ import crypto from 'node:crypto'
 import path from 'node:path'
 import { getContentType } from './contentTypeRegistry.js'
 import { DATA_DIR, readJson, safeName, writeJson } from '../storage.js'
+import { publishDomainEvent } from './realtimeDomainEventService.js'
+
+const MAX_WORKFLOW_EVENTS_PER_RECORD = 500
 
 export class ContentWorkflowError extends Error {
   constructor(message, status = 400, details = null) {
@@ -47,6 +50,10 @@ function actorSnapshot(actor = {}) {
 function transitionAllowed(transition, actor) {
   const roles = Array.isArray(transition.roles) ? transition.roles : []
   return roles.length === 0 || roles.includes(actorRole(actor)) || actorRole(actor) === 'owner'
+}
+
+async function publishContentWorkflowEvent(topic, payload) {
+  await publishDomainEvent(topic, payload)
 }
 
 export function describeWorkflow(typeId) {
@@ -131,8 +138,15 @@ export async function listWorkflowHistory(websiteId, typeId, recordId) {
 
 export async function appendWorkflowHistory(websiteId, typeId, recordId, event) {
   const events = await listWorkflowHistory(websiteId, typeId, recordId)
-  const next = [event, ...events].slice(0, 500)
+  const next = [event, ...events].slice(0, MAX_WORKFLOW_EVENTS_PER_RECORD)
   await writeJson(workflowPath(websiteId, typeId, recordId), next)
+  await publishContentWorkflowEvent('content-workflow.history-appended', {
+    historyCount: next.length,
+    retentionLimitReached: events.length >= MAX_WORKFLOW_EVENTS_PER_RECORD,
+    historyPruned: events.length + 1 > next.length,
+    hasNote: Boolean(String(event?.note || '').trim()),
+    automaticActor: event?.actor?.id === 'system',
+  })
   return event
 }
 
