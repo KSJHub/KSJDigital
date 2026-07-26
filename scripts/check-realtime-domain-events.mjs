@@ -10,6 +10,7 @@ const realtimeChecks = [
   ['check:website-realtime', 'scripts/check-website-realtime-events.mjs'],
   ['check:team-realtime', 'scripts/check-team-realtime-events.mjs'],
   ['check:commerce-settings-realtime', 'scripts/check-commerce-settings-realtime-events.mjs'],
+  ['check:dynamic-content-realtime', 'scripts/check-dynamic-content-realtime-events.mjs'],
   ['check:asset-library-realtime', 'scripts/check-asset-library-realtime-events.mjs'],
   ['check:taxonomy-realtime', 'scripts/check-taxonomy-realtime-events.mjs'],
   ['check:localisation-realtime', 'scripts/check-localisation-realtime-events.mjs'],
