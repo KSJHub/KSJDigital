@@ -8,6 +8,7 @@ const realtimeChecks = [
   ['check:authentication-realtime', 'scripts/check-authentication-realtime-events.mjs'],
   ['check:client-account-realtime', 'scripts/check-client-account-realtime-events.mjs'],
   ['check:website-realtime', 'scripts/check-website-realtime-events.mjs'],
+  ['check:team-realtime', 'scripts/check-team-realtime-events.mjs'],
   ['check:integration-realtime', 'scripts/check-integration-realtime-events.mjs'],
   ['check:automation-realtime', 'scripts/check-automation-realtime-events.mjs'],
   ['check:job-realtime', 'scripts/check-job-realtime-events.mjs'],
