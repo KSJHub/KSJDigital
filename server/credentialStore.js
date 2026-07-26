@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import { promisify } from 'node:util'
 import path from 'node:path'
 import { DATA_DIR, paths, readJson, safeName, writeJson } from './storage.js'
+import { publishDomainEvent } from './services/realtimeDomainEventService.js'
 
 const scrypt = promisify(crypto.scrypt)
 const CREDENTIAL_FILE = path.join(DATA_DIR, 'credentials.json')
@@ -12,6 +13,7 @@ const MAX_FAILURES = 5
 const LOCK_MS = 15 * 60 * 1000
 function credentialId(value) { return safeName(value || '') }
 function nowIso() { return new Date().toISOString() }
+async function publishCredentialEvent(topic, payload) { await publishDomainEvent(topic, payload) }
 export function validateStrongPassword(password) {
   const value = String(password || '')
   if (value.length < 12) throw new Error('Password must be at least 12 characters')
@@ -42,6 +44,13 @@ export async function setPassword(accountId, password, options = {}) {
   const record = { ...current, passwordHash, passwordHistory: [current.passwordHash, ...(current.passwordHistory || [])].filter(Boolean).slice(0, HISTORY_LIMIT), updatedAt: nowIso(), passwordChangedAt: nowIso(), passwordExpiresAt: options.passwordExpiresAt || null, forcePasswordReset: options.forcePasswordReset === true, failedAttempts: 0, lockedUntil: null }
   delete record.resetTokenHash; delete record.resetExpiresAt
   await writeJson(CREDENTIAL_FILE, { ...credentials, [id]: record })
+  await publishCredentialEvent('credential.password-updated', {
+    existingCredential: Boolean(current.passwordHash),
+    historyCount: record.passwordHistory.length,
+    passwordExpiryConfigured: Boolean(record.passwordExpiresAt),
+    forcedResetRequired: record.forcePasswordReset === true,
+    policyEnforced: options.enforcePolicy === true,
+  })
   return record
 }
 export async function recordCredentialFailure(accountId) {
@@ -79,15 +88,34 @@ export async function completePasswordReset(accountId, token, password) {
   if (!crypto.timingSafeEqual(Buffer.from(current.resetTokenHash, 'hex'), Buffer.from(supplied, 'hex'))) throw new Error('Password reset token is invalid or expired')
   return setPassword(id, password, { enforcePolicy: true })
 }
-export async function removeCredential(accountId) { const id = credentialId(accountId); const credentials = await readJson(CREDENTIAL_FILE, {}); if (!credentials[id]) return false; const next = { ...credentials }; delete next[id]; await writeJson(CREDENTIAL_FILE, next); return true }
+export async function removeCredential(accountId) {
+  const id = credentialId(accountId); const credentials = await readJson(CREDENTIAL_FILE, {})
+  if (!credentials[id]) return false
+  const next = { ...credentials }; delete next[id]
+  await writeJson(CREDENTIAL_FILE, next)
+  await publishCredentialEvent('credential.removed', {
+    remainingCredentialCount: Object.keys(next).length,
+  })
+  return true
+}
 export async function migratePlaintextCredentials() {
   const accounts = await readJson(paths.clients(), []); const credentials = await readJson(CREDENTIAL_FILE, {}); let accountChanged = false; let credentialChanged = false; const migrated = []
+  let credentialsCreatedCount = 0
+  let accountsSanitisedCount = 0
   for (const account of accounts) {
     const id = credentialId(account.id); const plaintext = String(account.password || account.accessCode || '')
-    if (id && plaintext && !credentials[id]?.passwordHash) { credentials[id] = { passwordHash: await hashPassword(plaintext), passwordHistory: [], updatedAt: nowIso(), migratedAt: nowIso(), failedAttempts: 0, lockedUntil: null }; credentialChanged = true }
-    if ('password' in account || 'accessCode' in account) { const safeAccount = { ...account }; delete safeAccount.password; delete safeAccount.accessCode; migrated.push(safeAccount); accountChanged = true } else migrated.push(account)
+    if (id && plaintext && !credentials[id]?.passwordHash) { credentials[id] = { passwordHash: await hashPassword(plaintext), passwordHistory: [], updatedAt: nowIso(), migratedAt: nowIso(), failedAttempts: 0, lockedUntil: null }; credentialChanged = true; credentialsCreatedCount += 1 }
+    if ('password' in account || 'accessCode' in account) { const safeAccount = { ...account }; delete safeAccount.password; delete safeAccount.accessCode; migrated.push(safeAccount); accountChanged = true; accountsSanitisedCount += 1 } else migrated.push(account)
   }
   if (credentialChanged) await writeJson(CREDENTIAL_FILE, credentials)
   if (accountChanged) await writeJson(paths.clients(), migrated)
+  if (credentialChanged || accountChanged) {
+    await publishCredentialEvent('credential.plaintext-migrated', {
+      credentialsCreatedCount,
+      accountsSanitisedCount,
+      credentialsCreated: credentialChanged,
+      accountsSanitised: accountChanged,
+    })
+  }
   return { accountsMigrated: accountChanged, credentialsCreated: credentialChanged }
 }
