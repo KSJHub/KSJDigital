@@ -11,6 +11,7 @@ const realtimeChecks = [
   ['check:team-realtime', 'scripts/check-team-realtime-events.mjs'],
   ['check:commerce-settings-realtime', 'scripts/check-commerce-settings-realtime-events.mjs'],
   ['check:asset-library-realtime', 'scripts/check-asset-library-realtime-events.mjs'],
+  ['check:taxonomy-realtime', 'scripts/check-taxonomy-realtime-events.mjs'],
   ['check:integration-realtime', 'scripts/check-integration-realtime-events.mjs'],
   ['check:automation-realtime', 'scripts/check-automation-realtime-events.mjs'],
   ['check:job-realtime', 'scripts/check-job-realtime-events.mjs'],
