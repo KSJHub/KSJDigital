@@ -16,6 +16,7 @@ import {
   updateContentRecord,
 } from './services/contentRecordService.js'
 import { searchContent } from './services/contentSearchService.js'
+import { publishDomainEvent } from './services/realtimeDomainEventService.js'
 
 function requireEdit(req, res) {
   if (req.session?.role === 'owner' || req.session?.canEdit) return true
@@ -43,6 +44,23 @@ function workflowActor(req) {
     canEdit: req.session?.canEdit === true,
     canApprove: req.session?.canApprove === true,
   }
+}
+
+function recordEventPayload(record, details = {}) {
+  const revisions = Array.isArray(record?.revisions) ? record.revisions : []
+  const relationshipValues = Object.values(record?.relationships || {})
+  return {
+    hasWorkflow: Boolean(record?.workflow),
+    revisionCount: revisions.length,
+    relationshipCount: relationshipValues.reduce((count, value) => count + (Array.isArray(value) ? value.length : value ? 1 : 0), 0),
+    fieldCount: Object.keys(record || {}).filter(key => !['id', 'type', 'websiteId', 'createdAt', 'updatedAt', 'revisions', 'workflow', 'relationships'].includes(key)).length,
+    restored: details.restored === true,
+    transitioned: details.transitioned === true,
+  }
+}
+
+async function publishDynamicContentEvent(topic, payload) {
+  await publishDomainEvent(topic, payload)
 }
 
 function searchOptions(query = {}) {
@@ -104,6 +122,7 @@ export function createDynamicContentRouter() {
     if (!requireOwner(req, res)) return
     try {
       const documents = await rebuildContentSearchIndexForWebsite(req.params.websiteId)
+      await publishDynamicContentEvent('content.search-index-rebuilt', { documentCount: documents.length })
       res.json({ count: documents.length })
     } catch (error) {
       sendError(res, error)
@@ -114,6 +133,7 @@ export function createDynamicContentRouter() {
     if (!requireOwner(req, res)) return
     try {
       const published = await processScheduledContentRecords(req.params.websiteId)
+      await publishDynamicContentEvent('content.scheduled-processed', { publishedRecordCount: published.length })
       res.json({ published, count: published.length })
     } catch (error) {
       sendError(res, error)
@@ -140,6 +160,7 @@ export function createDynamicContentRouter() {
     if (!requireEdit(req, res)) return
     try {
       const record = await createContentRecord(req.params.websiteId, req.params.typeId, req.body || {}, workflowActor(req))
+      await publishDynamicContentEvent('content.record-created', recordEventPayload(record))
       res.status(201).json(record)
     } catch (error) {
       sendError(res, error)
@@ -149,7 +170,9 @@ export function createDynamicContentRouter() {
   router.patch('/:websiteId/:typeId/:recordId', async (req, res) => {
     if (!requireEdit(req, res)) return
     try {
-      res.json(await updateContentRecord(req.params.websiteId, req.params.typeId, req.params.recordId, req.body || {}, workflowActor(req)))
+      const record = await updateContentRecord(req.params.websiteId, req.params.typeId, req.params.recordId, req.body || {}, workflowActor(req))
+      await publishDynamicContentEvent('content.record-updated', recordEventPayload(record))
+      res.json(record)
     } catch (error) {
       sendError(res, error)
     }
@@ -158,7 +181,9 @@ export function createDynamicContentRouter() {
   router.post('/:websiteId/:typeId/:recordId/transitions/:transitionId', async (req, res) => {
     if (!requireWorkflow(req, res)) return
     try {
-      res.json(await transitionContentRecord(req.params.websiteId, req.params.typeId, req.params.recordId, req.params.transitionId, workflowActor(req), req.body || {}))
+      const record = await transitionContentRecord(req.params.websiteId, req.params.typeId, req.params.recordId, req.params.transitionId, workflowActor(req), req.body || {})
+      await publishDynamicContentEvent('content.workflow-transitioned', recordEventPayload(record, { transitioned: true }))
+      res.json(record)
     } catch (error) {
       sendError(res, error)
     }
@@ -167,7 +192,9 @@ export function createDynamicContentRouter() {
   router.post('/:websiteId/:typeId/:recordId/restore/:revisionId', async (req, res) => {
     if (!requireEdit(req, res)) return
     try {
-      res.json(await restoreContentRecord(req.params.websiteId, req.params.typeId, req.params.recordId, req.params.revisionId, workflowActor(req)))
+      const record = await restoreContentRecord(req.params.websiteId, req.params.typeId, req.params.recordId, req.params.revisionId, workflowActor(req))
+      await publishDynamicContentEvent('content.record-restored', recordEventPayload(record, { restored: true }))
+      res.json(record)
     } catch (error) {
       sendError(res, error)
     }
@@ -176,7 +203,9 @@ export function createDynamicContentRouter() {
   router.delete('/:websiteId/:typeId/:recordId', async (req, res) => {
     if (!requireEdit(req, res)) return
     try {
-      res.json(await deleteContentRecord(req.params.websiteId, req.params.typeId, req.params.recordId))
+      const records = await deleteContentRecord(req.params.websiteId, req.params.typeId, req.params.recordId)
+      await publishDynamicContentEvent('content.record-deleted', { remainingRecordCount: records.length })
+      res.json(records)
     } catch (error) {
       sendError(res, error)
     }
