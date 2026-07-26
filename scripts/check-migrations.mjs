@@ -16,6 +16,19 @@ assert.match(routerSource, /executeRetention/)
 assert.match(startSource, /createMigrationRouter/)
 assert.match(startSource, /\/api\/migrations/)
 
+async function removeTemporaryDirectory(directory) {
+  const retryable = new Set(['EBUSY', 'ENOTEMPTY', 'EPERM'])
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      await fs.rm(directory, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 })
+      return
+    } catch (error) {
+      if (!retryable.has(error?.code) || attempt === 19) throw error
+      await new Promise(resolve => setTimeout(resolve, 100 + (attempt * 50)))
+    }
+  }
+}
+
 const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'ksj-migrations-'))
 process.chdir(temporary)
 try {
@@ -63,7 +76,7 @@ try {
   assert.ok(state.history.some(item => item.action === 'retention.executed'))
 } finally {
   process.chdir(root)
-  await fs.rm(temporary, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+  await removeTemporaryDirectory(temporary)
 }
 
 console.log('Migration and data lifecycle checks passed')
