@@ -4,6 +4,7 @@ import {
   buildDiscordOrderPayload,
 } from './orderNotifications.js'
 import { updateNotificationStatus } from './orderService.js'
+import { publishDomainEvent } from './services/realtimeDomainEventService.js'
 
 async function sendResendEmail(message, settings = {}) {
   const apiKey = process.env.RESEND_API_KEY
@@ -61,11 +62,31 @@ async function sendDiscordWebhook(payload, webhookUrl) {
   }
 }
 
+function notificationEventPayload(channel, status) {
+  const emailChannel = channel.endsWith('Email')
+  return {
+    sent: status === 'Sent',
+    failed: status === 'Failed',
+    emailChannel,
+    webhookChannel: channel === 'discord',
+    buyerFacing: channel === 'buyerEmail' || channel === 'dispatchEmail' || channel === 'refundEmail',
+    operationalChannel: channel === 'clientEmail' || channel === 'discord',
+  }
+}
+
+async function publishNotificationDelivery(channel, status) {
+  await publishDomainEvent('order-notification.delivery-recorded', notificationEventPayload(channel, status))
+}
+
 async function recordStatus(order, channel, status, errorMessage = '') {
   try {
-    await updateNotificationStatus(order.id, channel, status, errorMessage)
+    const updated = await updateNotificationStatus(order.id, channel, status, errorMessage)
+    if (!updated) return false
+    await publishNotificationDelivery(channel, status)
+    return true
   } catch (error) {
     console.error(`Unable to record ${channel} notification status for ${order.orderNumber}:`, error)
+    return false
   }
 }
 
