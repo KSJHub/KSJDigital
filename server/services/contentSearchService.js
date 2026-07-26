@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { DATA_DIR, readJson, safeName, writeJson } from '../storage.js'
 import { getContentType, listContentTypes } from './contentTypeRegistry.js'
+import { publishDomainEvent } from './realtimeDomainEventService.js'
 
 const MAX_RESULTS = 100
 const indexMutations = new Map()
@@ -61,6 +62,21 @@ async function mutateIndex(websiteId, mutation) {
   }
 }
 
+function searchDocumentEventPayload(document = {}, documentCount = 0, details = {}) {
+  return {
+    documentCount,
+    published: document.published === true,
+    weightedFieldCount: Array.isArray(document.weighted) ? document.weighted.length : 0,
+    filterCount: document.filters && typeof document.filters === 'object' ? Object.keys(document.filters).length : 0,
+    relationshipCount: Array.isArray(document.relationships) ? document.relationships.length : 0,
+    ...details,
+  }
+}
+
+async function publishContentSearchEvent(topic, payload) {
+  await publishDomainEvent(topic, payload)
+}
+
 export function projectContentSearchDocument(websiteId, typeId, record) {
   const definition = getContentType(typeId)
   if (!definition?.search) return null
@@ -104,24 +120,47 @@ export async function readContentSearchIndex(websiteId) {
 export async function indexContentRecord(websiteId, typeId, record) {
   const document = projectContentSearchDocument(websiteId, typeId, record)
   if (!document) return null
-  await mutateIndex(websiteId, documents => [document, ...documents.filter(item => item.key !== document.key)])
+  const next = await mutateIndex(websiteId, documents => [document, ...documents.filter(item => item.key !== document.key)])
+  await publishContentSearchEvent('content-search.document-indexed', searchDocumentEventPayload(document, next.length))
   return document
 }
 
 export async function removeContentSearchDocument(websiteId, typeId, recordId) {
-  return mutateIndex(websiteId, documents => documents.filter(item => item.key !== `${typeId}:${recordId}`))
+  let removed = false
+  const next = await mutateIndex(websiteId, documents => {
+    const filtered = documents.filter(item => item.key !== `${typeId}:${recordId}`)
+    removed = filtered.length !== documents.length
+    return filtered
+  })
+  await publishContentSearchEvent('content-search.document-removed', {
+    documentCount: next.length,
+    removed,
+  })
+  return next
 }
 
 export async function rebuildContentSearchIndex(websiteId, loadRecords) {
   const documents = []
+  let searchableTypeCount = 0
+  let publishedDocumentCount = 0
   for (const definition of listContentTypes().filter(item => item.search)) {
+    searchableTypeCount += 1
     const records = await loadRecords(definition.id)
     for (const record of records) {
       const document = projectContentSearchDocument(websiteId, definition.id, record)
-      if (document) documents.push(document)
+      if (document) {
+        documents.push(document)
+        if (document.published) publishedDocumentCount += 1
+      }
     }
   }
   await mutateIndex(websiteId, () => documents)
+  await publishContentSearchEvent('content-search.index-rebuilt', {
+    documentCount: documents.length,
+    searchableTypeCount,
+    publishedDocumentCount,
+    unpublishedDocumentCount: documents.length - publishedDocumentCount,
+  })
   return documents
 }
 
