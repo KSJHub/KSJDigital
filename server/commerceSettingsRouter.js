@@ -1,5 +1,6 @@
 import express from 'express'
 import { paths, readJson, safeName, writeJson } from './storage.js'
+import { publishDomainEvent } from './services/realtimeDomainEventService.js'
 
 const DEFAULTS = {
   stripeEnabled: false,
@@ -117,6 +118,25 @@ function sanitise(input = {}) {
   }
 }
 
+function commerceSettingsEventPayload(settings = {}) {
+  return {
+    enabledProviderCount: Number(settings.stripeEnabled === true) + Number(settings.paypalEnabled === true),
+    shippingEnabled: settings.shippingEnabled === true,
+    freeShippingEnabled: settings.freeShippingEnabled === true,
+    taxEnabled: settings.taxEnabled === true,
+    pricesIncludeTax: settings.pricesIncludeTax === true,
+    taxShipping: settings.taxShipping === true,
+    activeDiscountCount: Array.isArray(settings.discountCodes) ? settings.discountCodes.filter(item => item.active !== false).length : 0,
+    hasOrderNotifications: Boolean(settings.orderEmail),
+    hasSupportContact: Boolean(settings.supportEmail),
+    hasDiscordNotifications: Boolean(settings.discordWebhookUrl),
+  }
+}
+
+async function publishCommerceSettingsEvent(settings) {
+  await publishDomainEvent('commerce-settings.updated', commerceSettingsEventPayload(settings))
+}
+
 export function calculateShipping(settings = {}, product = {}, quantity = 1) {
   const safe = sanitise(settings)
   const subtotal = money(Number(product.priceGBP || 0) * Math.max(1, Number(quantity) || 1))
@@ -219,7 +239,9 @@ async function saveSettings(websiteId, input) {
   const settings = sanitise(input)
   const errors = validate(settings)
   if (errors.length) throw new Error(errors.join('; '))
-  return writeJson(paths.commerceSettings(safeName(websiteId)), settings)
+  await writeJson(paths.commerceSettings(safeName(websiteId)), settings)
+  await publishCommerceSettingsEvent(settings)
+  return settings
 }
 
 function canAccessWebsite(session, websiteId) {
