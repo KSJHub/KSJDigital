@@ -1,6 +1,7 @@
 import express from 'express'
 import crypto from 'node:crypto'
 import { removeCredential, setPassword } from './credentialStore.js'
+import { publishDomainEvent } from './services/realtimeDomainEventService.js'
 import { paths, readJson, safeName, writeJson } from './storage.js'
 
 const TEAM_PERMISSIONS = ['canEdit', 'canManagePages', 'canManageMedia', 'canRequestUpdates', 'canViewSupport', 'canManageTeam']
@@ -38,6 +39,18 @@ function teamScope(session, members) {
   if (session.role === 'owner') return members.filter(member => member.role !== 'owner')
   return members.filter(member => member.role !== 'owner' && sharesWebsite(session, member))
 }
+
+function teamEventPayload(member, members, options = {}) {
+  return {
+    status: member.status === 'Suspended' ? 'Suspended' : 'Active',
+    enabledPermissionCount: TEAM_PERMISSIONS.filter(permission => member[permission] === true).length,
+    websiteCount: new Set(websiteIds(member)).size,
+    credentialChanged: options.credentialChanged === true,
+    teamSize: members.filter(item => item.role !== 'owner').length,
+  }
+}
+
+async function publishTeamEvent(topic, payload) { await publishDomainEvent(topic, payload) }
 
 export function createTeamRouter() {
   const router = express.Router()
@@ -83,12 +96,14 @@ export function createTeamRouter() {
 
     if (members.some(item => item.id === member.id)) member.id = `${member.id}-${Date.now()}`
     await setPassword(member.id, temporaryPassword)
+    const nextMembers = [...members, member]
     try {
-      await writeJson(paths.clients(), [...members, member])
+      await writeJson(paths.clients(), nextMembers)
     } catch (error) {
       await removeCredential(member.id).catch(() => {})
       throw error
     }
+    await publishTeamEvent('team.member-added', teamEventPayload(member, nextMembers, { credentialChanged: true }))
     res.json(sanitise(member))
   })
 
@@ -115,12 +130,15 @@ export function createTeamRouter() {
       websiteIds: existing.websiteIds,
     }
 
-    if (req.body?.accessCode) {
+    const credentialChanged = Boolean(req.body?.accessCode)
+    if (credentialChanged) {
       if (String(req.body.accessCode).length < 8) return res.status(400).json({ error: 'Temporary password must be at least 8 characters' })
       await setPassword(existing.id, String(req.body.accessCode))
     }
 
-    await writeJson(paths.clients(), members.map(member => member.id === existing.id ? updated : member))
+    const nextMembers = members.map(member => member.id === existing.id ? updated : member)
+    await writeJson(paths.clients(), nextMembers)
+    await publishTeamEvent('team.member-updated', teamEventPayload(updated, nextMembers, { credentialChanged }))
     res.json(sanitise(updated))
   })
 
@@ -134,8 +152,10 @@ export function createTeamRouter() {
       return res.status(404).json({ error: 'Team member not found' })
     }
 
-    await writeJson(paths.clients(), members.filter(member => member.id !== existing.id))
+    const nextMembers = members.filter(member => member.id !== existing.id)
+    await writeJson(paths.clients(), nextMembers)
     await removeCredential(existing.id)
+    await publishTeamEvent('team.member-removed', teamEventPayload(existing, nextMembers, { credentialChanged: true }))
     res.json({ ok: true })
   })
 
