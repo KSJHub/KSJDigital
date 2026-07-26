@@ -95,7 +95,7 @@ function normaliseAsset(websiteId, input = {}, existing = null) {
   }
 }
 
-function assetEventPayload(asset = {}, librarySize = 0, extras = {}) {
+function assetEventPayload(asset = {}, librarySize = 0, deletion = {}) {
   return {
     kind: VALID_KINDS.has(asset.kind) ? asset.kind : 'other',
     hasDimensions: Number(asset.width) > 0 && Number(asset.height) > 0,
@@ -107,12 +107,14 @@ function assetEventPayload(asset = {}, librarySize = 0, extras = {}) {
     tagCount: Array.isArray(asset.tags) ? asset.tags.length : 0,
     variantCount: Array.isArray(asset.variants) ? asset.variants.length : 0,
     librarySize: Math.max(0, Number(librarySize) || 0),
-    ...extras,
+    usageCount: Math.max(0, Number(deletion.usageCount) || 0),
+    forced: deletion.forced === true,
+    storedFileDeleted: deletion.storedFileDeleted === true,
   }
 }
 
-async function publishAssetEvent(topic, asset, librarySize, extras = {}) {
-  await publishDomainEvent(topic, assetEventPayload(asset, librarySize, extras))
+async function publishAssetEvent(topic, asset, librarySize, deletion = {}) {
+  await publishDomainEvent(topic, assetEventPayload(asset, librarySize, deletion))
 }
 
 async function withMutation(websiteId, operation) {
