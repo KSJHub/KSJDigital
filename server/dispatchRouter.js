@@ -2,6 +2,7 @@ import express from 'express'
 import { getCommerceSettings } from './commerceSettingsRouter.js'
 import { sendDispatchNotification } from './orderNotificationService.js'
 import { getOrder, updateOrderStatus } from './orderService.js'
+import { publishDomainEvent } from './services/realtimeDomainEventService.js'
 
 const TRACKING_URLS = {
   'Royal Mail': number => `https://www.royalmail.com/track-your-item#/tracking-results/${encodeURIComponent(number)}`,
@@ -51,6 +52,27 @@ function trackingDetails(input = {}, status = '') {
   }
 }
 
+function dispatchEventPayload(order = {}, details = {}) {
+  const items = Array.isArray(order.items) ? order.items : []
+  return {
+    itemCount: items.length,
+    unitCount: items.reduce((total, item) => total + Math.max(1, Number(item.quantity || 1)), 0),
+    physicalItemCount: items.filter(item => item.fulfilment !== 'digital').length,
+    madeToOrderItemCount: items.filter(item => item.madeToOrder === true).length,
+    fulfilmentStatus: String(order.fulfilmentStatus || '').toLowerCase(),
+    hasTracking: Boolean(order.tracking?.number),
+    hasTrackingUrl: Boolean(order.tracking?.url),
+    notificationRequested: details.notificationRequested === true,
+    notificationSucceeded: details.notificationSucceeded === true,
+    notificationFailed: details.notificationFailed === true,
+    repeatNotification: details.repeatNotification === true,
+  }
+}
+
+async function publishDispatchEvent(payload) {
+  await publishDomainEvent('dispatch.processed', payload)
+}
+
 export function createDispatchRouter() {
   const router = express.Router()
 
@@ -89,6 +111,13 @@ export function createDispatchRouter() {
         })
         updated = await getOrder(order.id)
       }
+
+      await publishDispatchEvent(dispatchEventPayload(updated, {
+        notificationRequested: shouldNotify,
+        notificationSucceeded: notification?.status === 'Sent',
+        notificationFailed: notification?.status === 'Failed',
+        repeatNotification: order.fulfilmentStatus === 'Dispatched' && req.body?.sendDispatchEmail === true,
+      }))
 
       res.json({
         order: updated,
