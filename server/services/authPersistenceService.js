@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import path from 'node:path'
 import { DATA_DIR, readJson, writeJson } from '../storage.js'
+import { publishDomainEvent } from './realtimeDomainEventService.js'
 
 const FILE = path.join(DATA_DIR, 'authentication', 'registry.json')
 const mutations = new Map()
@@ -42,6 +43,9 @@ function status(session, at = Date.now()) {
   if (new Date(session.idleExpiresAt).getTime() <= at) return 'idle-expired'
   return 'active'
 }
+async function publishAuthenticationPersistenceEvent(topic, payload) {
+  await publishDomainEvent(topic, payload)
+}
 export function hashSessionToken(value) { return crypto.createHash('sha256').update(String(value || '')).digest('hex') }
 export async function issuePersistentSession(account, context = {}, assurance = {}) {
   const plaintext = crypto.randomBytes(32).toString('base64url')
@@ -56,11 +60,22 @@ export async function issuePersistentSession(account, context = {}, assurance = 
     lastActivityAt: createdAt, idleExpiresAt: new Date(Date.now() + IDLE_TTL_MS).toISOString(),
     absoluteExpiresAt: new Date(Date.now() + ABSOLUTE_TTL_MS).toISOString(), revokedAt: null,
   }
-  await mutate(state => {
+  const result = await mutate(state => {
     const active = state.sessions.filter(item => item.accountId === account.id && status(item) === 'active')
+    const revokedSessionCount = active.slice(MAX_SESSIONS_PER_ACCOUNT - 1).length
     for (const old of active.slice(MAX_SESSIONS_PER_ACCOUNT - 1)) { old.revokedAt = createdAt; old.revocationReason = 'concurrent-session-limit' }
     state.sessions.unshift(session)
     state.securityEvents.unshift({ id: crypto.randomUUID(), action: 'session.created', accountId: account.id, sessionId: session.id, createdAt, ip: session.ip })
+    return {
+      activeSessionCount: Math.min(MAX_SESSIONS_PER_ACCOUNT, active.length + 1),
+      revokedSessionCount,
+    }
+  })
+  await publishAuthenticationPersistenceEvent('authentication.session-issued', {
+    activeSessionCount: result.activeSessionCount,
+    revokedSessionCount: result.revokedSessionCount,
+    elevatedAssurance: session.assuranceLevel > 1,
+    trustedDevice: session.assuranceMethod === 'trusted-device',
   })
   return { token: plaintext, session: safeSession(session) }
 }
@@ -104,11 +119,18 @@ export async function revokeAccountSessions(accountId, reason = 'global-logout',
   })
 }
 export async function recordLoginEvent(accountId, context = {}, success = false, details = {}) {
-  return mutate(state => {
-    const event = { id: crypto.randomUUID(), accountId: accountId || null, success, ip: String(context.ip || ''), userAgent: String(context.userAgent || '').slice(0, 1000), createdAt: nowIso(), ...details }
-    state.loginHistory.unshift(event)
-    return event
+  const event = await mutate(state => {
+    const record = { id: crypto.randomUUID(), accountId: accountId || null, success, ip: String(context.ip || ''), userAgent: String(context.userAgent || '').slice(0, 1000), createdAt: nowIso(), ...details }
+    state.loginHistory.unshift(record)
+    return record
   })
+  await publishAuthenticationPersistenceEvent('authentication.login-recorded', {
+    successful: event.success === true,
+    failed: event.success !== true,
+    riskEvaluated: typeof event.risk === 'string' && event.risk.length > 0,
+    failureReasonRecorded: typeof event.reason === 'string' && event.reason.length > 0,
+  })
+  return event
 }
 export async function getAuthenticationState(query = {}) {
   const state = await readRegistry()
