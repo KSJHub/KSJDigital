@@ -30,30 +30,28 @@ const payloadEnd = source.indexOf('\n}\n\nasync function publishAssetEvent', pay
 const payloadSource = payloadStart >= 0 && payloadEnd > payloadStart ? source.slice(payloadStart, payloadEnd) : ''
 
 for (const forbidden of [
-  'asset.id',
-  'asset.websiteId',
-  'asset.ownerId',
-  'asset.name',
-  'asset.originalName',
-  'asset.mimeType',
-  'asset.extension',
-  'asset.url',
-  'asset.storagePath',
-  'asset.bytes',
-  'asset.metadata',
-  'asset.createdAt',
-  'asset.updatedAt',
-  'asset.usage',
-  'asset.variants',
-  'asset.tags',
-  'asset.collections',
-  'asset.description',
-  'asset.alt',
-  'asset.folder',
-  'websiteId',
-  'assetId',
-  'ownerId',
-  'recordId',
+  'id: asset.id',
+  'websiteId: asset.websiteId',
+  'ownerId: asset.ownerId',
+  'name: asset.name',
+  'originalName: asset.originalName',
+  'mimeType: asset.mimeType',
+  'extension: asset.extension',
+  'url: asset.url',
+  'storagePath: asset.storagePath',
+  'bytes: asset.bytes',
+  'metadata: asset.metadata',
+  'createdAt: asset.createdAt',
+  'updatedAt: asset.updatedAt',
+  'usage: asset.usage',
+  'variants: asset.variants',
+  'tags: asset.tags',
+  'collections: asset.collections',
+  'description: asset.description',
+  'alt: asset.alt',
+  'folder: asset.folder',
+  '...asset',
+  '...deletion',
   'req.body',
   'req.params',
   'session',
@@ -63,7 +61,7 @@ for (const forbidden of [
   if (payloadSource.includes(forbidden)) failures.push(`Asset library event payload exposes forbidden data: ${forbidden}`)
 }
 
-if (!source.includes("async function publishAssetEvent(topic, asset, librarySize, extras = {}) {\n  await publishDomainEvent(topic, assetEventPayload(asset, librarySize, extras))\n}")) {
+if (!source.includes("async function publishAssetEvent(topic, asset, librarySize, deletion = {}) {\n  await publishDomainEvent(topic, assetEventPayload(asset, librarySize, deletion))\n}")) {
   failures.push('Asset library events must publish aggregate payloads without actor-derived metadata')
 }
 if (!source.includes("await writeJson(libraryPath(websiteId), nextAssets)\n    await publishAssetEvent('asset.created'")) {
