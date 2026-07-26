@@ -32,6 +32,7 @@ import {
   rebuildContentSearchIndex,
   removeContentSearchDocument,
 } from './contentSearchService.js'
+import { publishDomainEvent } from './realtimeDomainEventService.js'
 import { DATA_DIR, paths, readJson, safeName, writeJson } from '../storage.js'
 
 export class ContentRecordError extends Error {
@@ -73,6 +74,22 @@ function normalisedFields(typeId, input, existing = {}) {
 function initialWorkflowFields(definition, fields) {
   if (!definition.workflow) return fields
   return { ...fields, [definition.workflow.field]: definition.workflow.initialState, scheduledAt: null, publishedAt: null }
+}
+
+function contentRecordEventPayload(definition, record = {}, details = {}) {
+  const structuralFields = new Set(['id', 'type', 'websiteId', 'createdAt', 'updatedAt'])
+  return {
+    fieldCount: Object.keys(record).filter(key => !structuralFields.has(key)).length,
+    relationshipFieldCount: getRelationshipFields(definition.id).length,
+    workflowEnabled: Boolean(definition.workflow),
+    published: Boolean(record.publishedAt),
+    scheduled: Boolean(record.scheduledAt),
+    ...details,
+  }
+}
+
+async function publishContentRecordEvent(topic, payload) {
+  await publishDomainEvent(topic, payload)
 }
 
 async function migrateLegacyArticles(websiteId) {
@@ -166,6 +183,7 @@ export async function createContentRecord(websiteValue, typeValue, input = {}, a
   const records = await getStoredRecords(websiteId, typeId)
   await writeJson(recordsPath(websiteId, typeId), [record, ...records])
   await indexContentRecord(websiteId, typeId, record)
+  await publishContentRecordEvent('content-record.created', contentRecordEventPayload(definition, record))
   return hydrateRecord(websiteId, typeId, record, actor)
 }
 
@@ -184,12 +202,16 @@ export async function updateContentRecord(websiteValue, typeValue, recordId, inp
   records[index] = updated
   await writeJson(recordsPath(websiteId, typeId), records)
   await indexContentRecord(websiteId, typeId, updated)
+  await publishContentRecordEvent('content-record.updated', contentRecordEventPayload(definition, updated, {
+    revisionCreated: true,
+  }))
   return hydrateRecord(websiteId, typeId, updated, actor)
 }
 
 export async function transitionContentRecord(websiteValue, typeValue, recordId, transitionId, actor = {}, input = {}) {
   const websiteId = identity(websiteValue, 'Website id')
-  const typeId = typeDefinition(typeValue).id
+  const definition = typeDefinition(typeValue)
+  const typeId = definition.id
   const records = await getStoredRecords(websiteId, typeId)
   const index = records.findIndex(record => record.id === recordId)
   if (index < 0) throw new ContentRecordError('Content record not found', 404)
@@ -201,15 +223,27 @@ export async function transitionContentRecord(websiteValue, typeValue, recordId,
   await writeJson(recordsPath(websiteId, typeId), records)
   await appendWorkflowHistory(websiteId, typeId, recordId, transition.event)
   await indexContentRecord(websiteId, typeId, updated)
+  await publishContentRecordEvent('content-record.workflow-transitioned', contentRecordEventPayload(definition, updated, {
+    stateChanged: definition.workflow
+      ? existing[definition.workflow.field] !== updated[definition.workflow.field]
+      : false,
+    scheduledPublication: transitionId === 'schedule-publication',
+    automaticPublication: transitionId === 'publish-scheduled',
+  }))
   return hydrateRecord(websiteId, typeId, updated, actor)
 }
 
 export async function restoreContentRecord(websiteValue, typeValue, recordId, revisionId, actor = null) {
   const websiteId = identity(websiteValue, 'Website id')
-  const typeId = typeDefinition(typeValue).id
+  const definition = typeDefinition(typeValue)
+  const typeId = definition.id
   const revision = await getContentRevision(websiteId, typeId, recordId, revisionId)
   if (!revision) throw new ContentRecordError('Revision not found', 404)
-  return updateContentRecord(websiteId, typeId, recordId, revision.snapshot, actor)
+  const restored = await updateContentRecord(websiteId, typeId, recordId, revision.snapshot, actor)
+  await publishContentRecordEvent('content-record.revision-restored', contentRecordEventPayload(definition, restored, {
+    revisionCreated: true,
+  }))
+  return restored
 }
 
 export async function processScheduledContentRecords(websiteValue, now = new Date()) {
@@ -259,7 +293,8 @@ async function applyNullifyPolicies(websiteId, incoming, targetTypeId, targetRec
 
 export async function deleteContentRecord(websiteValue, typeValue, recordId) {
   const websiteId = identity(websiteValue, 'Website id')
-  const typeId = typeDefinition(typeValue).id
+  const definition = typeDefinition(typeValue)
+  const typeId = definition.id
   const records = await getStoredRecords(websiteId, typeId)
   if (!records.some(record => record.id === recordId)) throw new ContentRecordError('Content record not found', 404)
   const incoming = await findIncomingContentRelationships(typeId, recordId, sourceType => getStoredRecords(websiteId, sourceType))
@@ -269,5 +304,10 @@ export async function deleteContentRecord(websiteValue, typeValue, recordId) {
   const next = records.filter(record => record.id !== recordId)
   await writeJson(recordsPath(websiteId, typeId), next)
   await removeContentSearchDocument(websiteId, typeId, recordId)
+  await publishContentRecordEvent('content-record.deleted', {
+    remainingRecordCount: next.length,
+    nullifiedRelationshipCount: incoming.filter(relationship => relationship.onDelete === 'nullify').length,
+    workflowEnabled: Boolean(definition.workflow),
+  })
   return next
 }
