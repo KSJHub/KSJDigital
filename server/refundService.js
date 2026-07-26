@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import { restoreProductStock } from './merchValidation.js'
 import { getOrder, recordOrderRefund } from './orderService.js'
 import { paths, readJson, writeJson } from './storage.js'
+import { publishDomainEvent } from './services/realtimeDomainEventService.js'
 
 const refundQueues = new Map()
 
@@ -32,6 +33,25 @@ function refundRequestId(order, alreadyRefunded, amount) {
     .update(`${order.provider}:${order.providerOrderId}:${alreadyRefunded.toFixed(2)}:${amount.toFixed(2)}`)
     .digest('hex')
     .slice(0, 32)
+}
+
+function refundEventPayload(order = {}, details = {}) {
+  const items = Array.isArray(order.items) ? order.items : []
+  const restorableItems = items.filter(item => item.fulfilment !== 'digital' && !item.madeToOrder)
+  return {
+    itemCount: items.length,
+    unitCount: items.reduce((total, item) => total + Math.max(1, Number(item.quantity || 1)), 0),
+    restorableItemCount: restorableItems.length,
+    restorableUnitCount: restorableItems.reduce((total, item) => total + Math.max(1, Number(item.quantity || 1)), 0),
+    fullRefund: details.fullRefund === true,
+    stockRestoreRequested: details.stockRestoreRequested === true,
+    stockRestored: details.stockRestored === true,
+    stockRestoreFailed: details.stockRestoreFailed === true,
+  }
+}
+
+async function publishRefundEvent(topic, payload) {
+  await publishDomainEvent(topic, payload)
 }
 
 function paypalApiBase() {
@@ -187,6 +207,10 @@ export async function processOrderRefund(orderId, input = {}) {
       restoredStock: false,
     })
     if (!updated) throw new Error('Refund was completed by the provider but could not be recorded locally')
+    await publishRefundEvent('refund.completed', refundEventPayload(updated, {
+      fullRefund,
+      stockRestoreRequested: input.restoreStock === true,
+    }))
 
     let stockRestoreWarning = ''
     if (input.restoreStock === true) {
@@ -197,9 +221,19 @@ export async function processOrderRefund(orderId, input = {}) {
           }
         }
         updated = await markRefundStockRestored(order.id, providerResult.id)
+        await publishRefundEvent('refund.stock-restored', refundEventPayload(updated, {
+          fullRefund,
+          stockRestoreRequested: true,
+          stockRestored: true,
+        }))
       } catch (error) {
         stockRestoreWarning = error instanceof Error ? error.message : String(error)
         updated = (await markRefundStockRestoreFailed(order.id, stockRestoreWarning)) || updated
+        await publishRefundEvent('refund.stock-restore-failed', refundEventPayload(updated, {
+          fullRefund,
+          stockRestoreRequested: true,
+          stockRestoreFailed: true,
+        }))
       }
     }
 
