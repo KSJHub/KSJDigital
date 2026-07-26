@@ -48,7 +48,7 @@
     "check:notifications": "node scripts/check-notifications.mjs",
     "check:notification-realtime": "node scripts/check-notification-realtime-events.mjs",
     "check:feature-flags": "node scripts/check-feature-flags.mjs",
-    "check:feature-flag-realtime": "node scripts/check-feature-flags-realtime-events.mjs",
+    "check:feature-flag-realtime": "node scripts/check-feature-flag-realtime-events.mjs",
     "check:service-accounts": "node scripts/check-service-accounts.mjs",
     "check:service-account-realtime": "node scripts/check-service-account-realtime-events.mjs",
     "check:api-keys": "node scripts/check-api-keys.mjs",
