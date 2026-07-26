@@ -1,5 +1,6 @@
 import { setPassword } from '../credentialStore.js'
 import { paths, readJson, safeName, writeJson } from '../storage.js'
+import { publishDomainEvent } from './realtimeDomainEventService.js'
 
 function idFrom(value = 'new-record') { return safeName(value).replace(/[._]+/g, '-') }
 function sanitise(client) { const { password, accessCode, ...safe } = client; return safe }
@@ -18,6 +19,19 @@ function accountFields(input = {}, existing = {}) {
     canViewSupport: input.canViewSupport === undefined ? existing.canViewSupport !== false : input.canViewSupport !== false,
   }
 }
+function accountEventPayload(client, options = {}) {
+  const websiteIds = new Set([client.websiteId, ...(Array.isArray(client.websiteIds) ? client.websiteIds : [])].filter(Boolean))
+  const permissions = [client.canEdit, client.canManageMedia, client.canRequestUpdates, client.canViewSupport]
+  return {
+    role: String(client.role || 'client').slice(0, 50),
+    websiteCount: websiteIds.size,
+    enabledPermissionCount: permissions.filter(Boolean).length,
+    passwordChanged: options.passwordChanged === true,
+    forcePasswordReset: options.forcePasswordReset === true,
+  }
+}
+async function publishClientAccountEvent(topic, payload) { await publishDomainEvent(topic, payload) }
+
 export async function createClientAccount(req, res) {
   if (!requireOwner(req, res)) return
   const clients = await readJson(paths.clients(), [])
@@ -26,19 +40,24 @@ export async function createClientAccount(req, res) {
   const password = String(req.body?.password || req.body?.accessCode || '')
   if (!password) return res.status(422).json({ error: 'Password is required' })
   const client = { id, ...accountFields(req.body), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
-  await setPassword(id, password, { enforcePolicy: true, forcePasswordReset: req.body?.forcePasswordReset === true })
+  const forcePasswordReset = req.body?.forcePasswordReset === true
+  await setPassword(id, password, { enforcePolicy: true, forcePasswordReset })
   await writeJson(paths.clients(), [...clients, client])
+  await publishClientAccountEvent('client-account.created', accountEventPayload(client, { passwordChanged: true, forcePasswordReset }))
   return res.status(201).json(sanitise(client))
 }
+
 export async function updateClientAccount(req, res) {
   if (!requireOwner(req, res)) return
   const clients = await readJson(paths.clients(), [])
   const current = clients.find(item => item.id === req.params.id)
   if (!current) return res.status(404).json({ error: 'Client not found' })
   const password = String(req.body?.password || req.body?.accessCode || '')
-  if (password) await setPassword(current.id, password, { enforcePolicy: true, forcePasswordReset: req.body?.forcePasswordReset === true })
+  const forcePasswordReset = req.body?.forcePasswordReset === true
+  if (password) await setPassword(current.id, password, { enforcePolicy: true, forcePasswordReset })
   const cleanInput = { ...req.body }; delete cleanInput.password; delete cleanInput.accessCode
   const updatedClient = { id: current.id, ...accountFields(cleanInput, current), updatedAt: new Date().toISOString() }
   await writeJson(paths.clients(), clients.map(item => item.id === current.id ? updatedClient : item))
+  await publishClientAccountEvent('client-account.updated', accountEventPayload(updatedClient, { passwordChanged: Boolean(password), forcePasswordReset }))
   return res.json(sanitise(updatedClient))
 }
