@@ -2,6 +2,7 @@ import { normaliseOrderPrefix } from '../commerceSettingsRouter.js'
 import { starterWebsites } from '../defaults.js'
 import { paths, readJson, safeName, writeJson } from '../storage.js'
 import { normaliseWebsiteCapabilities } from '../websiteCapabilities.js'
+import { publishDomainEvent } from './realtimeDomainEventService.js'
 
 const PLATFORM_WEBSITE_ID = 'ksjdigital'
 const EDITABLE_FIELDS = [
@@ -86,6 +87,23 @@ function normaliseRecord(input = {}, existing = null) {
   }
 }
 
+function websiteEventPayload(website) {
+  return {
+    status: String(website.status || 'Draft').slice(0, 50),
+    plan: String(website.plan || 'Build').slice(0, 50),
+    pageCount: wholeNumber(website.pageCount),
+    mediaCount: wholeNumber(website.mediaCount),
+    capabilityCount: Object.values(website.capabilities || {}).filter(Boolean).length,
+    hasDomain: Boolean(cleanText(website.domain)),
+    hasRepository: Boolean(cleanText(website.repository)),
+    hasDevelopmentEditor: Boolean(cleanText(website.developmentEditorUrl)),
+  }
+}
+
+async function publishWebsiteEvent(topic, payload) {
+  await publishDomainEvent(topic, payload)
+}
+
 function assertUnique(websites, candidate, ignoredId = '') {
   const candidateDomain = candidate.domain.toLowerCase().replace(/\/$/, '')
   const candidatePrefix = normaliseOrderPrefix(candidate.orderPrefix)
@@ -124,6 +142,7 @@ export async function createWebsite(input = {}) {
   const website = normaliseRecord(input)
   assertUnique(websites, website)
   await writeJson(paths.websites(), [...websites, website])
+  await publishWebsiteEvent('website.created', websiteEventPayload(website))
   return website
 }
 
@@ -137,6 +156,7 @@ export async function updateWebsite(id, input = {}) {
   assertUnique(websites, website, existing.id)
   const next = websites.map(item => item.id === existing.id ? website : item)
   await writeJson(paths.websites(), next)
+  await publishWebsiteEvent('website.updated', websiteEventPayload(website))
   return website
 }
 
@@ -147,11 +167,13 @@ export async function deleteWebsite(id) {
   }
 
   const websites = await listWebsites()
-  if (!websites.some(website => normaliseId(website.id) === websiteId)) {
+  const website = websites.find(item => normaliseId(item.id) === websiteId)
+  if (!website) {
     throw new WebsiteServiceError('Website not found', 404)
   }
 
-  const next = websites.filter(website => normaliseId(website.id) !== websiteId)
+  const next = websites.filter(item => normaliseId(item.id) !== websiteId)
   await writeJson(paths.websites(), next)
+  await publishWebsiteEvent('website.deleted', websiteEventPayload(website))
   return next
 }
