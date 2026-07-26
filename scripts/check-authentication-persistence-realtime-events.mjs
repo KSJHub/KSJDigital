@@ -6,11 +6,15 @@ const failures = []
 for (const token of [
   "import { publishDomainEvent } from './realtimeDomainEventService.js'",
   "publishAuthenticationPersistenceEvent('authentication.session-issued'",
+  "publishAuthenticationPersistenceEvent('authentication.session-ended'",
   "publishAuthenticationPersistenceEvent('authentication.login-recorded'",
   'activeSessionCount:',
   'revokedSessionCount:',
   'elevatedAssurance:',
   'trustedDevice:',
+  'userInitiated:',
+  'sessionRotated:',
+  'mfaRotation:',
   'successful:',
   'failed:',
   'riskEvaluated:',
@@ -21,6 +25,7 @@ for (const token of [
 
 for (const payloadMarker of [
   "await publishAuthenticationPersistenceEvent('authentication.session-issued', {",
+  "await publishAuthenticationPersistenceEvent('authentication.session-ended', {",
   "await publishAuthenticationPersistenceEvent('authentication.login-recorded', {",
 ]) {
   const start = source.indexOf(payloadMarker)
@@ -59,6 +64,15 @@ const sessionMutateAt = source.indexOf('const result = await mutate(state => {')
 const sessionPublishAt = source.indexOf("await publishAuthenticationPersistenceEvent('authentication.session-issued'")
 if (sessionMutateAt < 0 || sessionPublishAt < sessionMutateAt) {
   failures.push('Session-issued event must publish after authentication registry persistence')
+}
+
+const terminationMutateAt = source.indexOf('const revoked = await mutate(state => {')
+const terminationPublishAt = source.indexOf("await publishAuthenticationPersistenceEvent('authentication.session-ended'")
+if (terminationMutateAt < 0 || terminationPublishAt < terminationMutateAt) {
+  failures.push('Session-ended event must publish after authentication registry persistence')
+}
+if (!source.includes("if (revoked) {\n    await publishAuthenticationPersistenceEvent('authentication.session-ended'")) {
+  failures.push('Session-ended event must not publish when no active token session was revoked')
 }
 
 const loginMutateAt = source.indexOf('const event = await mutate(state => {')
