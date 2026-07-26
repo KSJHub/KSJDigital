@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import { decrementProductStock, restoreProductStock } from './merchValidation.js'
 import { paths, readJson, writeJson } from './storage.js'
+import { publishDomainEvent } from './services/realtimeDomainEventService.js'
 
 const RESERVATION_MS = 35 * 60 * 1000
 let reservationQueue = Promise.resolve()
@@ -9,6 +10,10 @@ function serialise(action) {
   const next = reservationQueue.then(action, action)
   reservationQueue = next.catch(() => {})
   return next
+}
+
+async function publishReservationEvent(topic, payload) {
+  await publishDomainEvent(topic, payload)
 }
 
 async function readReservations() {
@@ -25,7 +30,13 @@ async function restoreExpiredLocked(now = Date.now()) {
 
   if (expired.length) {
     const expiredIds = new Set(expired.map(record => record.id))
-    await writeJson(paths.stockReservations(), records.filter(record => !expiredIds.has(record.id)))
+    const active = records.filter(record => !expiredIds.has(record.id))
+    await writeJson(paths.stockReservations(), active)
+    await publishReservationEvent('inventory.reservations-expired', {
+      expiredReservationCount: expired.length,
+      restoredUnitCount: expired.reduce((total, record) => total + Math.max(1, Number(record.quantity || 1)), 0),
+      activeReservationCount: active.length,
+    })
   }
 
   return expired.length
@@ -61,7 +72,14 @@ export async function reserveProductStock({ websiteId, product, quantity, varian
     }
 
     const records = await readReservations()
-    await writeJson(paths.stockReservations(), [reservation, ...records])
+    const active = [reservation, ...records]
+    await writeJson(paths.stockReservations(), active)
+    await publishReservationEvent('inventory.stock-reserved', {
+      quantity: reservation.quantity,
+      hasVariant: Boolean(reservation.variant.size || reservation.variant.colour),
+      activeReservationCount: active.length,
+      expiresWithinMinutes: Math.round(RESERVATION_MS / 60000),
+    })
     return reservation
   })
 }
@@ -80,9 +98,15 @@ export async function consumeStockReservation(reservationId) {
   return serialise(async () => {
     await restoreExpiredLocked()
     const records = await readReservations()
-    const exists = records.some(record => record.id === reservationId)
-    if (!exists) return false
-    await writeJson(paths.stockReservations(), records.filter(record => record.id !== reservationId))
+    const record = records.find(item => item.id === reservationId)
+    if (!record) return false
+    const active = records.filter(item => item.id !== reservationId)
+    await writeJson(paths.stockReservations(), active)
+    await publishReservationEvent('inventory.reservation-consumed', {
+      quantity: Math.max(1, Number(record.quantity || 1)),
+      hasVariant: Boolean(record.variant?.size || record.variant?.colour),
+      activeReservationCount: active.length,
+    })
     return true
   })
 }
@@ -95,7 +119,14 @@ export async function releaseStockReservation(reservationId) {
     if (!record) return false
 
     await restoreProductStock(record.websiteId, record.productId, record.quantity, record.variant)
-    await writeJson(paths.stockReservations(), records.filter(item => item.id !== reservationId))
+    const active = records.filter(item => item.id !== reservationId)
+    await writeJson(paths.stockReservations(), active)
+    await publishReservationEvent('inventory.reservation-released', {
+      quantity: Math.max(1, Number(record.quantity || 1)),
+      hasVariant: Boolean(record.variant?.size || record.variant?.colour),
+      activeReservationCount: active.length,
+      stockRestored: true,
+    })
     return true
   })
 }
