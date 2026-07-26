@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import path from 'node:path'
 import { DATA_DIR, readJson, safeName, writeJson } from '../storage.js'
+import { publishDomainEvent } from './realtimeDomainEventService.js'
 
 const auditDir = path.join(DATA_DIR, 'audit-events')
 const mutations = new Map()
@@ -43,6 +44,22 @@ function sanitise(value, depth = 0) {
   return result
 }
 
+function auditEventPayload(event, eventCount) {
+  return {
+    outcome: event?.outcome === 'failure' ? 'failure' : 'success',
+    hasActor: Boolean(event?.actor),
+    hasRequestContext: Boolean(event?.request),
+    hasResource: Boolean(event?.resource),
+    hasChanges: Boolean(event?.changes),
+    metadataFieldCount: event?.metadata && typeof event.metadata === 'object' ? Object.keys(event.metadata).length : 0,
+    eventCount: Number(eventCount) || 0,
+  }
+}
+
+async function publishAuditTrailEvent(topic, payload) {
+  await publishDomainEvent(topic, payload)
+}
+
 async function mutate(id, operation) {
   const previous = mutations.get(id) || Promise.resolve()
   const current = previous.catch(() => {}).then(async () => {
@@ -66,6 +83,7 @@ export async function updateAuditConfig(websiteValue, input = {}) {
   const retentionDays = Math.min(3650, Math.max(1, Number(input.retentionDays) || DEFAULT_RETENTION_DAYS))
   const config = { websiteId: id, retentionDays, updatedAt: new Date().toISOString() }
   await writeJson(configPath(id), config)
+  await publishAuditTrailEvent('audit.config-updated', { retentionDays })
   return config
 }
 
@@ -85,7 +103,8 @@ export async function appendAuditEvent(input = {}) {
     changes: sanitise(input.changes || null),
     metadata: sanitise(input.metadata || {}),
   }
-  await mutate(id, events => [event, ...events])
+  const events = await mutate(id, existing => [event, ...existing])
+  await publishAuditTrailEvent('audit.event-recorded', auditEventPayload(event, events.length))
   return event
 }
 
@@ -122,13 +141,18 @@ export async function pruneAuditEvents(websiteValue, options = {}) {
   const retentionDays = Math.min(3650, Math.max(1, Number(options.retentionDays) || config.retentionDays || DEFAULT_RETENTION_DAYS))
   const cutoff = Date.now() - retentionDays * 86400000
   let removed = 0
-  await mutate(id, events => {
-    const kept = events.filter(event => {
+  const events = await mutate(id, existing => {
+    const kept = existing.filter(event => {
       const retain = new Date(event.timestamp).getTime() >= cutoff
       if (!retain) removed += 1
       return retain
     })
     return kept
+  })
+  await publishAuditTrailEvent('audit.events-pruned', {
+    removedEventCount: removed,
+    remainingEventCount: events.length,
+    retentionDays,
   })
   return { removed, retentionDays }
 }
