@@ -15,6 +15,7 @@ const realtimeChecks = [
   ['check:content-record-realtime', 'scripts/check-content-record-realtime-events.mjs'],
   ['check:content-search-realtime', 'scripts/check-content-search-realtime-events.mjs'],
   ['check:content-revision-realtime', 'scripts/check-content-revision-realtime-events.mjs'],
+  ['check:content-workflow-realtime', 'scripts/check-content-workflow-realtime-events.mjs'],
   ['check:inventory-realtime', 'scripts/check-inventory-realtime-events.mjs'],
   ['check:order-realtime', 'scripts/check-order-realtime-events.mjs'],
   ['check:refund-realtime', 'scripts/check-refund-realtime-events.mjs'],
