@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import path from 'node:path'
 import { DATA_DIR, readJson, safeName, writeJson } from '../storage.js'
+import { publishDomainEvent } from './realtimeDomainEventService.js'
 
 const MAX_REVISIONS_PER_RECORD = 30
 
@@ -16,6 +17,10 @@ function revisionRecord(record, timestamp = new Date().toISOString()) {
     createdAt: timestamp,
     snapshot,
   }
+}
+
+async function publishContentRevisionEvent(topic, payload) {
+  await publishDomainEvent(topic, payload)
 }
 
 export async function listContentRevisions(websiteId, typeId, recordId) {
@@ -36,9 +41,17 @@ export async function saveContentRevision(websiteId, typeId, record) {
   const all = await readJson(file, [])
   const created = revisionRecord(record)
   const otherRecords = all.filter(revision => revision.contentRecordId !== record.id)
-  const currentRecord = [created, ...all.filter(revision => revision.contentRecordId === record.id)]
+  const previousRecordRevisions = all.filter(revision => revision.contentRecordId === record.id)
+  const currentRecord = [created, ...previousRecordRevisions]
     .slice(0, MAX_REVISIONS_PER_RECORD)
-  await writeJson(file, [...currentRecord, ...otherRecords])
+  const next = [...currentRecord, ...otherRecords]
+  await writeJson(file, next)
+  await publishContentRevisionEvent('content-revision.saved', {
+    revisionCount: currentRecord.length,
+    totalRevisionCount: next.length,
+    retentionLimitReached: previousRecordRevisions.length >= MAX_REVISIONS_PER_RECORD,
+    revisionPruned: previousRecordRevisions.length + 1 > currentRecord.length,
+  })
   return created
 }
 
@@ -54,5 +67,12 @@ export async function importContentRevisions(websiteId, typeId, recordId, revisi
     createdAt: revision.createdAt || new Date().toISOString(),
     snapshot: structuredClone(revision.snapshot || revision),
   }))
-  await writeJson(file, [...imported, ...all])
+  const next = [...imported, ...all]
+  await writeJson(file, next)
+  await publishContentRevisionEvent('content-revision.imported', {
+    importedRevisionCount: imported.length,
+    totalRevisionCount: next.length,
+    importTruncated: revisions.length > imported.length,
+    retentionLimitReached: imported.length === MAX_REVISIONS_PER_RECORD,
+  })
 }
