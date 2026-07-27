@@ -100,6 +100,32 @@ function websiteEventPayload(website) {
   }
 }
 
+function websiteState(website = {}) {
+  return {
+    id: website.id,
+    name: website.name,
+    domain: website.domain,
+    developmentEditorUrl: website.developmentEditorUrl,
+    status: website.status,
+    pageCount: website.pageCount,
+    mediaCount: website.mediaCount,
+    owner: website.owner,
+    logo: website.logo,
+    orderPrefix: website.orderPrefix,
+    plan: website.plan,
+    seo: website.seo,
+    performance: website.performance,
+    repository: website.repository,
+    notes: website.notes,
+    capabilities: normaliseWebsiteCapabilities(website.capabilities),
+    createdAt: website.createdAt,
+  }
+}
+
+function websiteStateChanged(current, proposed) {
+  return JSON.stringify(websiteState(current)) !== JSON.stringify(websiteState(proposed))
+}
+
 async function publishWebsiteEvent(topic, payload) {
   await publishDomainEvent(topic, payload)
 }
@@ -154,6 +180,7 @@ export async function updateWebsite(id, input = {}) {
 
   const website = normaliseRecord(input, existing)
   assertUnique(websites, website, existing.id)
+  if (!websiteStateChanged(existing, website)) return existing
   const next = websites.map(item => item.id === existing.id ? website : item)
   await writeJson(paths.websites(), next)
   await publishWebsiteEvent('website.updated', websiteEventPayload(website))
