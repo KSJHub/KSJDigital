@@ -55,13 +55,32 @@ if (!source.includes("async function publishContentRevisionEvent(topic, payload)
   failures.push('Content revision events must publish aggregate payloads without actor metadata')
 }
 
-const firstWrite = source.indexOf('await writeJson(file, next)')
-for (const marker of [
-  "await publishContentRevisionEvent('content-revision.saved'",
-  "await publishContentRevisionEvent('content-revision.imported'",
-]) {
-  const publishAt = source.indexOf(marker)
-  if (firstWrite < 0 || publishAt < firstWrite) failures.push(`Content revision event must publish after persistence: ${marker}`)
+const stateStart = source.indexOf('function revisionSnapshotState(')
+const stateEnd = source.indexOf('\n}\n\nfunction revisionSnapshotChanged', stateStart)
+const stateSource = stateStart >= 0 && stateEnd > stateStart ? source.slice(stateStart, stateEnd) : ''
+if (!stateSource.includes('delete state.updatedAt')) {
+  failures.push('Content revision duplicate detection must ignore timestamp-only snapshot changes')
+}
+
+const saveStart = source.indexOf('export async function saveContentRevision(')
+const saveEnd = source.indexOf('\n}\n\nexport async function importContentRevisions', saveStart)
+const saveSource = saveStart >= 0 && saveEnd > saveStart ? source.slice(saveStart, saveEnd) : ''
+const duplicateAt = saveSource.indexOf('if (latest && !revisionSnapshotChanged(latest.snapshot, snapshot)) return latest')
+const createAt = saveSource.indexOf('const created = revisionRecord(record)')
+const writeAt = saveSource.indexOf('await writeJson(file, next)')
+const publishAt = saveSource.indexOf("await publishContentRevisionEvent('content-revision.saved'")
+if (duplicateAt < 0 || createAt < duplicateAt || writeAt < createAt || publishAt < writeAt) {
+  failures.push('Content revision saves must suppress duplicate snapshots before creation and publish only after persistence')
+}
+
+const importStart = source.indexOf('export async function importContentRevisions(')
+const importSource = importStart >= 0 ? source.slice(importStart) : ''
+const emptyGuardAt = importSource.indexOf('if (!Array.isArray(revisions) || revisions.length === 0) return')
+const existingGuardAt = importSource.indexOf('if (all.some(revision => revision.contentRecordId === recordId)) return')
+const importWriteAt = importSource.indexOf('await writeJson(file, next)')
+const importPublishAt = importSource.indexOf("await publishContentRevisionEvent('content-revision.imported'")
+if (emptyGuardAt < 0 || existingGuardAt < emptyGuardAt || importWriteAt < existingGuardAt || importPublishAt < importWriteAt) {
+  failures.push('Content revision imports must suppress empty or existing history and publish only after persistence')
 }
 
 for (const forbiddenTopic of [
