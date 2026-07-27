@@ -57,6 +57,9 @@ const forbiddenPayloads = [
   'authorization:',
   'ip:',
   'userAgent:',
+  'expiresAt:',
+  'createdAt:',
+  'updatedAt:',
   'req.body',
   'req.params',
   'error.message',
@@ -69,14 +72,17 @@ for (const fragment of forbiddenPayloads) {
 if (!events.includes('revokedCount: result.revoked')) {
   throw new Error('Authentication account and password-reset events must publish aggregate revoked-session counts')
 }
-if (!events.includes('expiresAt: result.expiresAt')) {
-  throw new Error('Password reset issuance must publish expiry metadata without the reset token')
+if (!events.includes('expiresInMinutes: result.ttlMinutes')) {
+  throw new Error('Password reset issuance must publish only the bounded reset duration')
 }
 if (!events.includes('assuranceLevel: 2')) {
   throw new Error('Privileged authentication administration events must identify the required assurance level')
 }
 if (events.includes('result.token')) {
   throw new Error('Password reset tokens must never be included in authentication events')
+}
+if (events.includes('result.expiresAt')) {
+  throw new Error('Exact password reset expiry timestamps must never be included in authentication events')
 }
 if (!router.includes("if (result.revocationApplied) {\n      await publishAuthenticationEvent('authentication.session-revoked'")) {
   throw new Error('Administrative session revocation must publish only when persistence applied a new revocation')
