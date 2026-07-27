@@ -11,6 +11,10 @@ for (const token of [
   "publishLocalisationEvent('localisation.fields-configured'",
   "publishLocalisationEvent('localisation.translation-published'",
   "'localisation.translation-updated' : 'localisation.translation-created'",
+  'function localisationConfigPatchChanges(',
+  'function localePatchChanges(',
+  'function fieldConfigurationChanges(',
+  'function translationPatchChanges(',
   'localeCount:',
   'enabledLocaleCount:',
   'fallbackLocaleCount:',
@@ -77,13 +81,49 @@ for (const forbidden of [
 if (!source.includes("async function publishLocalisationEvent(topic, payload) {\n  await publishDomainEvent(topic, payload)\n}")) {
   failures.push('Localisation events must publish aggregate payloads without actor-derived metadata')
 }
-if (!source.includes('const wasExisting = before.locales.some(locale => locale.id === requestedLocale)')) {
+if (!source.includes('const wasExisting = Boolean(existing)')) {
   failures.push('Locale upsert must distinguish creation from update')
 }
 if (!source.includes("const existing = await getTranslation(req.params.websiteId, req.params.contentType, req.params.recordId, req.params.locale)")) {
   failures.push('Translation writes must distinguish creation from update')
 }
-if (source.includes("localisation.translation-deleted")) {
+
+const configGuard = source.indexOf('if (!localisationConfigPatchChanges(existing, input)) return res.json(existing)')
+const configMutation = source.indexOf('const config = await updateLocalisationConfig(')
+const configPublish = source.indexOf("await publishLocalisationEvent('localisation.config-updated'")
+if (configGuard < 0 || configMutation < configGuard || configPublish < configMutation) {
+  failures.push('Unchanged localisation config must return before persistence and publication')
+}
+
+const localeGuard = source.indexOf('if (!localePatchChanges(existing, req.body || {})) return res.json(before)')
+const localeMutation = source.indexOf('const config = await upsertLocale(')
+const localePublish = source.indexOf("await publishLocalisationEvent(wasExisting ? 'localisation.locale-updated' : 'localisation.locale-created'")
+if (localeGuard < 0 || localeMutation < localeGuard || localePublish < localeMutation) {
+  failures.push('Unchanged locale upserts must return before persistence and publication')
+}
+
+const fieldsGuard = source.indexOf('if (!fieldConfigurationChanges(before.translatableFields?.[req.params.contentType], fields)) return res.json(before)')
+const fieldsMutation = source.indexOf('const config = await configureTranslatableFields(')
+const fieldsPublish = source.indexOf("await publishLocalisationEvent('localisation.fields-configured'")
+if (fieldsGuard < 0 || fieldsMutation < fieldsGuard || fieldsPublish < fieldsMutation) {
+  failures.push('Unchanged field configuration must return before persistence and publication')
+}
+
+const publishedGuard = source.indexOf("if (existing?.status === 'published') return res.json(existing)")
+const publishMutation = source.indexOf('const translation = await publishTranslation(')
+const publishedEvent = source.indexOf("await publishLocalisationEvent('localisation.translation-published'")
+if (publishedGuard < 0 || publishMutation < publishedGuard || publishedEvent < publishMutation) {
+  failures.push('Already-published translations must return before persistence and publication')
+}
+
+const translationGuard = source.indexOf('if (!translationPatchChanges(existing, input)) return res.json(existing)')
+const translationMutation = source.indexOf('const translation = await saveTranslation(')
+const translationPublish = source.indexOf("await publishLocalisationEvent(existing ? 'localisation.translation-updated' : 'localisation.translation-created'")
+if (translationGuard < 0 || translationMutation < translationGuard || translationPublish < translationMutation) {
+  failures.push('Unchanged translation writes must return before persistence and publication')
+}
+
+if (source.includes('localisation.translation-deleted')) {
   failures.push('Localisation must not advertise an unsupported translation deletion lifecycle')
 }
 
