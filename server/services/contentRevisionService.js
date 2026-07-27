@@ -9,13 +9,27 @@ function revisionPath(websiteId, typeId) {
   return path.join(DATA_DIR, 'content-revisions', safeName(websiteId), `${safeName(typeId)}.json`)
 }
 
-function revisionRecord(record, timestamp = new Date().toISOString()) {
+function revisionSnapshot(record = {}) {
   const { revisions, ...snapshot } = structuredClone(record)
+  return snapshot
+}
+
+function revisionSnapshotState(snapshot = {}) {
+  const state = structuredClone(snapshot)
+  delete state.updatedAt
+  return state
+}
+
+function revisionSnapshotChanged(current, proposed) {
+  return JSON.stringify(revisionSnapshotState(current)) !== JSON.stringify(revisionSnapshotState(proposed))
+}
+
+function revisionRecord(record, timestamp = new Date().toISOString()) {
   return {
     id: crypto.randomUUID(),
     contentRecordId: record.id,
     createdAt: timestamp,
-    snapshot,
+    snapshot: revisionSnapshot(record),
   }
 }
 
@@ -39,9 +53,14 @@ export async function getContentRevision(websiteId, typeId, recordId, revisionId
 export async function saveContentRevision(websiteId, typeId, record) {
   const file = revisionPath(websiteId, typeId)
   const all = await readJson(file, [])
+  const previousRecordRevisions = all.filter(revision => revision.contentRecordId === record.id)
+  const latest = previousRecordRevisions
+    .sort((left, right) => new Date(right.createdAt || 0) - new Date(left.createdAt || 0))[0]
+  const snapshot = revisionSnapshot(record)
+  if (latest && !revisionSnapshotChanged(latest.snapshot, snapshot)) return latest
+
   const created = revisionRecord(record)
   const otherRecords = all.filter(revision => revision.contentRecordId !== record.id)
-  const previousRecordRevisions = all.filter(revision => revision.contentRecordId === record.id)
   const currentRecord = [created, ...previousRecordRevisions]
     .slice(0, MAX_REVISIONS_PER_RECORD)
   const next = [...currentRecord, ...otherRecords]
