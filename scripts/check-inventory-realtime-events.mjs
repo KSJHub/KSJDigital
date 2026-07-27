@@ -110,10 +110,20 @@ for (const [writeToken, publishToken, label] of [
   ['await writeJson(paths.stockReservations(), active)', "await publishReservationEvent('inventory.stock-reserved'", 'reservation creation'],
   ['await writeJson(paths.stockReservations(), active)', "await publishReservationEvent('inventory.reservation-consumed'", 'reservation consumption'],
   ['await writeJson(paths.stockReservations(), active)', "await publishReservationEvent('inventory.reservation-released'", 'reservation release'],
+  ['await writeJson(paths.stockReservations(), active)', "await publishReservationEvent('inventory.reservations-expired'", 'expired reservation cleanup'],
 ]) {
   const publishAt = files.reservations.indexOf(publishToken)
   const writeAt = files.reservations.lastIndexOf(writeToken, publishAt)
   if (writeAt < 0 || publishAt < writeAt) failures.push(`${label} events must publish after persistence`)
+}
+
+const expiryStart = files.reservations.indexOf('async function restoreExpiredLocked(')
+const expiryEnd = files.reservations.indexOf('\nexport async function cleanupExpiredReservations', expiryStart)
+const expirySource = expiryStart >= 0 && expiryEnd > expiryStart
+  ? files.reservations.slice(expiryStart, expiryEnd)
+  : ''
+if (!expirySource.includes("if (expired.length) {\n    const expiredIds")) {
+  failures.push('Expired reservation cleanup must not publish or persist when no reservations expired')
 }
 
 if (failures.length) {
