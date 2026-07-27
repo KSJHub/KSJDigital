@@ -39,17 +39,31 @@ for (const forbidden of [
 }
 
 if (!source.includes('async function publishWebsiteEvent(topic, payload) {\n  await publishDomainEvent(topic, payload)\n}')) {
-  failures.push('Website events must publish without actor-derived or website-derived identifying headers')
+  failures.push('Website events must use aggregate payloads without identifying headers')
 }
-if (source.includes("publishWebsiteEvent('website.deleted', { ...website")) {
-  failures.push('Website deletion events must not publish the raw website record')
+
+const createStart = source.indexOf('export async function createWebsite(')
+const updateStart = source.indexOf('export async function updateWebsite(')
+const deleteStart = source.indexOf('export async function deleteWebsite(')
+const createBlock = source.slice(createStart, updateStart)
+const updateBlock = source.slice(updateStart, deleteStart)
+const deleteBlock = source.slice(deleteStart)
+
+for (const [block, writeToken, publishToken, label] of [
+  [createBlock, 'await writeJson(paths.websites(), [...websites, website])', "await publishWebsiteEvent('website.created'", 'creation'],
+  [updateBlock, 'await writeJson(paths.websites(), next)', "await publishWebsiteEvent('website.updated'", 'update'],
+  [deleteBlock, 'await writeJson(paths.websites(), next)', "await publishWebsiteEvent('website.deleted'", 'deletion'],
+]) {
+  const writeAt = block.indexOf(writeToken)
+  const publishAt = block.indexOf(publishToken)
+  if (writeAt < 0 || publishAt < writeAt) failures.push(`Website ${label} must publish after persistence`)
 }
-if (source.includes("publishWebsiteEvent('website.created', website)")) {
-  failures.push('Website creation events must not publish the raw website record')
-}
-if (source.includes("publishWebsiteEvent('website.updated', website)")) {
-  failures.push('Website update events must not publish the raw website record')
-}
+
+if (!createBlock.includes('assertUnique(websites, website)')) failures.push('Website creation must validate uniqueness before persistence')
+if (!updateBlock.includes("if (!existing) throw new WebsiteServiceError('Website not found', 404)")) failures.push('Missing website updates must stop before persistence')
+if (!updateBlock.includes('if (!websiteStateChanged(existing, website)) return existing')) failures.push('Unchanged website updates must not persist or publish')
+if (!deleteBlock.includes('if (websiteId === PLATFORM_WEBSITE_ID) {')) failures.push('Platform website removal must be blocked before persistence')
+if (!deleteBlock.includes("throw new WebsiteServiceError('Website not found', 404)")) failures.push('Missing website removal must stop before persistence')
 
 if (failures.length) {
   console.error('Website real-time event check failed:')
