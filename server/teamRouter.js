@@ -25,9 +25,13 @@ function canManageTeam(session = {}) {
   return session.role === 'owner' || session.canManageTeam === true || session.roleLabel === 'Website Owner'
 }
 
-function boundedPermissions(session, payload = {}) {
+function boundedPermissions(session, payload = {}, existing = {}) {
   const result = {}
   TEAM_PERMISSIONS.forEach(permission => {
+    if (!Object.prototype.hasOwnProperty.call(payload, permission)) {
+      result[permission] = existing[permission] === true
+      return
+    }
     result[permission] = session.role === 'owner'
       ? payload[permission] === true
       : session[permission] === true && payload[permission] === true
@@ -48,6 +52,23 @@ function teamEventPayload(member, members, options = {}) {
     credentialChanged: options.credentialChanged === true,
     teamSize: members.filter(item => item.role !== 'owner').length,
   }
+}
+
+function teamMemberState(member = {}) {
+  return {
+    name: member.name,
+    displayName: member.displayName,
+    roleLabel: member.roleLabel,
+    status: member.status,
+    role: member.role,
+    websiteId: member.websiteId,
+    websiteIds: websiteIds(member),
+    permissions: Object.fromEntries(TEAM_PERMISSIONS.map(permission => [permission, member[permission] === true])),
+  }
+}
+
+function teamMemberStateChanged(current, proposed) {
+  return JSON.stringify(teamMemberState(current)) !== JSON.stringify(teamMemberState(proposed))
 }
 
 async function publishTeamEvent(topic, payload) { await publishDomainEvent(topic, payload) }
@@ -117,7 +138,7 @@ export function createTeamRouter() {
       return res.status(404).json({ error: 'Team member not found' })
     }
 
-    const permissions = boundedPermissions(req.session, req.body)
+    const permissions = boundedPermissions(req.session, req.body, existing)
     const updated = {
       ...existing,
       name: String(req.body?.name ?? existing.name).trim(),
@@ -131,10 +152,11 @@ export function createTeamRouter() {
     }
 
     const credentialChanged = Boolean(req.body?.accessCode)
-    if (credentialChanged) {
-      if (String(req.body.accessCode).length < 8) return res.status(400).json({ error: 'Temporary password must be at least 8 characters' })
-      await setPassword(existing.id, String(req.body.accessCode))
+    if (credentialChanged && String(req.body.accessCode).length < 8) {
+      return res.status(400).json({ error: 'Temporary password must be at least 8 characters' })
     }
+    if (!credentialChanged && !teamMemberStateChanged(existing, updated)) return res.json(sanitise(existing))
+    if (credentialChanged) await setPassword(existing.id, String(req.body.accessCode))
 
     const nextMembers = members.map(member => member.id === existing.id ? updated : member)
     await writeJson(paths.clients(), nextMembers)
