@@ -55,17 +55,44 @@ if (!source.includes("async function publishDynamicContentEvent(topic, payload) 
 }
 
 for (const [operation, topic] of [
-  ['const record = await createContentRecord(', "content.record-created"],
-  ['const record = await updateContentRecord(', "content.record-updated"],
-  ['const record = await transitionContentRecord(', "content.workflow-transitioned"],
-  ['const record = await restoreContentRecord(', "content.record-restored"],
-  ['const records = await deleteContentRecord(', "content.record-deleted"],
-  ['const published = await processScheduledContentRecords(', "content.scheduled-processed"],
-  ['const documents = await rebuildContentSearchIndexForWebsite(', "content.search-index-rebuilt"],
+  ['const record = await createContentRecord(', 'content.record-created'],
+  ['const record = await updateContentRecord(', 'content.record-updated'],
+  ['const record = await transitionContentRecord(', 'content.workflow-transitioned'],
+  ['const record = await restoreContentRecord(', 'content.record-restored'],
+  ['const records = await deleteContentRecord(', 'content.record-deleted'],
+  ['const published = await processScheduledContentRecords(', 'content.scheduled-processed'],
+  ['const documents = await rebuildContentSearchIndexForWebsite(', 'content.search-index-rebuilt'],
 ]) {
   const operationIndex = source.indexOf(operation)
   const publishIndex = source.indexOf(`publishDynamicContentEvent('${topic}'`)
   if (operationIndex < 0 || publishIndex < operationIndex) failures.push(`Dynamic content event must publish after successful operation: ${topic}`)
+}
+
+const scheduledStart = source.indexOf("router.post('/:websiteId/process-scheduled'")
+const scheduledEnd = source.indexOf("\n  router.get('/:websiteId/:typeId'", scheduledStart)
+const scheduledSource = scheduledStart >= 0 && scheduledEnd > scheduledStart ? source.slice(scheduledStart, scheduledEnd) : ''
+const scheduledOperationAt = scheduledSource.indexOf('const published = await processScheduledContentRecords(')
+const scheduledGuardAt = scheduledSource.indexOf('if (published.length > 0)')
+const scheduledPublishAt = scheduledSource.indexOf("publishDynamicContentEvent('content.scheduled-processed'")
+if (scheduledOperationAt < 0 || scheduledGuardAt < scheduledOperationAt || scheduledPublishAt < scheduledGuardAt) {
+  failures.push('Scheduled content processing must suppress publication when no records were published')
+}
+
+for (const [route, guard, operation] of [
+  ["router.post('/:websiteId/search/rebuild'", 'if (!requireOwner(req, res)) return', 'rebuildContentSearchIndexForWebsite('],
+  ["router.post('/:websiteId/process-scheduled'", 'if (!requireOwner(req, res)) return', 'processScheduledContentRecords('],
+  ["router.post('/:websiteId/:typeId'", 'if (!requireEdit(req, res)) return', 'createContentRecord('],
+  ["router.patch('/:websiteId/:typeId/:recordId'", 'if (!requireEdit(req, res)) return', 'updateContentRecord('],
+  ["router.post('/:websiteId/:typeId/:recordId/transitions/:transitionId'", 'if (!requireWorkflow(req, res)) return', 'transitionContentRecord('],
+  ["router.post('/:websiteId/:typeId/:recordId/restore/:revisionId'", 'if (!requireEdit(req, res)) return', 'restoreContentRecord('],
+  ["router.delete('/:websiteId/:typeId/:recordId'", 'if (!requireEdit(req, res)) return', 'deleteContentRecord('],
+]) {
+  const routeStart = source.indexOf(route)
+  const nextRoute = source.indexOf('\n  router.', routeStart + route.length)
+  const routeSource = routeStart >= 0 ? source.slice(routeStart, nextRoute > routeStart ? nextRoute : source.length) : ''
+  const guardAt = routeSource.indexOf(guard)
+  const operationAt = routeSource.indexOf(operation)
+  if (guardAt < 0 || operationAt < guardAt) failures.push(`Dynamic content route must enforce permission before mutation: ${route}`)
 }
 
 if (failures.length) {
