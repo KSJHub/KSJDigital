@@ -333,6 +333,8 @@ export async function purgeTestOrders(websiteId = '') {
   const safeWebsiteId = websiteId ? safeName(websiteId) : ''
   const orders = await readJson(paths.orders(), [])
   const removed = orders.filter(order => order.isTestOrder && (!safeWebsiteId || order.websiteId === safeWebsiteId))
+  if (removed.length === 0) return { removed: 0, websiteId: safeWebsiteId || 'all' }
+
   const removedIds = new Set(removed.map(order => order.id))
   const keptOrders = orders.filter(order => !removedIds.has(order.id))
   const events = await readJson(paths.orderEvents(), [])
@@ -355,11 +357,19 @@ export async function updateOrderStatus(orderId, status, details = {}) {
   const orders = await readJson(paths.orders(), [])
   const existing = orders.find(order => order.id === orderId || order.orderNumber === orderId)
   if (!existing) return null
+
+  const tracking = details.tracking ?? existing.tracking
+  const internalNote = clean(details.internalNote) || existing.internalNote
+  const unchanged = existing.fulfilmentStatus === status
+    && JSON.stringify(existing.tracking ?? null) === JSON.stringify(tracking ?? null)
+    && String(existing.internalNote || '') === String(internalNote || '')
+  if (unchanged) return existing
+
   const updated = {
     ...existing,
     fulfilmentStatus: status,
-    tracking: details.tracking ?? existing.tracking,
-    internalNote: clean(details.internalNote) || existing.internalNote,
+    tracking,
+    internalNote,
     updatedAt: new Date().toISOString(),
   }
   await writeJson(paths.orders(), orders.map(order => (order.id === existing.id ? updated : order)))
