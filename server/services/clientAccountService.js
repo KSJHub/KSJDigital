@@ -19,6 +19,20 @@ function accountFields(input = {}, existing = {}) {
     canViewSupport: input.canViewSupport === undefined ? existing.canViewSupport !== false : input.canViewSupport !== false,
   }
 }
+function accountState(client = {}) {
+  return {
+    name: client.name || '',
+    email: client.email || '',
+    role: client.role || 'client',
+    websiteId: client.websiteId || '',
+    websiteIds: Array.isArray(client.websiteIds) ? client.websiteIds : [],
+    canEdit: client.canEdit !== false,
+    canManageMedia: client.canManageMedia !== false,
+    canRequestUpdates: client.canRequestUpdates !== false,
+    canViewSupport: client.canViewSupport !== false,
+  }
+}
+function accountStateChanged(current, updated) { return JSON.stringify(accountState(current)) !== JSON.stringify(accountState(updated)) }
 function accountEventPayload(client, options = {}) {
   const websiteIds = new Set([client.websiteId, ...(Array.isArray(client.websiteIds) ? client.websiteIds : [])].filter(Boolean))
   const permissions = [client.canEdit, client.canManageMedia, client.canRequestUpdates, client.canViewSupport]
@@ -54,9 +68,12 @@ export async function updateClientAccount(req, res) {
   if (!current) return res.status(404).json({ error: 'Client not found' })
   const password = String(req.body?.password || req.body?.accessCode || '')
   const forcePasswordReset = req.body?.forcePasswordReset === true
-  if (password) await setPassword(current.id, password, { enforcePolicy: true, forcePasswordReset })
   const cleanInput = { ...req.body }; delete cleanInput.password; delete cleanInput.accessCode
-  const updatedClient = { id: current.id, ...accountFields(cleanInput, current), updatedAt: new Date().toISOString() }
+  const proposedClient = { id: current.id, ...accountFields(cleanInput, current) }
+  const profileChanged = accountStateChanged(current, proposedClient)
+  if (!password && !profileChanged) return res.json(sanitise(current))
+  if (password) await setPassword(current.id, password, { enforcePolicy: true, forcePasswordReset })
+  const updatedClient = { ...proposedClient, updatedAt: new Date().toISOString() }
   await writeJson(paths.clients(), clients.map(item => item.id === current.id ? updatedClient : item))
   await publishClientAccountEvent('client-account.updated', accountEventPayload(updatedClient, { passwordChanged: Boolean(password), forcePasswordReset }))
   return res.json(sanitise(updatedClient))
