@@ -78,5 +78,17 @@ if (!events.includes('assuranceLevel: 2')) {
 if (events.includes('result.token')) {
   throw new Error('Password reset tokens must never be included in authentication events')
 }
+if (!router.includes("if (result.revocationApplied) {\n      await publishAuthenticationEvent('authentication.session-revoked'")) {
+  throw new Error('Administrative session revocation must publish only when persistence applied a new revocation')
+}
+if (!events.includes('revoked: true')) {
+  throw new Error('Administrative session revocation must publish a confirmed aggregate outcome')
+}
+if (!router.includes('return result.session')) {
+  throw new Error('Administrative session revocation must preserve the public session response shape')
+}
+if (router.includes('revoked: Boolean(result.revokedAt)')) {
+  throw new Error('Administrative session revocation must not infer a new event from historical revokedAt state')
+}
 
 console.log('Authentication administration real-time event checks passed')
