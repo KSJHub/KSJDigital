@@ -77,8 +77,9 @@ export async function createPasswordReset(accountId, ttlMinutes = 30) {
   const id = credentialId(accountId); const credentials = await readJson(CREDENTIAL_FILE, {}); const current = credentials[id]
   if (!current) throw new Error('Credential not found')
   const token = crypto.randomBytes(32).toString('base64url')
-  current.resetTokenHash = crypto.createHash('sha256').update(token).digest('hex'); current.resetExpiresAt = new Date(Date.now() + Math.min(120, Math.max(5, Number(ttlMinutes))) * 60000).toISOString()
-  await writeJson(CREDENTIAL_FILE, credentials); return { token, expiresAt: current.resetExpiresAt }
+  const boundedTtlMinutes = Math.min(120, Math.max(5, Number(ttlMinutes)))
+  current.resetTokenHash = crypto.createHash('sha256').update(token).digest('hex'); current.resetExpiresAt = new Date(Date.now() + boundedTtlMinutes * 60000).toISOString()
+  await writeJson(CREDENTIAL_FILE, credentials); return { token, expiresAt: current.resetExpiresAt, ttlMinutes: boundedTtlMinutes }
 }
 export async function completePasswordReset(accountId, token, password) {
   validateStrongPassword(password)
