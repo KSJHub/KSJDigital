@@ -18,7 +18,7 @@ for (const token of [
 
 const payloadMarker = 'await publishSchedulerEvent({' 
 const payloadStart = source.indexOf(payloadMarker)
-const payloadEnd = source.indexOf('\n      })', payloadStart)
+const payloadEnd = source.indexOf('\n        })', payloadStart)
 const payload = payloadStart >= 0 && payloadEnd > payloadStart ? source.slice(payloadStart, payloadEnd) : ''
 
 for (const forbidden of [
@@ -46,9 +46,20 @@ if (!source.includes("async function publishSchedulerEvent(payload) {\n  await p
 }
 
 const processAt = source.indexOf('const published = await processScheduledContentRecords(websiteId)')
+const suppressionAt = source.indexOf('if (publishedRecordCount > 0 || failedWebsiteCount > 0) {')
 const publishAt = source.indexOf('await publishSchedulerEvent({')
 if (processAt < 0 || publishAt < processAt) {
   failures.push('Content workflow scheduler event must publish after scheduled record processing')
+}
+if (suppressionAt < 0 || suppressionAt < processAt || publishAt < suppressionAt) {
+  failures.push('Content workflow scheduler must suppress clean empty runs before publication')
+}
+
+for (const required of [
+  'publishedRecordCount > 0',
+  'failedWebsiteCount > 0',
+]) {
+  if (!source.includes(required)) failures.push(`Scheduler publication guard is missing: ${required}`)
 }
 
 for (const forbiddenTopic of [
