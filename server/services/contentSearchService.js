@@ -62,6 +62,16 @@ async function mutateIndex(websiteId, mutation) {
   }
 }
 
+function searchDocumentState(document = {}) {
+  const state = structuredClone(document)
+  delete state.updatedAt
+  return state
+}
+
+function searchDocumentStateChanged(current, proposed) {
+  return JSON.stringify(searchDocumentState(current)) !== JSON.stringify(searchDocumentState(proposed))
+}
+
 function searchDocumentEventPayload(document = {}, documentCount = 0, details = {}) {
   return {
     documentCount,
@@ -120,7 +130,14 @@ export async function readContentSearchIndex(websiteId) {
 export async function indexContentRecord(websiteId, typeId, record) {
   const document = projectContentSearchDocument(websiteId, typeId, record)
   if (!document) return null
-  const next = await mutateIndex(websiteId, documents => [document, ...documents.filter(item => item.key !== document.key)])
+  let changed = false
+  const next = await mutateIndex(websiteId, documents => {
+    const current = documents.find(item => item.key === document.key)
+    if (current && !searchDocumentStateChanged(current, document)) return documents
+    changed = true
+    return [document, ...documents.filter(item => item.key !== document.key)]
+  })
+  if (!changed) return document
   await publishContentSearchEvent('content-search.document-indexed', searchDocumentEventPayload(document, next.length))
   return document
 }
@@ -130,11 +147,12 @@ export async function removeContentSearchDocument(websiteId, typeId, recordId) {
   const next = await mutateIndex(websiteId, documents => {
     const filtered = documents.filter(item => item.key !== `${typeId}:${recordId}`)
     removed = filtered.length !== documents.length
-    return filtered
+    return removed ? filtered : documents
   })
+  if (!removed) return next
   await publishContentSearchEvent('content-search.document-removed', {
     documentCount: next.length,
-    removed,
+    removed: true,
   })
   return next
 }
