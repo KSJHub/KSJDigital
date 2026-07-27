@@ -11,6 +11,8 @@ for (const token of [
   'historyPruned:',
   'hasNote:',
   'automaticActor:',
+  'const existing = event?.id ? events.find(item => item?.id === event.id) : null',
+  'if (existing) return existing',
 ]) {
   if (!source.includes(token)) failures.push(`Missing content workflow realtime marker: ${token}`)
 }
@@ -49,9 +51,22 @@ if (!source.includes("async function publishContentWorkflowEvent(topic, payload)
   failures.push('Content workflow events must publish aggregate payloads without actor metadata')
 }
 
-const writeAt = source.indexOf('await writeJson(workflowPath(websiteId, typeId, recordId), next)')
-const publishAt = source.indexOf("await publishContentWorkflowEvent('content-workflow.history-appended'")
-if (writeAt < 0 || publishAt < writeAt) failures.push('Content workflow event must publish after history persistence')
+const appendStart = source.indexOf('export async function appendWorkflowHistory(')
+const appendEnd = source.indexOf('\n}\n\nexport function scheduledPublicationIsDue', appendStart)
+const appendSource = appendStart >= 0 && appendEnd > appendStart ? source.slice(appendStart, appendEnd) : ''
+const duplicateAt = appendSource.indexOf('if (existing) return existing')
+const writeAt = appendSource.indexOf('await writeJson(workflowPath(websiteId, typeId, recordId), next)')
+const publishAt = appendSource.indexOf("await publishContentWorkflowEvent('content-workflow.history-appended'")
+
+if (duplicateAt < 0 || writeAt < 0 || duplicateAt > writeAt) {
+  failures.push('Duplicate workflow history events must return before persistence')
+}
+if (duplicateAt < 0 || publishAt < 0 || duplicateAt > publishAt) {
+  failures.push('Duplicate workflow history events must return before realtime publication')
+}
+if (writeAt < 0 || publishAt < writeAt) {
+  failures.push('Content workflow event must publish after history persistence')
+}
 
 for (const forbiddenTopic of [
   "publishDomainEvent('content-record.",
