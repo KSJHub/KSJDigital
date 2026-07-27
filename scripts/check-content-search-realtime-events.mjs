@@ -26,27 +26,9 @@ const payloadEnd = source.indexOf('\n}\n\nasync function publishContentSearchEve
 const payloadSource = payloadStart >= 0 && payloadEnd > payloadStart ? source.slice(payloadStart, payloadEnd) : ''
 
 for (const forbidden of [
-  'id:',
-  'key:',
-  'websiteId:',
-  'type:',
-  'title:',
-  'summary:',
-  'workflowState:',
-  'filters:',
-  'weighted:',
-  'relationships:',
-  'field:',
-  'text:',
-  'tokens:',
-  'createdAt:',
-  'updatedAt:',
-  'publishedAt:',
-  'record:',
-  'actor:',
-  'session:',
-  'request:',
-  '...document',
+  'id:', 'key:', 'websiteId:', 'type:', 'title:', 'summary:', 'workflowState:', 'filters:', 'weighted:',
+  'relationships:', 'field:', 'text:', 'tokens:', 'createdAt:', 'updatedAt:', 'publishedAt:', 'record:',
+  'actor:', 'session:', 'request:', '...document',
 ]) {
   if (payloadSource.includes(forbidden)) failures.push(`Content search realtime payload exposes forbidden data: ${forbidden}`)
 }
@@ -55,20 +37,34 @@ if (!source.includes("async function publishContentSearchEvent(topic, payload) {
   failures.push('Content search events must publish aggregate payloads without actor-derived metadata')
 }
 
-const writeAt = source.indexOf('await writeJson(searchPath(websiteId), next)')
-for (const marker of [
-  "await publishContentSearchEvent('content-search.document-indexed'",
-  "await publishContentSearchEvent('content-search.document-removed'",
-  "await publishContentSearchEvent('content-search.index-rebuilt'",
+for (const [functionName, publishMarker] of [
+  ['export async function indexContentRecord(', "await publishContentSearchEvent('content-search.document-indexed'"],
+  ['export async function removeContentSearchDocument(', "await publishContentSearchEvent('content-search.document-removed'"],
+  ['export async function rebuildContentSearchIndex(', "await publishContentSearchEvent('content-search.index-rebuilt'"],
 ]) {
-  const publishAt = source.indexOf(marker)
-  if (writeAt < 0 || publishAt < writeAt) failures.push(`Content search event must publish after index persistence: ${marker}`)
+  const start = source.indexOf(functionName)
+  const end = source.indexOf('\nexport ', start + functionName.length)
+  const block = start >= 0 ? source.slice(start, end > start ? end : source.length) : ''
+  const mutationAt = block.indexOf('await mutateIndex(')
+  const publishAt = block.indexOf(publishMarker)
+  if (mutationAt < 0 || publishAt < mutationAt) failures.push(`Content search event must publish after index persistence: ${publishMarker}`)
 }
 
-for (const forbiddenTopic of [
-  "publishDomainEvent('content-record.",
-  "publishDomainEvent('content.",
+for (const token of [
+  'if (next !== documents) await writeJson(searchPath(websiteId), next)',
+  'if (current && !searchDocumentStateChanged(current, document)) return documents',
+  'if (!changed) return document',
+  'return removed ? filtered : documents',
+  'if (!removed) return next',
 ]) {
+  if (!source.includes(token)) failures.push(`Missing content search no-op suppression: ${token}`)
+}
+
+for (const field of ['delete state.updatedAt']) {
+  if (!source.includes(field)) failures.push(`Content search comparison must ignore lifecycle metadata: ${field}`)
+}
+
+for (const forbiddenTopic of ["publishDomainEvent('content-record.", "publishDomainEvent('content."]) {
   if (source.includes(forbiddenTopic)) failures.push(`Content search service must not duplicate another module topic: ${forbiddenTopic}`)
 }
 
