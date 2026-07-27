@@ -91,4 +91,16 @@ if (router.includes('revoked: Boolean(result.revokedAt)')) {
   throw new Error('Administrative session revocation must not infer a new event from historical revokedAt state')
 }
 
+const accountLogoutStart = router.indexOf("router.post('/accounts/:accountId/logout-all'")
+const accountLogoutEnd = router.indexOf("\n  router.post('/accounts/:accountId/password-reset'", accountLogoutStart)
+const accountLogoutSource = accountLogoutStart >= 0 && accountLogoutEnd > accountLogoutStart
+  ? router.slice(accountLogoutStart, accountLogoutEnd)
+  : ''
+if (!accountLogoutSource.includes("if (result.revoked > 0) {\n      await publishAuthenticationEvent('authentication.account-sessions-revoked'")) {
+  throw new Error('Administrative account-wide logout must publish only when at least one active session was revoked')
+}
+if (!accountLogoutSource.includes('return result')) {
+  throw new Error('Administrative account-wide logout must preserve the aggregate response for no-op requests')
+}
+
 console.log('Authentication administration real-time event checks passed')
