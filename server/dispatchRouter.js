@@ -52,6 +52,12 @@ function trackingDetails(input = {}, status = '') {
   }
 }
 
+function dispatchStateChanged(previous = {}, updated = {}) {
+  return previous.fulfilmentStatus !== updated.fulfilmentStatus
+    || JSON.stringify(previous.tracking ?? null) !== JSON.stringify(updated.tracking ?? null)
+    || String(previous.internalNote || '') !== String(updated.internalNote || '')
+}
+
 function dispatchEventPayload(order = {}, details = {}) {
   const items = Array.isArray(order.items) ? order.items : []
   return {
@@ -101,6 +107,7 @@ export function createDispatchRouter() {
       const shouldNotify =
         status === 'Dispatched' &&
         (order.fulfilmentStatus !== 'Dispatched' || req.body?.sendDispatchEmail === true)
+      const stateChanged = dispatchStateChanged(order, updated)
 
       let notification = null
       if (shouldNotify) {
@@ -112,12 +119,14 @@ export function createDispatchRouter() {
         updated = await getOrder(order.id)
       }
 
-      await publishDispatchEvent(dispatchEventPayload(updated, {
-        notificationRequested: shouldNotify,
-        notificationSucceeded: notification?.status === 'Sent',
-        notificationFailed: notification?.status === 'Failed',
-        repeatNotification: order.fulfilmentStatus === 'Dispatched' && req.body?.sendDispatchEmail === true,
-      }))
+      if (stateChanged || shouldNotify) {
+        await publishDispatchEvent(dispatchEventPayload(updated, {
+          notificationRequested: shouldNotify,
+          notificationSucceeded: notification?.status === 'Sent',
+          notificationFailed: notification?.status === 'Failed',
+          repeatNotification: order.fulfilmentStatus === 'Dispatched' && req.body?.sendDispatchEmail === true,
+        }))
+      }
 
       res.json({
         order: updated,
