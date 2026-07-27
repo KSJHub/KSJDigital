@@ -35,9 +35,14 @@ function refundRequestId(order, alreadyRefunded, amount) {
     .slice(0, 32)
 }
 
+function restorableOrderItems(order = {}) {
+  const items = Array.isArray(order.items) ? order.items : []
+  return items.filter(item => item.fulfilment !== 'digital' && !item.madeToOrder)
+}
+
 function refundEventPayload(order = {}, details = {}) {
   const items = Array.isArray(order.items) ? order.items : []
-  const restorableItems = items.filter(item => item.fulfilment !== 'digital' && !item.madeToOrder)
+  const restorableItems = restorableOrderItems(order)
   return {
     itemCount: items.length,
     unitCount: items.reduce((total, item) => total + Math.max(1, Number(item.quantity || 1)), 0),
@@ -213,12 +218,11 @@ export async function processOrderRefund(orderId, input = {}) {
     }))
 
     let stockRestoreWarning = ''
-    if (input.restoreStock === true) {
+    const restorableItems = restorableOrderItems(order)
+    if (input.restoreStock === true && restorableItems.length > 0) {
       try {
-        for (const item of order.items || []) {
-          if (item.fulfilment !== 'digital' && !item.madeToOrder) {
-            await restoreProductStock(order.websiteId, item.productId, item.quantity, item.variant)
-          }
+        for (const item of restorableItems) {
+          await restoreProductStock(order.websiteId, item.productId, item.quantity, item.variant)
         }
         updated = await markRefundStockRestored(order.id, providerResult.id)
         await publishRefundEvent('refund.stock-restored', refundEventPayload(updated, {
