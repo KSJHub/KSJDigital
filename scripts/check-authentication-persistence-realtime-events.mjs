@@ -78,6 +78,18 @@ if (!source.includes("if (revoked) {\n    await publishAuthenticationPersistence
   failures.push('Session-ended event must not publish when no active token session was revoked')
 }
 
+const administrativeStart = source.indexOf('export async function revokeSessionById(')
+const administrativeEnd = source.indexOf('\nexport async function revokeAccountSessions', administrativeStart)
+const administrativeSource = administrativeStart >= 0 && administrativeEnd > administrativeStart
+  ? source.slice(administrativeStart, administrativeEnd)
+  : ''
+if (!administrativeSource.includes('const revocationApplied = !session.revokedAt')) {
+  failures.push('Administrative session persistence must explicitly report whether a new revocation was applied')
+}
+if (!administrativeSource.includes('return { session: safeSession(session), revocationApplied }')) {
+  failures.push('Administrative session persistence must return safe session data with the state-change result')
+}
+
 const accountRevocationStart = source.indexOf('export async function revokeAccountSessions(')
 const accountRevocationEnd = source.indexOf('\nexport async function recordLoginEvent', accountRevocationStart)
 const accountRevocationSource = accountRevocationStart >= 0 && accountRevocationEnd > accountRevocationStart
