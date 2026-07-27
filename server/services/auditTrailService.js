@@ -66,6 +66,7 @@ async function mutate(id, operation) {
     const events = await readJson(eventPath(id), [])
     if (!Array.isArray(events)) throw new AuditTrailError('Stored audit trail is invalid', 500)
     const next = await operation(events)
+    if (next === events) return events
     await writeJson(eventPath(id), next)
     return next
   })
@@ -81,6 +82,8 @@ export async function getAuditConfig(websiteValue) {
 export async function updateAuditConfig(websiteValue, input = {}) {
   const id = websiteId(websiteValue)
   const retentionDays = Math.min(3650, Math.max(1, Number(input.retentionDays) || DEFAULT_RETENTION_DAYS))
+  const existing = await getAuditConfig(id)
+  if (Number(existing.retentionDays) === retentionDays) return existing
   const config = { websiteId: id, retentionDays, updatedAt: new Date().toISOString() }
   await writeJson(configPath(id), config)
   await publishAuditTrailEvent('audit.config-updated', { retentionDays })
@@ -147,8 +150,9 @@ export async function pruneAuditEvents(websiteValue, options = {}) {
       if (!retain) removed += 1
       return retain
     })
-    return kept
+    return removed > 0 ? kept : existing
   })
+  if (removed === 0) return { removed, retentionDays }
   await publishAuditTrailEvent('audit.events-pruned', {
     removedEventCount: removed,
     remainingEventCount: events.length,
