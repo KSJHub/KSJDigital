@@ -53,6 +53,80 @@ function websiteFromRequest(req) {
   return req.body?.websiteId || req.query?.websiteId || req.session?.websiteId || null
 }
 
+function integrationRegistryPayload(registry = {}, integration = {}, details = {}) {
+  const subscriptions = Array.isArray(registry.subscriptions) ? registry.subscriptions : []
+  const deliveries = Array.isArray(registry.deliveries) ? registry.deliveries : []
+  return {
+    subscriptionCount: subscriptions.length,
+    enabledSubscriptionCount: subscriptions.filter(item => item.enabled !== false).length,
+    deliveryCount: deliveries.length,
+    enabled: integration.enabled !== false,
+    eventSubscriptionCount: Array.isArray(integration.events) ? integration.events.length : 0,
+    hasCustomHeaders: integration.headers && Object.keys(integration.headers).length > 0,
+    deleted: details.deleted === true,
+  }
+}
+
+function deliveryEventPayload(delivery = {}) {
+  return {
+    status: ['pending', 'processing', 'retrying', 'delivered', 'failed', 'cancelled'].includes(delivery.status) ? delivery.status : 'pending',
+    attemptCount: Number(delivery.attempts) || 0,
+    hasError: Boolean(delivery.lastError),
+    delivered: delivery.status === 'delivered',
+  }
+}
+
+function queueEventPayload(result = {}) {
+  const results = Array.isArray(result.results) ? result.results : []
+  return {
+    processedCount: Number(result.processed) || 0,
+    deliveredCount: results.filter(item => item.status === 'delivered').length,
+    retryingCount: results.filter(item => item.status === 'retrying').length,
+    failedCount: results.filter(item => item.status === 'failed').length,
+    cancelledCount: results.filter(item => item.status === 'cancelled').length,
+  }
+}
+
+function settingsEventPayload(settings = {}) {
+  return {
+    enabled: settings.enabled !== false,
+    workerIntervalMs: Number(settings.workerIntervalMs) || 0,
+    deliveryRetentionDays: Number(settings.deliveryRetentionDays) || 0,
+  }
+}
+
+function eventPublicationPayload(result = {}) {
+  return { queuedCount: Number(result.queued) || 0 }
+}
+
+async function publishIntegrationRealtimeEvent(topic, payload) {
+  await publishDomainEvent(topic, payload)
+}
+
+function arrayState(value) {
+  return JSON.stringify(Array.isArray(value) ? value : [])
+}
+
+function subscriptionPatchChanges(existing, input = {}) {
+  if (!existing) return true
+  if (Object.hasOwn(input, 'name') && String(input.name || '').trim() !== String(existing.name || '').trim()) return true
+  if (Object.hasOwn(input, 'provider') && String(input.provider || 'webhook') !== String(existing.provider || 'webhook')) return true
+  if (Object.hasOwn(input, 'url') && String(input.url || '').trim() !== String(existing.url || '').trim()) return true
+  if (Object.hasOwn(input, 'events') && arrayState([...new Set((Array.isArray(input.events) ? input.events : []).map(item => String(item).trim()).filter(Boolean))]) !== arrayState(existing.events)) return true
+  if (Object.hasOwn(input, 'enabled') && (input.enabled === true) !== (existing.enabled !== false)) return true
+  if (Object.hasOwn(input, 'maxAttempts') && Number(input.maxAttempts) !== Number(existing.maxAttempts)) return true
+  if (Object.hasOwn(input, 'timeoutMs') && Number(input.timeoutMs) !== Number(existing.timeoutMs)) return true
+  if (Object.hasOwn(input, 'secret') || Object.hasOwn(input, 'headers')) return true
+  return false
+}
+
+function settingsPatchChanges(existing = {}, input = {}) {
+  if (Object.hasOwn(input, 'enabled') && (input.enabled === true) !== (existing.enabled !== false)) return true
+  if (Object.hasOwn(input, 'workerIntervalMs') && Math.min(300000, Math.max(5000, Number(input.workerIntervalMs))) !== Number(existing.workerIntervalMs)) return true
+  if (Object.hasOwn(input, 'deliveryRetentionDays') && Math.min(3650, Math.max(1, Number(input.deliveryRetentionDays))) !== Number(existing.deliveryRetentionDays)) return true
+  return false
+}
+
 export function createIntegrationEventCaptureMiddleware() {
   return function integrationEventCapture(req, res, next) {
     if (req.method === 'GET' || req.originalUrl?.startsWith('/api/integrations')) return next()
@@ -92,15 +166,9 @@ export function createIntegrationRouter() {
   router.post('/:websiteId/subscriptions', async (req, res) => {
     if (!requireOwner(req, res)) return
     try {
-      const requestedBy = actor(req)
       const integration = await upsertIntegration(req.params.websiteId, req.body || {})
-      await publishDomainEvent('integration.subscription-created', {
-        websiteId: req.params.websiteId,
-        integrationId: integration.id,
-        provider: integration.provider,
-        enabled: integration.enabled,
-        events: integration.events,
-      }, requestedBy)
+      const registry = await getIntegrationRegistry(req.params.websiteId)
+      await publishIntegrationRealtimeEvent('integration.subscription-created', integrationRegistryPayload(registry, integration))
       res.status(201).json(integration)
     } catch (error) {
       sendError(res, error)
@@ -110,15 +178,14 @@ export function createIntegrationRouter() {
   router.patch('/:websiteId/subscriptions/:integrationId', async (req, res) => {
     if (!requireOwner(req, res)) return
     try {
-      const requestedBy = actor(req)
-      const integration = await upsertIntegration(req.params.websiteId, { ...(req.body || {}), id: req.params.integrationId })
-      await publishDomainEvent('integration.subscription-updated', {
-        websiteId: req.params.websiteId,
-        integrationId: integration.id,
-        provider: integration.provider,
-        enabled: integration.enabled,
-        events: integration.events,
-      }, requestedBy)
+      const input = req.body || {}
+      const registry = await getIntegrationRegistry(req.params.websiteId)
+      const existing = registry.subscriptions.find(item => item.id === req.params.integrationId)
+      if (!existing) return res.status(404).json({ error: 'Integration not found' })
+      if (!subscriptionPatchChanges(existing, input)) return res.json(existing)
+      const integration = await upsertIntegration(req.params.websiteId, { ...input, id: req.params.integrationId })
+      const updatedRegistry = await getIntegrationRegistry(req.params.websiteId)
+      await publishIntegrationRealtimeEvent('integration.subscription-updated', integrationRegistryPayload(updatedRegistry, integration))
       res.json(integration)
     } catch (error) {
       sendError(res, error)
@@ -128,13 +195,9 @@ export function createIntegrationRouter() {
   router.delete('/:websiteId/subscriptions/:integrationId', async (req, res) => {
     if (!requireOwner(req, res)) return
     try {
-      const requestedBy = actor(req)
       const result = await deleteIntegration(req.params.websiteId, req.params.integrationId)
-      await publishDomainEvent('integration.subscription-deleted', {
-        websiteId: req.params.websiteId,
-        integrationId: req.params.integrationId,
-        deleted: result.deleted === true,
-      }, requestedBy)
+      const registry = await getIntegrationRegistry(req.params.websiteId)
+      await publishIntegrationRealtimeEvent('integration.subscription-deleted', integrationRegistryPayload(registry, {}, result))
       res.json(result)
     } catch (error) {
       sendError(res, error)
@@ -153,15 +216,8 @@ export function createIntegrationRouter() {
   router.post('/:websiteId/deliveries/:deliveryId/retry', async (req, res) => {
     if (!requireOwner(req, res)) return
     try {
-      const requestedBy = actor(req)
       const delivery = await retryIntegrationDelivery(req.params.websiteId, req.params.deliveryId)
-      await publishDomainEvent('integration.delivery-retried', {
-        websiteId: req.params.websiteId,
-        integrationId: delivery.integrationId,
-        deliveryId: delivery.id,
-        eventName: delivery.eventName,
-        status: delivery.status,
-      }, requestedBy)
+      await publishIntegrationRealtimeEvent('integration.delivery-retried', deliveryEventPayload(delivery))
       res.json(delivery)
     } catch (error) {
       sendError(res, error)
@@ -171,17 +227,8 @@ export function createIntegrationRouter() {
   router.post('/:websiteId/process', async (req, res) => {
     if (!requireOwner(req, res)) return
     try {
-      const requestedBy = actor(req)
       const result = await processIntegrationQueue(req.params.websiteId, req.body || {})
-      await publishDomainEvent('integration.queue-processed', {
-        websiteId: req.params.websiteId,
-        processed: result.processed,
-        deliveredCount: result.results.filter(item => item.status === 'delivered').length,
-        retryingCount: result.results.filter(item => item.status === 'retrying').length,
-        failedCount: result.results.filter(item => item.status === 'failed').length,
-        cancelledCount: result.results.filter(item => item.status === 'cancelled').length,
-        deliveryIds: result.results.map(item => item.id),
-      }, requestedBy)
+      if (result.processed > 0) await publishIntegrationRealtimeEvent('integration.queue-processed', queueEventPayload(result))
       res.json(result)
     } catch (error) {
       sendError(res, error)
@@ -191,14 +238,11 @@ export function createIntegrationRouter() {
   router.patch('/:websiteId/settings', async (req, res) => {
     if (!requireOwner(req, res)) return
     try {
-      const requestedBy = actor(req)
-      const settings = await updateIntegrationSettings(req.params.websiteId, req.body || {})
-      await publishDomainEvent('integration.settings-updated', {
-        websiteId: req.params.websiteId,
-        enabled: settings.enabled,
-        workerIntervalMs: settings.workerIntervalMs,
-        deliveryRetentionDays: settings.deliveryRetentionDays,
-      }, requestedBy)
+      const input = req.body || {}
+      const registry = await getIntegrationRegistry(req.params.websiteId)
+      if (!settingsPatchChanges(registry.settings, input)) return res.json(registry.settings)
+      const settings = await updateIntegrationSettings(req.params.websiteId, input)
+      await publishIntegrationRealtimeEvent('integration.settings-updated', settingsEventPayload(settings))
       res.json(settings)
     } catch (error) {
       sendError(res, error)
@@ -214,12 +258,7 @@ export function createIntegrationRouter() {
         actorEmail: requestedBy.email,
         manual: true,
       })
-      await publishDomainEvent('integration.event-published', {
-        websiteId: req.params.websiteId,
-        eventName: req.params.eventName,
-        queued: result.queued,
-        deliveryIds: result.deliveryIds,
-      }, requestedBy)
+      if (result.queued > 0) await publishIntegrationRealtimeEvent('integration.event-published', eventPublicationPayload(result))
       res.status(202).json(result)
     } catch (error) {
       sendError(res, error)
