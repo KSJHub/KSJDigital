@@ -16,6 +16,7 @@ import {
   updateTerm,
 } from './services/taxonomyService.js'
 import { publishDomainEvent } from './services/realtimeDomainEventService.js'
+import { safeName } from './storage.js'
 
 function requireEdit(req, res) {
   if (req.session?.role === 'owner' || req.session?.canEdit) return true
@@ -33,6 +34,53 @@ function sendError(res, error) {
   const response = { error: error.message || 'Taxonomy request failed' }
   if (error.details) response.details = error.details
   res.status(Number(error.status) || 400).json(response)
+}
+
+function stringValue(value, fallback = '') {
+  return String(value ?? fallback).trim()
+}
+
+function uniqueStrings(value) {
+  return [...new Set((Array.isArray(value) ? value : []).map(item => stringValue(item)).filter(Boolean))]
+}
+
+function taxonomyPatchChanges(existing = {}, input = {}) {
+  if (Object.hasOwn(input, 'label') && stringValue(input.label) !== stringValue(existing.label)) return true
+  if (Object.hasOwn(input, 'description') && stringValue(input.description) !== stringValue(existing.description)) return true
+  if (Object.hasOwn(input, 'hierarchical') && (input.hierarchical === true) !== (existing.hierarchical === true)) return true
+  if (Object.hasOwn(input, 'allowedContentTypes')) {
+    if (JSON.stringify(uniqueStrings(input.allowedContentTypes)) !== JSON.stringify(existing.allowedContentTypes || [])) return true
+  }
+  if (Object.hasOwn(input, 'metadata')) {
+    const metadata = input.metadata && typeof input.metadata === 'object' ? input.metadata : existing.metadata || {}
+    if (JSON.stringify(metadata) !== JSON.stringify(existing.metadata || {})) return true
+  }
+  return false
+}
+
+function taxonomyResponse(taxonomy = {}) {
+  const { terms, usage, termCount, usageCount, ...result } = taxonomy
+  return result
+}
+
+function termPatchChanges(existing = {}, input = {}) {
+  if (Object.hasOwn(input, 'name') && stringValue(input.name) !== stringValue(existing.name)) return true
+  if (Object.hasOwn(input, 'slug') && safeName(input.slug) !== stringValue(existing.slug)) return true
+  if (Object.hasOwn(input, 'description') && stringValue(input.description) !== stringValue(existing.description)) return true
+  if (Object.hasOwn(input, 'parentId')) {
+    const parentId = input.parentId === null ? null : stringValue(input.parentId) || null
+    if (parentId !== (existing.parentId || null)) return true
+  }
+  if (Object.hasOwn(input, 'metadata')) {
+    const metadata = input.metadata && typeof input.metadata === 'object' ? input.metadata : existing.metadata || {}
+    if (JSON.stringify(metadata) !== JSON.stringify(existing.metadata || {})) return true
+  }
+  return false
+}
+
+function termResponse(term = {}) {
+  const { usageCount, children, ...result } = term
+  return result
 }
 
 function taxonomyEventPayload(taxonomy = {}, taxonomyCount = 0, deletion = {}) {
@@ -104,7 +152,10 @@ export function createTaxonomyRouter() {
   router.patch('/:websiteId/:taxonomyId', async (req, res) => {
     if (!requireEdit(req, res)) return
     try {
-      const taxonomy = await updateTaxonomy(req.params.websiteId, req.params.taxonomyId, req.body || {})
+      const input = req.body || {}
+      const existing = await getTaxonomy(req.params.websiteId, req.params.taxonomyId)
+      if (!taxonomyPatchChanges(existing, input)) return res.json(taxonomyResponse(existing))
+      const taxonomy = await updateTaxonomy(req.params.websiteId, req.params.taxonomyId, input)
       const taxonomies = await listTaxonomies(req.params.websiteId)
       await publishTaxonomyEvent('taxonomy.updated', taxonomyEventPayload(taxonomy, taxonomies.length))
       res.json(taxonomy)
@@ -148,7 +199,12 @@ export function createTaxonomyRouter() {
   router.patch('/:websiteId/:taxonomyId/terms/:termId', async (req, res) => {
     if (!requireEdit(req, res)) return
     try {
-      const term = await updateTerm(req.params.websiteId, req.params.taxonomyId, req.params.termId, req.body || {})
+      const input = req.body || {}
+      const terms = await listTerms(req.params.websiteId, req.params.taxonomyId)
+      const existing = terms.find(term => term.id === safeName(req.params.termId))
+      if (!existing) return res.status(404).json({ error: 'Taxonomy term not found' })
+      if (!termPatchChanges(existing, input)) return res.json(termResponse(existing))
+      const term = await updateTerm(req.params.websiteId, req.params.taxonomyId, req.params.termId, input)
       const usage = await getTermUsage(req.params.websiteId, req.params.taxonomyId, req.params.termId)
       await publishTaxonomyEvent('taxonomy.term-updated', termEventPayload(term, { usage }))
       res.json(term)
