@@ -40,7 +40,7 @@ export function createAuthenticationAdminRouter() {
   router.post('/accounts/:accountId/password-reset', requireAssurance(2), (req, res, next) => handle(res, next, async () => {
     const result = await createPasswordReset(req.params.accountId, req.body?.ttlMinutes)
     await publishAuthenticationEvent('authentication.password-reset-issued', {
-      expiresAt: result.expiresAt,
+      expiresInMinutes: result.ttlMinutes,
       assuranceLevel: 2,
     })
     return result
