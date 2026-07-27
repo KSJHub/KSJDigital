@@ -17,6 +17,9 @@ for (const token of [
   'notificationSucceeded:',
   'notificationFailed:',
   'repeatNotification:',
+  'function dispatchStateChanged(previous = {}, updated = {})',
+  'const stateChanged = dispatchStateChanged(order, updated)',
+  'if (stateChanged || shouldNotify) {',
 ]) {
   if (!source.includes(token)) failures.push(`Missing dispatch realtime marker: ${token}`)
 }
@@ -66,13 +69,31 @@ if (!source.includes("async function publishDispatchEvent(payload) {\n  await pu
 }
 
 const statusUpdate = source.indexOf('let updated = await updateOrderStatus(')
+const stateCheck = source.indexOf('const stateChanged = dispatchStateChanged(order, updated)')
 const notificationAttempt = source.indexOf('notification = await sendDispatchNotification(')
+const publishGuard = source.indexOf('if (stateChanged || shouldNotify) {')
 const publishAt = source.indexOf('await publishDispatchEvent(dispatchEventPayload(updated')
 if (statusUpdate < 0 || publishAt < statusUpdate) {
   failures.push('Dispatch events must publish after the order status is persisted')
 }
+if (stateCheck < statusUpdate || publishGuard < stateCheck || publishAt < publishGuard) {
+  failures.push('Dispatch events must be suppressed unless state changed or a notification was requested')
+}
 if (notificationAttempt < 0 || publishAt < notificationAttempt) {
   failures.push('Dispatch events must publish after any requested notification attempt completes')
+}
+
+const stateHelperStart = source.indexOf('function dispatchStateChanged(')
+const stateHelperEnd = source.indexOf('\n}\n\nfunction dispatchEventPayload', stateHelperStart)
+const stateHelper = stateHelperStart >= 0 && stateHelperEnd > stateHelperStart
+  ? source.slice(stateHelperStart, stateHelperEnd)
+  : ''
+for (const token of [
+  'previous.fulfilmentStatus !== updated.fulfilmentStatus',
+  'JSON.stringify(previous.tracking ?? null) !== JSON.stringify(updated.tracking ?? null)',
+  "String(previous.internalNote || '') !== String(updated.internalNote || '')",
+]) {
+  if (!stateHelper.includes(token)) failures.push(`Dispatch semantic comparison is missing: ${token}`)
 }
 
 for (const forbiddenTopic of [
