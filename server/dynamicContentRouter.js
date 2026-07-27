@@ -133,7 +133,9 @@ export function createDynamicContentRouter() {
     if (!requireOwner(req, res)) return
     try {
       const published = await processScheduledContentRecords(req.params.websiteId)
-      await publishDynamicContentEvent('content.scheduled-processed', { publishedRecordCount: published.length })
+      if (published.length > 0) {
+        await publishDynamicContentEvent('content.scheduled-processed', { publishedRecordCount: published.length })
+      }
       res.json({ published, count: published.length })
     } catch (error) {
       sendError(res, error)
