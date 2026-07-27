@@ -83,6 +83,29 @@ if (!source.includes("const topic = merged ? 'taxonomy.term-merged' : 'taxonomy.
   failures.push('Term deletion must distinguish merge operations from destructive deletion')
 }
 
+for (const token of [
+  'function taxonomyPatchChanges(existing = {}, input = {})',
+  'function termPatchChanges(existing = {}, input = {})',
+  'if (!taxonomyPatchChanges(existing, input)) return res.json(taxonomyResponse(existing))',
+  'if (!termPatchChanges(existing, input)) return res.json(termResponse(existing))',
+]) {
+  if (!source.includes(token)) failures.push(`Missing taxonomy no-op suppression marker: ${token}`)
+}
+
+const taxonomyGuard = source.indexOf('if (!taxonomyPatchChanges(existing, input)) return res.json(taxonomyResponse(existing))')
+const taxonomyUpdate = source.indexOf('const taxonomy = await updateTaxonomy(')
+const taxonomyPublish = source.indexOf("await publishTaxonomyEvent('taxonomy.updated'")
+if (taxonomyGuard < 0 || taxonomyUpdate < taxonomyGuard || taxonomyPublish < taxonomyUpdate) {
+  failures.push('Unchanged taxonomy updates must return before persistence and publication')
+}
+
+const termGuard = source.indexOf('if (!termPatchChanges(existing, input)) return res.json(termResponse(existing))')
+const termUpdate = source.indexOf('const term = await updateTerm(')
+const termPublish = source.indexOf("await publishTaxonomyEvent('taxonomy.term-updated'")
+if (termGuard < 0 || termUpdate < termGuard || termPublish < termUpdate) {
+  failures.push('Unchanged taxonomy term updates must return before persistence and publication')
+}
+
 if (failures.length) {
   console.error('Taxonomy real-time event check failed:')
   failures.forEach(failure => console.error(`- ${failure}`))
