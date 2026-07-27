@@ -33,6 +33,50 @@ function actor(req) {
   }
 }
 
+function stringValue(value, fallback = '') {
+  return String(value ?? fallback).trim()
+}
+
+function uniqueStrings(value) {
+  return [...new Set((Array.isArray(value) ? value : []).map(item => stringValue(item)).filter(Boolean))]
+}
+
+function localeState(input = {}, existing = null) {
+  const id = stringValue(input.id, existing?.id)
+  return {
+    id,
+    label: stringValue(input.label, existing?.label || id) || id,
+    enabled: input.enabled === undefined ? existing?.enabled !== false : input.enabled === true,
+    fallbackLocale: input.fallbackLocale ? stringValue(input.fallbackLocale) : null,
+  }
+}
+
+function localisationConfigPatchChanges(existing = {}, input = {}) {
+  if (Object.hasOwn(input, 'defaultLocale') && stringValue(input.defaultLocale) !== stringValue(existing.defaultLocale)) return true
+  if (Object.hasOwn(input, 'locales')) {
+    const locales = (Array.isArray(input.locales) ? input.locales : []).map(locale => localeState(locale))
+    if (JSON.stringify(locales) !== JSON.stringify(existing.locales || [])) return true
+  }
+  return false
+}
+
+function localePatchChanges(existing, input = {}) {
+  if (!existing) return true
+  return JSON.stringify(localeState(input, existing)) !== JSON.stringify(existing)
+}
+
+function fieldConfigurationChanges(existing = [], requested = []) {
+  return JSON.stringify(uniqueStrings(requested)) !== JSON.stringify(Array.isArray(existing) ? existing : [])
+}
+
+function translationPatchChanges(existing, input = {}) {
+  if (!existing) return true
+  const values = input.values && typeof input.values === 'object' ? input.values : input
+  const mergedValues = { ...(existing.values || {}), ...values }
+  const status = ['draft', 'published'].includes(input.status) ? input.status : existing.status || 'draft'
+  return JSON.stringify(mergedValues) !== JSON.stringify(existing.values || {}) || status !== existing.status
+}
+
 function localisationConfigEventPayload(config) {
   const locales = Array.isArray(config?.locales) ? config.locales : []
   const translations = Array.isArray(config?.translations) ? config.translations : []
@@ -88,7 +132,10 @@ export function createLocalisationRouter() {
   router.patch('/:websiteId', async (req, res) => {
     if (!requireOwner(req, res)) return
     try {
-      const config = await updateLocalisationConfig(req.params.websiteId, req.body || {})
+      const input = req.body || {}
+      const existing = await getLocalisationConfig(req.params.websiteId)
+      if (!localisationConfigPatchChanges(existing, input)) return res.json(existing)
+      const config = await updateLocalisationConfig(req.params.websiteId, input)
       await publishLocalisationEvent('localisation.config-updated', localisationConfigEventPayload(config))
       res.json(config)
     } catch (error) { sendError(res, error) }
@@ -99,7 +146,9 @@ export function createLocalisationRouter() {
     try {
       const before = await getLocalisationConfig(req.params.websiteId)
       const requestedLocale = String(req.body?.id || '').trim()
-      const wasExisting = before.locales.some(locale => locale.id === requestedLocale)
+      const existing = before.locales.find(locale => locale.id === requestedLocale)
+      const wasExisting = Boolean(existing)
+      if (!localePatchChanges(existing, req.body || {})) return res.json(before)
       const config = await upsertLocale(req.params.websiteId, req.body || {})
       const locale = config.locales.find(item => item.id === requestedLocale)
       await publishLocalisationEvent(wasExisting ? 'localisation.locale-updated' : 'localisation.locale-created', localeEventPayload(config, locale))
@@ -125,7 +174,10 @@ export function createLocalisationRouter() {
   router.put('/:websiteId/content-types/:contentType/fields', async (req, res) => {
     if (!requireOwner(req, res)) return
     try {
-      const config = await configureTranslatableFields(req.params.websiteId, req.params.contentType, req.body?.fields || [])
+      const before = await getLocalisationConfig(req.params.websiteId)
+      const fields = req.body?.fields || []
+      if (!fieldConfigurationChanges(before.translatableFields?.[req.params.contentType], fields)) return res.json(before)
+      const config = await configureTranslatableFields(req.params.websiteId, req.params.contentType, fields)
       await publishLocalisationEvent('localisation.fields-configured', localisationConfigEventPayload(config))
       res.json(config)
     } catch (error) { sendError(res, error) }
@@ -143,6 +195,7 @@ export function createLocalisationRouter() {
     if (!requireEdit(req, res)) return
     try {
       const existing = await getTranslation(req.params.websiteId, req.params.contentType, req.params.recordId, req.params.locale)
+      if (existing?.status === 'published') return res.json(existing)
       const translation = await publishTranslation(req.params.websiteId, req.params.contentType, req.params.recordId, req.params.locale, actor(req))
       await publishLocalisationEvent('localisation.translation-published', translationEventPayload(translation, { wasExisting: Boolean(existing) }))
       res.json(translation)
@@ -156,8 +209,10 @@ export function createLocalisationRouter() {
   router.put('/:websiteId/content/:contentType/:recordId/:locale', async (req, res) => {
     if (!requireEdit(req, res)) return
     try {
+      const input = req.body || {}
       const existing = await getTranslation(req.params.websiteId, req.params.contentType, req.params.recordId, req.params.locale)
-      const translation = await saveTranslation(req.params.websiteId, req.params.contentType, req.params.recordId, req.params.locale, req.body || {}, actor(req))
+      if (!translationPatchChanges(existing, input)) return res.json(existing)
+      const translation = await saveTranslation(req.params.websiteId, req.params.contentType, req.params.recordId, req.params.locale, input, actor(req))
       await publishLocalisationEvent(existing ? 'localisation.translation-updated' : 'localisation.translation-created', translationEventPayload(translation, { wasExisting: Boolean(existing) }))
       res.json(translation)
     } catch (error) { sendError(res, error) }
