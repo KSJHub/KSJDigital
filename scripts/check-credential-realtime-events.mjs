@@ -67,15 +67,26 @@ const passwordWriteAt = source.indexOf('await writeJson(CREDENTIAL_FILE, { ...cr
 const passwordPublishAt = source.indexOf("await publishCredentialEvent('credential.password-updated'")
 if (passwordWriteAt < 0 || passwordPublishAt < passwordWriteAt) failures.push('Password-updated event must publish after credential persistence')
 
-const removeWriteAt = source.indexOf('await writeJson(CREDENTIAL_FILE, next)')
-const removePublishAt = source.indexOf("await publishCredentialEvent('credential.removed'")
+const removeStart = source.indexOf('export async function removeCredential(')
+const removeEnd = source.indexOf('\nexport async function migratePlaintextCredentials', removeStart)
+const removeSource = removeStart >= 0 && removeEnd > removeStart ? source.slice(removeStart, removeEnd) : ''
+const removeWriteAt = removeSource.indexOf('await writeJson(CREDENTIAL_FILE, next)')
+const removePublishAt = removeSource.indexOf("await publishCredentialEvent('credential.removed'")
 if (removeWriteAt < 0 || removePublishAt < removeWriteAt) failures.push('Credential-removed event must publish after credential persistence')
+if (!removeSource.includes('if (!credentials[id]) return false')) {
+  failures.push('Credential removal must not persist or publish when the credential does not exist')
+}
 
-const migrationPublishAt = source.indexOf("await publishCredentialEvent('credential.plaintext-migrated'")
-const credentialMigrationWriteAt = source.indexOf('if (credentialChanged) await writeJson(CREDENTIAL_FILE, credentials)')
-const accountMigrationWriteAt = source.indexOf('if (accountChanged) await writeJson(paths.clients(), migrated)')
+const migrationStart = source.indexOf('export async function migratePlaintextCredentials(')
+const migrationSource = migrationStart >= 0 ? source.slice(migrationStart) : ''
+const migrationPublishAt = migrationSource.indexOf("await publishCredentialEvent('credential.plaintext-migrated'")
+const credentialMigrationWriteAt = migrationSource.indexOf('if (credentialChanged) await writeJson(CREDENTIAL_FILE, credentials)')
+const accountMigrationWriteAt = migrationSource.indexOf('if (accountChanged) await writeJson(paths.clients(), migrated)')
 if (migrationPublishAt < credentialMigrationWriteAt || migrationPublishAt < accountMigrationWriteAt) {
   failures.push('Plaintext-migrated event must publish after all applicable migration writes')
+}
+if (!migrationSource.includes('if (credentialChanged || accountChanged) {\n    await publishCredentialEvent')) {
+  failures.push('Plaintext migration must not publish when neither credentials nor client records changed')
 }
 
 for (const forbiddenTopic of [
