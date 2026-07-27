@@ -8,6 +8,9 @@ for (const token of [
   "publishAssetEvent('asset.created'",
   "publishAssetEvent('asset.updated'",
   "publishAssetEvent('asset.deleted'",
+  'function assetMutationState(asset = {})',
+  'function assetChanged(previous = {}, updated = {})',
+  'if (!assetChanged(existing, updated)) return existing',
   'kind:',
   'hasDimensions:',
   'hasDescription:',
@@ -75,6 +78,26 @@ if (!source.includes("await publishAssetEvent('asset.deleted'")) {
 }
 if (!source.includes('return updateAsset(websiteValue, assetValue, { variants })')) {
   failures.push('Asset variants must reuse the canonical asset update mutation')
+}
+
+const updateStart = source.indexOf('export async function updateAsset(')
+const updateEnd = source.indexOf('\n}\n\nexport async function registerAssetVariant', updateStart)
+const updateSource = updateStart >= 0 && updateEnd > updateStart ? source.slice(updateStart, updateEnd) : ''
+const noOpGuard = updateSource.indexOf('if (!assetChanged(existing, updated)) return existing')
+const updateWrite = updateSource.indexOf('await writeJson(libraryPath(websiteId), assets)')
+const updatePublish = updateSource.indexOf("await publishAssetEvent('asset.updated'")
+if (noOpGuard < 0 || updateWrite < 0 || noOpGuard > updateWrite) {
+  failures.push('Unchanged asset updates must return before registry persistence')
+}
+if (noOpGuard < 0 || updatePublish < 0 || noOpGuard > updatePublish) {
+  failures.push('Unchanged asset updates must return before realtime publication')
+}
+
+const mutationStart = source.indexOf('function assetMutationState(')
+const mutationEnd = source.indexOf('\n}\n\nfunction assetChanged', mutationStart)
+const mutationSource = mutationStart >= 0 && mutationEnd > mutationStart ? source.slice(mutationStart, mutationEnd) : ''
+for (const token of ['const { updatedAt, variants = [], ...state } = asset', 'const { createdAt, ...variantState } = variant']) {
+  if (!mutationSource.includes(token)) failures.push(`Asset semantic comparison must ignore mutation timestamp: ${token}`)
 }
 
 if (failures.length) {
