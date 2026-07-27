@@ -119,12 +119,19 @@ export async function revokeSessionById(id, actor = null) {
   })
 }
 export async function revokeAccountSessions(accountId, reason = 'global-logout', exceptId = null) {
-  return mutate(state => {
+  const result = await mutate(state => {
     let revoked = 0
     for (const session of state.sessions) if (session.accountId === accountId && session.id !== exceptId && status(session) === 'active') { session.revokedAt = nowIso(); session.revocationReason = reason; revoked += 1 }
     state.securityEvents.unshift({ id: crypto.randomUUID(), action: 'account.sessions-revoked', accountId, reason, revoked, createdAt: nowIso() })
     return { revoked }
   })
+  if (reason === 'global-logout') {
+    await publishAuthenticationPersistenceEvent('authentication.global-logout-completed', {
+      revokedSessionCount: result.revoked,
+      sessionsRevoked: result.revoked > 0,
+    })
+  }
+  return result
 }
 export async function recordLoginEvent(accountId, context = {}, success = false, details = {}) {
   const event = await mutate(state => {
