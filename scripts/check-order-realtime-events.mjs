@@ -83,9 +83,42 @@ const eventWrite = source.indexOf('await writeJson(paths.orderEvents(), [event, 
 const eventPublish = source.indexOf('if (topic) await publishOrderEvent(topic, orderEventPayload(order))')
 if (eventWrite < 0 || eventPublish < eventWrite) failures.push('Order lifecycle events must publish after journal persistence')
 
-const purgeWrite = source.indexOf('await Promise.all([')
-const purgePublish = source.indexOf("await publishOrderEvent('order.test-data-purged'")
+const purgeFunctionStart = source.indexOf('export async function purgeTestOrders(')
+const purgeFunctionEnd = source.indexOf('\nexport async function updateOrderStatus', purgeFunctionStart)
+const purgeFunction = purgeFunctionStart >= 0 && purgeFunctionEnd > purgeFunctionStart
+  ? source.slice(purgeFunctionStart, purgeFunctionEnd)
+  : ''
+const purgeGuard = 'if (removed.length === 0) return { removed: 0, websiteId: safeWebsiteId || \'all\' }'
+const purgeWrite = purgeFunction.indexOf('await Promise.all([')
+const purgePublish = purgeFunction.indexOf("await publishOrderEvent('order.test-data-purged'")
+const purgeGuardAt = purgeFunction.indexOf(purgeGuard)
+if (purgeGuardAt < 0) failures.push('Order test-data purge must suppress zero-removal persistence and publication')
 if (purgeWrite < 0 || purgePublish < purgeWrite) failures.push('Order purge events must publish after all persistence completes')
+if (purgeGuardAt < 0 || purgeGuardAt > purgeWrite || purgeGuardAt > purgePublish) {
+  failures.push('Order test-data purge no-op guard must run before persistence and publication')
+}
+
+const statusFunctionStart = source.indexOf('export async function updateOrderStatus(')
+const statusFunctionEnd = source.indexOf('\nexport async function updateNotificationStatus', statusFunctionStart)
+const statusFunction = statusFunctionStart >= 0 && statusFunctionEnd > statusFunctionStart
+  ? source.slice(statusFunctionStart, statusFunctionEnd)
+  : ''
+for (const token of [
+  'const tracking = details.tracking ?? existing.tracking',
+  'const internalNote = clean(details.internalNote) || existing.internalNote',
+  'const unchanged = existing.fulfilmentStatus === status',
+  'JSON.stringify(existing.tracking ?? null) === JSON.stringify(tracking ?? null)',
+  "String(existing.internalNote || '') === String(internalNote || '')",
+  'if (unchanged) return existing',
+]) {
+  if (!statusFunction.includes(token)) failures.push(`Missing order status no-op marker: ${token}`)
+}
+const statusGuardAt = statusFunction.indexOf('if (unchanged) return existing')
+const statusWriteAt = statusFunction.indexOf('await writeJson(paths.orders()')
+const statusEventAt = statusFunction.indexOf("await appendOrderEvent(updated, 'order.status_changed'")
+if (statusGuardAt < 0 || statusGuardAt > statusWriteAt || statusGuardAt > statusEventAt) {
+  failures.push('Order status no-op guard must run before persistence and lifecycle publication')
+}
 
 if (source.includes("publishOrderEvent('order.notification")) {
   failures.push('Order notification logging must remain covered by the canonical notification module')
