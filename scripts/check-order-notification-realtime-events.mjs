@@ -50,13 +50,26 @@ if (!source.includes("async function publishNotificationDelivery(channel, status
   failures.push('Order notification events must publish through the aggregate payload helper')
 }
 
-const updateAt = source.indexOf('const updated = await updateNotificationStatus(order.id, channel, status, errorMessage)')
-const publishAt = source.indexOf('await publishNotificationDelivery(channel, status)')
+const recordStart = source.indexOf('async function recordStatus(')
+const recordEnd = source.indexOf('\n}\n\nasync function deliver(', recordStart)
+const recordSource = recordStart >= 0 && recordEnd > recordStart ? source.slice(recordStart, recordEnd) : ''
+const unchangedGuard = "if (order.notifications?.[channel] === status) return false"
+const guardAt = recordSource.indexOf(unchangedGuard)
+const updateAt = recordSource.indexOf('const updated = await updateNotificationStatus(order.id, channel, status, errorMessage)')
+const publishAt = recordSource.indexOf('await publishNotificationDelivery(channel, status)')
+
+if (guardAt < 0) failures.push('Unchanged order notification states must be suppressed')
+if (updateAt < 0 || guardAt > updateAt) {
+  failures.push('Unchanged notification states must return before persistence')
+}
+if (publishAt < 0 || guardAt > publishAt) {
+  failures.push('Unchanged notification states must return before realtime publication')
+}
 if (updateAt < 0 || publishAt < updateAt) {
   failures.push('Order notification event must publish after notification status persistence')
 }
 
-if (!source.includes('if (!updated) return false\n    await publishNotificationDelivery(channel, status)')) {
+if (!recordSource.includes('if (!updated) return false\n    await publishNotificationDelivery(channel, status)')) {
   failures.push('Order notification event must not publish when persistence did not update an order')
 }
 
