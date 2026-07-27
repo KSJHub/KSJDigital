@@ -29,6 +29,18 @@ function contentDocument(value, label = 'Website content') {
   return document
 }
 
+function contentState(document = {}) {
+  const state = structuredClone(document)
+  for (const field of ['createdAt', 'updatedAt', 'updatedBy', 'publishedAt', 'publishedBy', 'publishRequestId', 'initialPublication']) {
+    delete state[field]
+  }
+  return state
+}
+
+function contentStateChanged(current, proposed) {
+  return JSON.stringify(contentState(current)) !== JSON.stringify(contentState(proposed))
+}
+
 function contentEventPayload(document, details = {}) {
   const values = Object.values(document || {})
   return {
@@ -63,6 +75,7 @@ export async function saveDraftContent(value, input, metadata = {}) {
   const id = websiteId(value)
   const current = await getDraftContent(id)
   const supplied = contentDocument(input)
+  if (!contentStateChanged(current, supplied)) return current
   const saved = {
     ...supplied,
     createdAt: supplied.createdAt || current.createdAt || new Date().toISOString(),
