@@ -95,6 +95,21 @@ function normaliseAsset(websiteId, input = {}, existing = null) {
   }
 }
 
+function assetMutationState(asset = {}) {
+  const { updatedAt, variants = [], ...state } = asset
+  return {
+    ...state,
+    variants: variants.map(variant => {
+      const { createdAt, ...variantState } = variant
+      return variantState
+    }),
+  }
+}
+
+function assetChanged(previous = {}, updated = {}) {
+  return JSON.stringify(assetMutationState(previous)) !== JSON.stringify(assetMutationState(updated))
+}
+
 function assetEventPayload(asset = {}, librarySize = 0, deletion = {}) {
   return {
     kind: VALID_KINDS.has(asset.kind) ? asset.kind : 'other',
@@ -233,7 +248,9 @@ export async function updateAsset(websiteValue, assetValue, input = {}) {
     const assets = await readLibrary(websiteId)
     const index = assets.findIndex(item => item.id === assetId)
     if (index < 0) throw new AssetLibraryError('Asset not found', 404)
-    const updated = normaliseAsset(websiteId, input, assets[index])
+    const existing = assets[index]
+    const updated = normaliseAsset(websiteId, input, existing)
+    if (!assetChanged(existing, updated)) return existing
     assets[index] = updated
     await writeJson(libraryPath(websiteId), assets)
     await publishAssetEvent('asset.updated', updated, assets.length)
