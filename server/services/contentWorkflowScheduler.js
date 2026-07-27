@@ -42,14 +42,16 @@ export function startContentWorkflowScheduler() {
           console.error(`Unable to process scheduled content for ${websiteId}:`, error)
         }
       }
-      await publishSchedulerEvent({
-        websiteCount,
-        processedWebsiteCount,
-        failedWebsiteCount,
-        publishedRecordCount,
-        hadPublications: publishedRecordCount > 0,
-        completedWithoutFailures: failedWebsiteCount === 0,
-      })
+      if (publishedRecordCount > 0 || failedWebsiteCount > 0) {
+        await publishSchedulerEvent({
+          websiteCount,
+          processedWebsiteCount,
+          failedWebsiteCount,
+          publishedRecordCount,
+          hadPublications: publishedRecordCount > 0,
+          completedWithoutFailures: failedWebsiteCount === 0,
+        })
+      }
     } catch (error) {
       console.error('Unable to process scheduled content:', error)
     } finally {
