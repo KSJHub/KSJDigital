@@ -76,6 +76,16 @@ function initialWorkflowFields(definition, fields) {
   return { ...fields, [definition.workflow.field]: definition.workflow.initialState, scheduledAt: null, publishedAt: null }
 }
 
+function contentRecordState(record = {}) {
+  const state = { ...record }
+  for (const field of ['id', 'type', 'websiteId', 'createdAt', 'updatedAt']) delete state[field]
+  return state
+}
+
+function contentRecordStateChanged(current, proposed) {
+  return JSON.stringify(contentRecordState(current)) !== JSON.stringify(contentRecordState(proposed))
+}
+
 function contentRecordEventPayload(definition, record = {}, details = {}) {
   const structuralFields = new Set(['id', 'type', 'websiteId', 'createdAt', 'updatedAt'])
   return {
@@ -197,7 +207,9 @@ export async function updateContentRecord(websiteValue, typeValue, recordId, inp
   const existing = records[index]
   const fields = normalisedFields(typeId, workflowProtectedInput(definition, input), existing)
   await validateRelationships(websiteId, typeId, fields)
-  const updated = { ...existing, ...fields, id: existing.id, type: typeId, websiteId, createdAt: existing.createdAt, updatedAt: new Date().toISOString() }
+  const proposed = { ...existing, ...fields, id: existing.id, type: typeId, websiteId, createdAt: existing.createdAt }
+  if (!contentRecordStateChanged(existing, proposed)) return hydrateRecord(websiteId, typeId, existing, actor)
+  const updated = { ...proposed, updatedAt: new Date().toISOString() }
   await saveContentRevision(websiteId, typeId, existing)
   records[index] = updated
   await writeJson(recordsPath(websiteId, typeId), records)
