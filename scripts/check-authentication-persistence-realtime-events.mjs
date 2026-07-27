@@ -7,6 +7,7 @@ for (const token of [
   "import { publishDomainEvent } from './realtimeDomainEventService.js'",
   "publishAuthenticationPersistenceEvent('authentication.session-issued'",
   "publishAuthenticationPersistenceEvent('authentication.session-ended'",
+  "publishAuthenticationPersistenceEvent('authentication.global-logout-completed'",
   "publishAuthenticationPersistenceEvent('authentication.login-recorded'",
   'activeSessionCount:',
   'revokedSessionCount:',
@@ -15,6 +16,7 @@ for (const token of [
   'userInitiated:',
   'sessionRotated:',
   'mfaRotation:',
+  'sessionsRevoked:',
   'successful:',
   'failed:',
   'riskEvaluated:',
@@ -26,6 +28,7 @@ for (const token of [
 for (const payloadMarker of [
   "await publishAuthenticationPersistenceEvent('authentication.session-issued', {",
   "await publishAuthenticationPersistenceEvent('authentication.session-ended', {",
+  "await publishAuthenticationPersistenceEvent('authentication.global-logout-completed', {",
   "await publishAuthenticationPersistenceEvent('authentication.login-recorded', {",
 ]) {
   const start = source.indexOf(payloadMarker)
@@ -75,6 +78,20 @@ if (!source.includes("if (revoked) {\n    await publishAuthenticationPersistence
   failures.push('Session-ended event must not publish when no active token session was revoked')
 }
 
+const accountRevocationStart = source.indexOf('export async function revokeAccountSessions(')
+const accountRevocationEnd = source.indexOf('\nexport async function recordLoginEvent', accountRevocationStart)
+const accountRevocationSource = accountRevocationStart >= 0 && accountRevocationEnd > accountRevocationStart
+  ? source.slice(accountRevocationStart, accountRevocationEnd)
+  : ''
+const accountMutateAt = accountRevocationSource.indexOf('const result = await mutate(state => {')
+const globalLogoutPublishAt = accountRevocationSource.indexOf("await publishAuthenticationPersistenceEvent('authentication.global-logout-completed'")
+if (accountMutateAt < 0 || globalLogoutPublishAt < accountMutateAt) {
+  failures.push('Global logout event must publish after account session revocation persistence')
+}
+if (!accountRevocationSource.includes("if (reason === 'global-logout') {\n    await publishAuthenticationPersistenceEvent('authentication.global-logout-completed'")) {
+  failures.push('Account-wide persistence must publish only the global logout lifecycle and leave administrative revocation to its owner')
+}
+
 const loginMutateAt = source.indexOf('const event = await mutate(state => {')
 const loginPublishAt = source.indexOf("await publishAuthenticationPersistenceEvent('authentication.login-recorded'")
 if (loginMutateAt < 0 || loginPublishAt < loginMutateAt) {
@@ -83,6 +100,7 @@ if (loginMutateAt < 0 || loginPublishAt < loginMutateAt) {
 
 for (const forbiddenTopic of [
   "publishDomainEvent('authentication.session-revoked'",
+  "publishDomainEvent('authentication.account-sessions-revoked'",
   "publishDomainEvent('authentication.password-reset-",
   "publishDomainEvent('audit-trail.",
 ]) {
