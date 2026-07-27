@@ -16,12 +16,14 @@ export function createAuthenticationAdminRouter() {
   router.get('/sessions', (req, res, next) => handle(res, next, () => getAuthenticationState(req.query)))
   router.delete('/sessions/:sessionId', requireAssurance(2), (req, res, next) => handle(res, next, async () => {
     const result = await revokeSessionById(req.params.sessionId, actor(req))
-    await publishAuthenticationEvent('authentication.session-revoked', {
-      revoked: Boolean(result.revokedAt),
-      reason: result.revocationReason || 'administrative-revocation',
-      assuranceLevel: 2,
-    })
-    return result
+    if (result.revocationApplied) {
+      await publishAuthenticationEvent('authentication.session-revoked', {
+        revoked: true,
+        reason: result.session.revocationReason || 'administrative-revocation',
+        assuranceLevel: 2,
+      })
+    }
+    return result.session
   }))
   router.post('/logout-all', (req, res, next) => Promise.resolve(logoutAllAuthenticationSessions(req, res)).catch(next))
   router.post('/accounts/:accountId/logout-all', requireAssurance(2), (req, res, next) => handle(res, next, async () => {
