@@ -102,8 +102,23 @@ const stockWrite = files.stock.indexOf('await writeJson(paths.content(safeWebsit
 const stockPublish = files.stock.indexOf("await publishInventoryEvent('inventory.stock-adjusted'")
 if (stockWrite < 0 || stockPublish < stockWrite) failures.push('Stock adjustment events must publish after persistence')
 
-const basketWrite = files.stock.indexOf('await writeJson(paths.content(safeWebsiteId)', stockWrite + 1)
-const basketPublish = files.stock.indexOf("await publishInventoryEvent('inventory.basket-stock-decremented'")
+const basketStart = files.stock.indexOf('export async function decrementBasketStock(')
+const basketEnd = files.stock.indexOf('\nexport async function decrementProductStock', basketStart)
+const basketSource = basketStart >= 0 && basketEnd > basketStart ? files.stock.slice(basketStart, basketEnd) : ''
+const emptyBasketGuard = basketSource.indexOf('if (!Array.isArray(items) || items.length === 0) return products')
+const unchangedBasketGuard = basketSource.indexOf('if (changedItemCount === 0) return products')
+const basketWrite = basketSource.indexOf('await writeJson(paths.content(safeWebsiteId)')
+const basketPublish = basketSource.indexOf("await publishInventoryEvent('inventory.basket-stock-decremented'")
+
+if (emptyBasketGuard < 0 || emptyBasketGuard > basketWrite || emptyBasketGuard > basketPublish) {
+  failures.push('Empty baskets must return before inventory persistence and publication')
+}
+if (unchangedBasketGuard < 0 || unchangedBasketGuard > basketWrite || unchangedBasketGuard > basketPublish) {
+  failures.push('Baskets without tracked stock changes must return before persistence and publication')
+}
+if (!basketSource.includes('itemCount: changedItemCount') || !basketSource.includes('unitCount: changedUnitCount')) {
+  failures.push('Basket inventory events must count only items and units whose tracked stock changed')
+}
 if (basketWrite < 0 || basketPublish < basketWrite) failures.push('Basket stock events must publish after persistence')
 
 for (const [writeToken, publishToken, label] of [
