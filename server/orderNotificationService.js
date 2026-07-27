@@ -79,6 +79,8 @@ async function publishNotificationDelivery(channel, status) {
 }
 
 async function recordStatus(order, channel, status, errorMessage = '') {
+  if (order.notifications?.[channel] === status) return false
+
   try {
     const updated = await updateNotificationStatus(order.id, channel, status, errorMessage)
     if (!updated) return false
