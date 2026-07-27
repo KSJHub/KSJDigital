@@ -51,7 +51,7 @@ async function mutateIndex(websiteId, mutation) {
   const current = previous.catch(() => {}).then(async () => {
     const documents = await readContentSearchIndex(websiteId)
     const next = await mutation(documents)
-    await writeJson(searchPath(websiteId), next)
+    if (next !== documents) await writeJson(searchPath(websiteId), next)
     return next
   })
   indexMutations.set(key, current)
