@@ -54,17 +54,27 @@ if (!source.includes("async function publishAuditTrailEvent(topic, payload) {\n 
   failures.push('Audit trail events must publish aggregate payloads without actor-derived metadata')
 }
 
+const configGuard = source.indexOf('if (Number(existing.retentionDays) === retentionDays) return existing')
 const configWrite = source.indexOf('await writeJson(configPath(id), config)')
 const configPublish = source.indexOf("await publishAuditTrailEvent('audit.config-updated'")
-if (configWrite < 0 || configPublish < configWrite) failures.push('Audit config events must publish after persistence')
+if (configGuard < 0 || configWrite < configGuard || configPublish < configWrite) {
+  failures.push('Unchanged audit config must return before persistence and publication')
+}
 
 const appendWrite = source.indexOf('const events = await mutate(id, existing => [event, ...existing])')
 const appendPublish = source.indexOf("await publishAuditTrailEvent('audit.event-recorded'")
 if (appendWrite < 0 || appendPublish < appendWrite) failures.push('Audit recorded events must publish after persistence')
 
-const pruneWrite = source.indexOf('const events = await mutate(id, existing => {')
+const pruneNoWrite = source.indexOf('return removed > 0 ? kept : existing')
+const pruneGuard = source.indexOf("if (removed === 0) return { removed, retentionDays }")
 const prunePublish = source.indexOf("await publishAuditTrailEvent('audit.events-pruned'")
-if (pruneWrite < 0 || prunePublish < pruneWrite) failures.push('Audit prune events must publish after persistence')
+if (pruneNoWrite < 0 || pruneGuard < pruneNoWrite || prunePublish < pruneGuard) {
+  failures.push('Zero-result audit prunes must return before persistence and publication')
+}
+
+if (!source.includes('if (next === events) return events')) {
+  failures.push('Audit mutation storage must suppress writes when the event collection is unchanged')
+}
 
 if (failures.length) {
   console.error('Audit trail real-time event check failed:')
