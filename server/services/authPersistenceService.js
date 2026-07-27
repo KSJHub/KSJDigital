@@ -114,8 +114,9 @@ export async function revokeSessionById(id, actor = null) {
   return mutate(state => {
     const session = state.sessions.find(item => item.id === id)
     if (!session) throw Object.assign(new Error('Session not found'), { status: 404 })
-    if (!session.revokedAt) { session.revokedAt = nowIso(); session.revocationReason = 'administrative-revocation'; session.revokedBy = actor }
-    return safeSession(session)
+    const revocationApplied = !session.revokedAt
+    if (revocationApplied) { session.revokedAt = nowIso(); session.revocationReason = 'administrative-revocation'; session.revokedBy = actor }
+    return { session: safeSession(session), revocationApplied }
   })
 }
 export async function revokeAccountSessions(accountId, reason = 'global-logout', exceptId = null) {
