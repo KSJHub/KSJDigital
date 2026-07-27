@@ -138,6 +138,9 @@ export async function listWorkflowHistory(websiteId, typeId, recordId) {
 
 export async function appendWorkflowHistory(websiteId, typeId, recordId, event) {
   const events = await listWorkflowHistory(websiteId, typeId, recordId)
+  const existing = event?.id ? events.find(item => item?.id === event.id) : null
+  if (existing) return existing
+
   const next = [event, ...events].slice(0, MAX_WORKFLOW_EVENTS_PER_RECORD)
   await writeJson(workflowPath(websiteId, typeId, recordId), next)
   await publishContentWorkflowEvent('content-workflow.history-appended', {
