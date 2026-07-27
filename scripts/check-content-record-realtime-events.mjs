@@ -6,9 +6,9 @@ const failures = []
 for (const token of [
   "import { publishDomainEvent } from './realtimeDomainEventService.js'",
   "publishContentRecordEvent('content-record.created'",
-  "publishContentRecordEvent('content-record.updated'",
+  "event.topic || 'content-record.updated'",
   "publishContentRecordEvent('content-record.workflow-transitioned'",
-  "publishContentRecordEvent('content-record.revision-restored'",
+  "topic: 'content-record.revision-restored'",
   "publishContentRecordEvent('content-record.deleted'",
   'fieldCount:',
   'relationshipFieldCount:',
@@ -70,11 +70,42 @@ if (!source.includes("async function publishContentRecordEvent(topic, payload) {
   failures.push('Content record events must publish aggregate payloads without actor-derived metadata')
 }
 
+for (const field of ['id', 'type', 'websiteId', 'createdAt', 'updatedAt']) {
+  if (!source.includes(`delete state[field]`) || !source.includes(`['id', 'type', 'websiteId', 'createdAt', 'updatedAt']`)) {
+    failures.push(`Content record no-op comparison must exclude structural field: ${field}`)
+    break
+  }
+}
+
+const updateStart = source.indexOf('export async function updateContentRecord(')
+const updateEnd = source.indexOf('\nexport async function transitionContentRecord(', updateStart)
+const updateSource = updateStart >= 0 && updateEnd > updateStart ? source.slice(updateStart, updateEnd) : ''
+const compareAt = updateSource.indexOf('if (!contentRecordStateChanged(existing, proposed)) return hydrateRecord(')
+const revisionAt = updateSource.indexOf('await saveContentRevision(')
+const writeAt = updateSource.indexOf('await writeJson(')
+const indexAt = updateSource.indexOf('await indexContentRecord(')
+const publishAt = updateSource.indexOf('await publishContentRecordEvent(')
+if (compareAt < 0 || revisionAt < compareAt || writeAt < revisionAt || indexAt < writeAt || publishAt < indexAt) {
+  failures.push('Content record updates must suppress semantic no-ops before revision, persistence, indexing, and publication')
+}
+
+const restoreStart = source.indexOf('export async function restoreContentRecord(')
+const restoreEnd = source.indexOf('\nexport async function processScheduledContentRecords(', restoreStart)
+const restoreSource = restoreStart >= 0 && restoreEnd > restoreStart ? source.slice(restoreStart, restoreEnd) : ''
+if (!restoreSource.includes("return updateContentRecord(websiteId, typeId, recordId, revision.snapshot, actor, {")) {
+  failures.push('Revision restore must use the canonical update operation')
+}
+if (!restoreSource.includes("topic: 'content-record.revision-restored'")) {
+  failures.push('Revision restore must assign its lifecycle topic through the canonical update operation')
+}
+if (restoreSource.includes('publishContentRecordEvent(')) {
+  failures.push('Revision restore must not publish a second lifecycle event outside the canonical update operation')
+}
+
 for (const [persistToken, publishToken, label] of [
   ['await indexContentRecord(websiteId, typeId, record)', "await publishContentRecordEvent('content-record.created'", 'creation'],
-  ['await indexContentRecord(websiteId, typeId, updated)', "await publishContentRecordEvent('content-record.updated'", 'update'],
+  ['await indexContentRecord(websiteId, typeId, updated)', 'await publishContentRecordEvent(event.topic', 'update or restore'],
   ['await indexContentRecord(websiteId, typeId, updated)', "await publishContentRecordEvent('content-record.workflow-transitioned'", 'workflow transition'],
-  ['const restored = await updateContentRecord(', "await publishContentRecordEvent('content-record.revision-restored'", 'revision restore'],
   ['await removeContentSearchDocument(websiteId, typeId, recordId)', "await publishContentRecordEvent('content-record.deleted'", 'deletion'],
 ]) {
   const publishAt = source.indexOf(publishToken)
