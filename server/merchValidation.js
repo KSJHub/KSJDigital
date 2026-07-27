@@ -234,26 +234,32 @@ export async function decrementBasketStock(websiteId, items = []) {
     const safeWebsiteId = safeName(websiteId)
     const content = await readJson(paths.content(safeWebsiteId), {})
     const products = Array.isArray(content.merch?.products) ? content.merch.products : []
+    if (!Array.isArray(items) || items.length === 0) return products
+
     const nextProducts = [...products]
+    let changedItemCount = 0
+    let changedUnitCount = 0
 
     for (const item of items) {
       const index = nextProducts.findIndex(product => product.id === item.productId)
       if (index < 0) throw new Error(`${item.name || 'A basket product'} was not found while updating stock`)
-      nextProducts[index] = adjustedProduct(
-        nextProducts[index],
-        item.quantity,
-        item.variant,
-        -1,
-      )
+      const current = nextProducts[index]
+      const adjusted = adjustedProduct(current, item.quantity, item.variant, -1)
+      if (adjusted === current) continue
+      nextProducts[index] = adjusted
+      changedItemCount += 1
+      changedUnitCount += Math.max(1, Number(item.quantity || 1))
     }
+
+    if (changedItemCount === 0) return products
 
     await writeJson(paths.content(safeWebsiteId), {
       ...content,
       merch: { ...content.merch, products: nextProducts },
     })
     await publishInventoryEvent('inventory.basket-stock-decremented', {
-      itemCount: items.length,
-      unitCount: items.reduce((total, item) => total + Math.max(1, Number(item.quantity || 1)), 0),
+      itemCount: changedItemCount,
+      unitCount: changedUnitCount,
       trackedProductCount: nextProducts.filter(product => product.inventory?.trackStock === true).length,
       outOfStockProductCount: nextProducts.filter(product => product.inventory?.trackStock === true && Number(product.inventory?.quantity || 0) <= 0).length,
     })
