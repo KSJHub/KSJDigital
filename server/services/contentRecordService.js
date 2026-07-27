@@ -197,7 +197,7 @@ export async function createContentRecord(websiteValue, typeValue, input = {}, a
   return hydrateRecord(websiteId, typeId, record, actor)
 }
 
-export async function updateContentRecord(websiteValue, typeValue, recordId, input = {}, actor = null) {
+export async function updateContentRecord(websiteValue, typeValue, recordId, input = {}, actor = null, event = {}) {
   const websiteId = identity(websiteValue, 'Website id')
   const definition = typeDefinition(typeValue)
   const typeId = definition.id
@@ -214,8 +214,9 @@ export async function updateContentRecord(websiteValue, typeValue, recordId, inp
   records[index] = updated
   await writeJson(recordsPath(websiteId, typeId), records)
   await indexContentRecord(websiteId, typeId, updated)
-  await publishContentRecordEvent('content-record.updated', contentRecordEventPayload(definition, updated, {
+  await publishContentRecordEvent(event.topic || 'content-record.updated', contentRecordEventPayload(definition, updated, {
     revisionCreated: true,
+    ...(event.details || {}),
   }))
   return hydrateRecord(websiteId, typeId, updated, actor)
 }
@@ -251,11 +252,9 @@ export async function restoreContentRecord(websiteValue, typeValue, recordId, re
   const typeId = definition.id
   const revision = await getContentRevision(websiteId, typeId, recordId, revisionId)
   if (!revision) throw new ContentRecordError('Revision not found', 404)
-  const restored = await updateContentRecord(websiteId, typeId, recordId, revision.snapshot, actor)
-  await publishContentRecordEvent('content-record.revision-restored', contentRecordEventPayload(definition, restored, {
-    revisionCreated: true,
-  }))
-  return restored
+  return updateContentRecord(websiteId, typeId, recordId, revision.snapshot, actor, {
+    topic: 'content-record.revision-restored',
+  })
 }
 
 export async function processScheduledContentRecords(websiteValue, now = new Date()) {
