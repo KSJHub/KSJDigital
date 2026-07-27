@@ -28,11 +28,13 @@ export function createAuthenticationAdminRouter() {
   router.post('/logout-all', (req, res, next) => Promise.resolve(logoutAllAuthenticationSessions(req, res)).catch(next))
   router.post('/accounts/:accountId/logout-all', requireAssurance(2), (req, res, next) => handle(res, next, async () => {
     const result = await revokeAccountSessions(req.params.accountId, 'administrative-global-logout')
-    await publishAuthenticationEvent('authentication.account-sessions-revoked', {
-      revokedCount: result.revoked,
-      reason: 'administrative-global-logout',
-      assuranceLevel: 2,
-    })
+    if (result.revoked > 0) {
+      await publishAuthenticationEvent('authentication.account-sessions-revoked', {
+        revokedCount: result.revoked,
+        reason: 'administrative-global-logout',
+        assuranceLevel: 2,
+      })
+    }
     return result
   }))
   router.post('/accounts/:accountId/password-reset', requireAssurance(2), (req, res, next) => handle(res, next, async () => {
