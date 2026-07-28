@@ -1,11 +1,77 @@
-import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import path from 'node:path'
 
-const root = process.cwd()
-const router = await fs.readFile(path.join(root, 'server/featureFlagRouter.js'), 'utf8')
+const router = await fs.readFile(new URL('../server/featureFlagRouter.js', import.meta.url), 'utf8')
+const failures = []
 
-assert.match(router, /realtimeDomainEventService\.js/, 'Feature flag router must import the real-time domain publisher')
+for (const token of [
+  "publishFeatureFlagRealtimeEvent('feature-flag.updated'",
+  "publishFeatureFlagRealtimeEvent('feature-flag.deleted'",
+  "publishFeatureFlagRealtimeEvent('feature-flag.kill-switch-changed'",
+  "publishFeatureFlagRealtimeEvent('feature-flag.evaluated'",
+  "publishFeatureFlagRealtimeEvent('feature-flag.batch-evaluated'",
+  'flagCount:',
+  'enabledFlagCount:',
+  'killSwitchCount:',
+  'rolloutPercentage:',
+  'environmentCount:',
+  'websiteTargetCount:',
+  'userTargetCount:',
+  'excludedWebsiteCount:',
+  'excludedUserCount:',
+  'evaluatedCount:',
+  'enabledCount:',
+  'blockedCount:',
+  'targetedCount:',
+  'hasWebsiteContext:',
+  'hasUserContext:',
+]) {
+  if (!router.includes(token)) failures.push(`Missing feature flag realtime marker: ${token}`)
+}
+
+const payloadStart = router.indexOf('function featureFlagRegistryPayload(')
+const payloadEnd = router.indexOf('\n}\n\nasync function publishFeatureFlagRealtimeEvent', payloadStart)
+const payloadSource = payloadStart >= 0 && payloadEnd > payloadStart ? router.slice(payloadStart, payloadEnd) : ''
+
+for (const forbidden of [
+  'accountId:', 'flagKey:', 'websiteId:', 'userId:', 'environment:', 'environments:', 'reason:',
+  'salt:', 'bucket:', 'subject:', 'websiteIds:', 'userIds:', 'excludedWebsiteIds:', 'excludedUserIds:',
+  'actor:', 'session', 'email:', 'role:', 'createdAt:', 'updatedAt:', 'evaluatedAt:',
+  'req.body', 'req.params', '...flag', '...evaluation', '...results',
+]) {
+  if (payloadSource.includes(forbidden)) failures.push(`Feature flag event payload exposes forbidden data: ${forbidden}`)
+}
+
+if (!router.includes("async function publishFeatureFlagRealtimeEvent(topic, payload) {\n  await publishDomainEvent(topic, payload)\n}")) {
+  failures.push('Feature flag events must publish aggregate payloads without actor-derived metadata')
+}
+
+const updateGuard = router.indexOf('if (!flagPatchChanges(existing, input)) return res.json(existing)')
+const updateMutation = router.indexOf('const flag = await upsertFeatureFlag(')
+const updatePublish = router.indexOf("await publishFeatureFlagRealtimeEvent('feature-flag.updated'")
+if (updateGuard < 0 || updateMutation < updateGuard || updatePublish < updateMutation) {
+  failures.push('Unchanged feature flags must return before persistence and publication')
+}
+
+const deleteGuard = router.indexOf("if (!existing) return res.json({ deleted: false, key: req.params.flagKey })")
+const deleteMutation = router.indexOf('const result = await deleteFeatureFlag(')
+const deletePublish = router.indexOf("await publishFeatureFlagRealtimeEvent('feature-flag.deleted'")
+if (deleteGuard < 0 || deleteMutation < deleteGuard || deletePublish < deleteMutation) {
+  failures.push('Missing feature flags must not be deleted or published')
+}
+
+const killGuard = router.indexOf('if ((existing.killSwitch === true) === enabled) return res.json(existing)')
+const killMutation = router.indexOf('const flag = await setFeatureFlagKillSwitch(')
+const killPublish = router.indexOf("await publishFeatureFlagRealtimeEvent('feature-flag.kill-switch-changed'")
+if (killGuard < 0 || killMutation < killGuard || killPublish < killMutation) {
+  failures.push('Unchanged kill-switch state must return before persistence and publication')
+}
+
+const batchGuard = router.indexOf('if (keys.length === 0) return res.json({})')
+const batchMutation = router.indexOf('const results = await evaluateFeatureFlags(')
+const batchPublish = router.indexOf("await publishFeatureFlagRealtimeEvent('feature-flag.batch-evaluated'")
+if (batchGuard < 0 || batchMutation < batchGuard || batchPublish < batchMutation) {
+  failures.push('Empty feature flag batches must return before evaluation persistence and publication')
+}
 
 for (const topic of [
   'feature-flag.updated',
@@ -14,32 +80,13 @@ for (const topic of [
   'feature-flag.evaluated',
   'feature-flag.batch-evaluated',
 ]) {
-  assert.ok(router.includes(`'${topic}'`), `Missing feature flag real-time topic: ${topic}`)
+  if (router.includes(`publishDomainEvent('${topic}'`)) failures.push(`Feature flag topic must be owned by the canonical feature flag publisher: ${topic}`)
 }
 
-assert.match(router, /accountId:\s*currentActor\.id/, 'Feature flag events must identify the authenticated account')
-assert.match(router, /role:\s*req\.session\?\.role/, 'Feature flag event actors must include the authenticated role')
-assert.match(router, /const\s+websiteTargetCount\s*=\s*flag\.websiteIds\.length/, 'Feature flag events must derive website target counts only')
-assert.match(router, /const\s+userTargetCount\s*=\s*flag\.userIds\.length/, 'Feature flag events must derive user target counts only')
-assert.match(router, /const\s+excludedWebsiteCount\s*=\s*flag\.excludedWebsiteIds\.length/, 'Feature flag events must derive excluded website counts only')
-assert.match(router, /const\s+excludedUserCount\s*=\s*flag\.excludedUserIds\.length/, 'Feature flag events must derive excluded user counts only')
-assert.match(router, /publishDomainEvent\('feature-flag\.updated',[\s\S]{0,500}\bwebsiteTargetCount\b/, 'Updated feature flag events must publish the website target count')
-assert.match(router, /publishDomainEvent\('feature-flag\.updated',[\s\S]{0,500}\buserTargetCount\b/, 'Updated feature flag events must publish the user target count')
-assert.match(router, /publishDomainEvent\('feature-flag\.updated',[\s\S]{0,500}\bexcludedWebsiteCount\b/, 'Updated feature flag events must publish the excluded website count')
-assert.match(router, /publishDomainEvent\('feature-flag\.updated',[\s\S]{0,500}\bexcludedUserCount\b/, 'Updated feature flag events must publish the excluded user count')
-assert.match(router, /hasWebsiteContext:\s*Boolean\(evaluation\.context\.websiteId\)/, 'Evaluation events must reduce website context to presence metadata')
-assert.match(router, /hasUserContext:\s*Boolean\(evaluation\.context\.userId\)/, 'Evaluation events must reduce user context to presence metadata')
-
-for (const forbidden of [
-  /publishDomainEvent[\s\S]{0,500}\bsalt\b/,
-  /publishDomainEvent[\s\S]{0,500}\bbucket\b/,
-  /publishDomainEvent[\s\S]{0,500}\bsubject\b/,
-  /publishDomainEvent[\s\S]{0,500}\bwebsiteIds\b\s*[,}]/,
-  /publishDomainEvent[\s\S]{0,500}\buserIds\b\s*[,}]/,
-  /publishDomainEvent[\s\S]{0,500}\bexcludedWebsiteIds\b/,
-  /publishDomainEvent[\s\S]{0,500}\bexcludedUserIds\b/,
-]) {
-  assert.doesNotMatch(router, forbidden, `Feature flag events expose forbidden targeting metadata: ${forbidden}`)
+if (failures.length) {
+  console.error('Feature flag real-time event check failed:')
+  failures.forEach(failure => console.error(`- ${failure}`))
+  process.exit(1)
 }
 
 console.log('Feature flag real-time event checks passed')
