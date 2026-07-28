@@ -29,6 +29,7 @@ async function mutate(operation) {
   const current = previous.catch(() => {}).then(async () => {
     const registry = structuredClone(await readRegistry())
     const result = await operation(registry)
+    if (result?.__skipWrite === true) return result.value
     registry.updatedAt = nowIso()
     await writeJson(REGISTRY, registry)
     return result === undefined ? registry : result
@@ -89,6 +90,16 @@ async function verifyManifest(folder, manifest) {
     } catch (error) { errors.push({ path: entry.path, error: error.code === 'ENOENT' ? 'Missing file' : error.message }) }
   }
   return { valid: errors.length === 0, checkedFiles: manifest.files?.length || 0, errors }
+}
+function normaliseBackupSettings(input = {}, existing = {}) {
+  const number = (key, min, max) => Math.min(max, Math.max(min, Number(input[key] ?? existing[key] ?? DEFAULTS[key])))
+  return {
+    enabled: input.enabled === undefined ? existing.enabled !== false : input.enabled === true,
+    intervalMs: number('intervalMs', 60 * 60_000, 365 * 86_400_000),
+    retentionDays: number('retentionDays', 1, 3650),
+    maximumBackups: number('maximumBackups', 1, 365),
+    includeAssets: input.includeAssets === undefined ? existing.includeAssets !== false : input.includeAssets === true,
+  }
 }
 
 export async function createBackup(input = {}) {
@@ -181,13 +192,21 @@ export async function restoreBackup(idValue, options = {}) {
 }
 export async function deleteBackup(idValue) {
   const id = safeName(idValue)
+  const registry = await readRegistry()
+  if (!registry.backups.some(item => item.id === id)) return { deleted: false, id }
   await fs.rm(backupFolder(id), { recursive: true, force: true })
-  return mutate(registry => { const existed = registry.backups.some(item => item.id === id); registry.backups = registry.backups.filter(item => item.id !== id); return { deleted: existed, id } })
+  return mutate(current => {
+    const existed = current.backups.some(item => item.id === id)
+    if (!existed) return { __skipWrite: true, value: { deleted: false, id } }
+    current.backups = current.backups.filter(item => item.id !== id)
+    return { deleted: true, id }
+  })
 }
 export async function updateBackupSettings(input = {}) {
   return mutate(registry => {
-    const number = (key, min, max) => Math.min(max, Math.max(min, Number(input[key] ?? registry.settings[key] ?? DEFAULTS[key])))
-    registry.settings = { enabled: input.enabled === undefined ? registry.settings.enabled !== false : input.enabled === true, intervalMs: number('intervalMs', 60 * 60_000, 365 * 86_400_000), retentionDays: number('retentionDays', 1, 3650), maximumBackups: number('maximumBackups', 1, 365), includeAssets: input.includeAssets === undefined ? registry.settings.includeAssets !== false : input.includeAssets === true }
+    const settings = normaliseBackupSettings(input, registry.settings)
+    if (JSON.stringify(settings) === JSON.stringify(registry.settings)) return { __skipWrite: true, value: registry.settings }
+    registry.settings = settings
     return registry.settings
   })
 }
@@ -196,6 +215,7 @@ export async function pruneBackups() {
   const cutoff = Date.now() - registry.settings.retentionDays * 86_400_000
   const keep = registry.backups.filter((item, index) => index < registry.settings.maximumBackups && new Date(item.createdAt).getTime() >= cutoff)
   const remove = registry.backups.filter(item => !keep.some(kept => kept.id === item.id))
+  if (!remove.length) return { removed: 0, remaining: keep.length }
   for (const item of remove) await fs.rm(backupFolder(item.id), { recursive: true, force: true })
   await mutate(current => { current.backups = current.backups.filter(item => keep.some(kept => kept.id === item.id)) })
   return { removed: remove.length, remaining: keep.length }
