@@ -1,11 +1,71 @@
-import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import path from 'node:path'
 
-const root = process.cwd()
-const router = await fs.readFile(path.join(root, 'server/serviceAccountRouter.js'), 'utf8')
+const router = await fs.readFile(new URL('../server/serviceAccountRouter.js', import.meta.url), 'utf8')
+const failures = []
 
-assert.match(router, /realtimeDomainEventService\.js/, 'Service account router must import the real-time domain publisher')
+for (const token of [
+  "publishServiceAccountRealtimeEvent('service-account.updated'",
+  "publishServiceAccountRealtimeEvent('service-account.disabled'",
+  "publishServiceAccountRealtimeEvent('service-account.key-issued'",
+  "publishServiceAccountRealtimeEvent('service-account.key-rotated'",
+  "publishServiceAccountRealtimeEvent('service-account.key-revoked'",
+  'accountCount:',
+  'enabledAccountCount:',
+  'keyCount:',
+  'activeKeyCount:',
+  'metadataFieldCount:',
+  'scopeCount:',
+  'hasExpiry:',
+  'hasRateLimit:',
+  'rotated:',
+  'revoked:',
+]) {
+  if (!router.includes(token)) failures.push(`Missing service account realtime marker: ${token}`)
+}
+
+const payloadStart = router.indexOf('function serviceAccountRegistryPayload(')
+const payloadEnd = router.indexOf('\n}\n\nasync function publishServiceAccountRealtimeEvent', payloadStart)
+const payloadSource = payloadStart >= 0 && payloadEnd > payloadStart ? router.slice(payloadStart, payloadEnd) : ''
+
+for (const forbidden of [
+  'accountId:', 'keyId:', 'rotatedFromKeyId:', 'actorAccountId:', 'token:', 'secretHash:', 'salt:',
+  'scopes:', 'expiresAt:', 'reason:', 'metadata:', 'actor:', 'session', 'email:', 'role:',
+  'createdAt:', 'updatedAt:', 'revokedAt:', 'req.body', 'req.params', '...account', '...key',
+]) {
+  if (payloadSource.includes(forbidden)) failures.push(`Service account event payload exposes forbidden data: ${forbidden}`)
+}
+
+if (!router.includes("async function publishServiceAccountRealtimeEvent(topic, payload) {\n  await publishDomainEvent(topic, payload)\n}")) {
+  failures.push('Service account events must publish aggregate payloads without actor-derived metadata')
+}
+
+const updateGuard = router.indexOf('if (!accountPatchChanges(existing, input)) return res.json(existing)')
+const updateMutation = router.indexOf('const account = await upsertServiceAccount(')
+const updatePublish = router.indexOf("await publishServiceAccountRealtimeEvent('service-account.updated'")
+if (updateGuard < 0 || updateMutation < updateGuard || updatePublish < updateMutation) {
+  failures.push('Unchanged service accounts must return before persistence and publication')
+}
+
+const disableGuard = router.indexOf('if (existing.enabled === false) return res.json(existing)')
+const disableMutation = router.indexOf('const account = await disableServiceAccount(')
+const disablePublish = router.indexOf("await publishServiceAccountRealtimeEvent('service-account.disabled'")
+if (disableGuard < 0 || disableMutation < disableGuard || disablePublish < disableMutation) {
+  failures.push('Already-disabled service accounts must return before persistence and publication')
+}
+
+const rotateGuard = router.indexOf("if (existing.status !== 'active') return res.status(409).json({ error: 'Only active API keys can be rotated' })")
+const rotateMutation = router.indexOf('const rotated = await rotateApiKey(')
+const rotatePublish = router.indexOf("await publishServiceAccountRealtimeEvent('service-account.key-rotated'")
+if (rotateGuard < 0 || rotateMutation < rotateGuard || rotatePublish < rotateMutation) {
+  failures.push('Non-active API keys must not be rotated or published')
+}
+
+const revokeGuard = router.indexOf("if (existing.status === 'revoked') return res.json(existing)")
+const revokeMutation = router.indexOf('const key = await revokeApiKey(')
+const revokePublish = router.indexOf("await publishServiceAccountRealtimeEvent('service-account.key-revoked'")
+if (revokeGuard < 0 || revokeMutation < revokeGuard || revokePublish < revokeMutation) {
+  failures.push('Already-revoked API keys must return before persistence and publication')
+}
 
 for (const topic of [
   'service-account.updated',
@@ -14,23 +74,13 @@ for (const topic of [
   'service-account.key-rotated',
   'service-account.key-revoked',
 ]) {
-  assert.ok(router.includes(`'${topic}'`), `Missing service account real-time topic: ${topic}`)
+  if (router.includes(`publishDomainEvent('${topic}'`)) failures.push(`Service account topic must be owned by the canonical service account publisher: ${topic}`)
 }
 
-assert.match(router, /actorAccountId:\s*currentActor\.id/, 'Service account events must identify the authenticated account')
-assert.match(router, /role:\s*req\.session\?\.role/, 'Service account event actors must include the authenticated role')
-assert.match(router, /scopeCount:\s*issued\.key\.scopes\.length/, 'Issued key events must publish scope counts only')
-assert.match(router, /metadataKeyCount:\s*Object\.keys\(account\.metadata \|\| \{\}\)\.length/, 'Service account events must reduce metadata to a count')
-
-for (const forbidden of [
-  /publishDomainEvent[\s\S]{0,600}\btoken\b/,
-  /publishDomainEvent[\s\S]{0,600}\bsecretHash\b/,
-  /publishDomainEvent[\s\S]{0,600}\bsalt\b/,
-  /publishDomainEvent[\s\S]{0,600}\bscopes\b\s*[,}]/,
-  /publishDomainEvent[\s\S]{0,600}\breason\b\s*[,}]/,
-  /publishDomainEvent[\s\S]{0,600}\bmetadata\b\s*[,}]/,
-]) {
-  assert.doesNotMatch(router, forbidden, `Service account events expose forbidden credential metadata: ${forbidden}`)
+if (failures.length) {
+  console.error('Service account real-time event check failed:')
+  failures.forEach(failure => console.error(`- ${failure}`))
+  process.exit(1)
 }
 
 console.log('Service account real-time event checks passed')
