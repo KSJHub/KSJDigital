@@ -47,6 +47,7 @@ async function mutate(operation) {
   const current = previous.catch(() => {}).then(async () => {
     const registry = structuredClone(await readRegistry())
     const result = await operation(registry)
+    if (result?.__skipWrite === true) return result.value
     registry.version += 1
     registry.updatedAt = nowIso()
     registry.purgeHistory = registry.purgeHistory.slice(0, 10000)
@@ -134,7 +135,13 @@ export async function upsertRetentionPolicy(input = {}, actor = null) {
 }
 export async function deleteRetentionPolicy(value, actor = null) {
   const id = idValue(value, 'Retention policy ID')
-  return mutate(registry => { const existed = registry.policies.some(item => item.id === id); registry.policies = registry.policies.filter(item => item.id !== id); registry.history.unshift({ id: crypto.randomUUID(), action: 'retention-policy.deleted', policyId: id, actor, createdAt: nowIso() }); return { deleted: existed, id } })
+  return mutate(registry => {
+    const existed = registry.policies.some(item => item.id === id)
+    if (!existed) return { __skipWrite: true, value: { deleted: false, id } }
+    registry.policies = registry.policies.filter(item => item.id !== id)
+    registry.history.unshift({ id: crypto.randomUUID(), action: 'retention-policy.deleted', policyId: id, actor, createdAt: nowIso() })
+    return { deleted: true, id }
+  })
 }
 export async function upsertLegalHold(input = {}, actor = null) {
   const id = idValue(input.id, 'Legal hold ID')
@@ -158,7 +165,13 @@ export async function upsertLegalHold(input = {}, actor = null) {
 }
 export async function deleteLegalHold(value, actor = null) {
   const id = idValue(value, 'Legal hold ID')
-  return mutate(registry => { const existed = registry.legalHolds.some(item => item.id === id); registry.legalHolds = registry.legalHolds.filter(item => item.id !== id); registry.history.unshift({ id: crypto.randomUUID(), action: 'legal-hold.deleted', legalHoldId: id, actor, createdAt: nowIso() }); return { deleted: existed, id } })
+  return mutate(registry => {
+    const existed = registry.legalHolds.some(item => item.id === id)
+    if (!existed) return { __skipWrite: true, value: { deleted: false, id } }
+    registry.legalHolds = registry.legalHolds.filter(item => item.id !== id)
+    registry.history.unshift({ id: crypto.randomUUID(), action: 'legal-hold.deleted', legalHoldId: id, actor, createdAt: nowIso() })
+    return { deleted: true, id }
+  })
 }
 export async function previewRetentionPolicy(value) {
   const id = idValue(value, 'Retention policy ID')
@@ -176,6 +189,7 @@ export async function executeRetentionPolicy(value, actor = null) {
   if (!policy) throw new RetentionComplianceError('Retention policy not found', 404)
   if (!policy.enabled) throw new RetentionComplianceError('Retention policy is disabled', 409)
   const inspection = await inspectPolicy(policy, registry)
+  if (!inspection.candidates.length) return { noop: true, purgedCount: 0, heldCount: inspection.held.length }
   const indexes = new Set(inspection.candidates.map(item => item.index))
   const retained = inspection.data.filter((_, index) => !indexes.has(index))
   await writeJson(inspection.file, retained)
@@ -195,8 +209,10 @@ export async function runRetentionCycle(options = {}) {
   const registry = await readRegistry()
   const results = []
   for (const policy of registry.policies.filter(item => item.enabled && item.websiteId !== '*')) {
-    try { results.push(await executeRetentionPolicy(policy.id, options.actor || { id: 'retention-scheduler' })) }
-    catch (error) {
+    try {
+      const result = await executeRetentionPolicy(policy.id, options.actor || { id: 'retention-scheduler' })
+      if (result.noop !== true) results.push(result)
+    } catch (error) {
       await mutate(current => { current.statistics.failures += 1; current.history.unshift({ id: crypto.randomUUID(), action: 'retention-policy.failed', policyId: policy.id, error: String(error?.message || error).slice(0, 2000), createdAt: nowIso() }) })
     }
   }
