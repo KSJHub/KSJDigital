@@ -31,6 +31,7 @@ async function mutate(operation) {
   const current = previous.catch(() => {}).then(async () => {
     const registry = structuredClone(await readRegistry())
     const result = await operation(registry)
+    if (result?.__skipWrite === true) return result.value
     registry.version += 1
     registry.updatedAt = nowIso()
     registry.history = registry.history.slice(0, MAX_HISTORY)
@@ -109,7 +110,13 @@ export async function upsertCachePolicy(input = {}, actor = null) {
 }
 export async function deleteCachePolicy(idValue, actor = null) {
   const id = safeName(idValue)
-  return mutate(registry => { const existed = registry.policies.some(item => item.id === id); registry.policies = registry.policies.filter(item => item.id !== id); registry.history.unshift({ id: crypto.randomUUID(), action: 'cache-policy.deleted', policyId: id, actor, createdAt: nowIso() }); return { deleted: existed, id } })
+  return mutate(registry => {
+    const existed = registry.policies.some(item => item.id === id)
+    if (!existed) return { __skipWrite: true, value: { deleted: false, id } }
+    registry.policies = registry.policies.filter(item => item.id !== id)
+    registry.history.unshift({ id: crypto.randomUUID(), action: 'cache-policy.deleted', policyId: id, actor, createdAt: nowIso() })
+    return { deleted: true, id }
+  })
 }
 export async function setCacheEntry(ns, key, value, options = {}) {
   const parts = keyParts(ns, key)
@@ -141,8 +148,14 @@ export async function invalidateCache(input = {}, actor = null) {
   const tags = new Set(normaliseTags(input.tags))
   const ns = input.namespace ? namespace(input.namespace) : null
   const ids = Object.values(registry.entries).filter(entry => (!ns || entry.namespace === ns) && (!tags.size || entry.tags.some(tag => tags.has(tag)))).map(entry => entry.id)
+  if (!ids.length) return { invalidated: 0 }
   for (const id of ids) await deleteValue(registry.entries[id])
-  return mutate(current => { for (const id of ids) delete current.entries[id]; current.statistics.invalidations += ids.length; current.history.unshift({ id: crypto.randomUUID(), action: 'cache.invalidated', namespace: ns, tags: [...tags], count: ids.length, actor, createdAt: nowIso() }); return { invalidated: ids.length } })
+  return mutate(current => {
+    for (const id of ids) delete current.entries[id]
+    current.statistics.invalidations += ids.length
+    current.history.unshift({ id: crypto.randomUUID(), action: 'cache.invalidated', namespace: ns, tags: [...tags], count: ids.length, actor, createdAt: nowIso() })
+    return { invalidated: ids.length }
+  })
 }
 export async function clearCache(actor = null) { return invalidateCache({}, actor) }
 
