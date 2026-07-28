@@ -1,11 +1,59 @@
-import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
-import path from 'node:path'
 
-const root = process.cwd()
-const service = await fs.readFile(path.join(root, 'server/services/serviceAccountService.js'), 'utf8')
+const service = await fs.readFile(new URL('../server/services/serviceAccountService.js', import.meta.url), 'utf8')
+const failures = []
 
-assert.match(service, /realtimeDomainEventService\.js/, 'API key authentication must import the real-time domain publisher')
+for (const token of [
+  "publishApiKeyRealtimeEvent('api-key.authenticated'",
+  "publishApiKeyRealtimeEvent('api-key.authentication-failed'",
+  "topic: 'api-key.expired'",
+  "topic: 'api-key.rate-limit-exceeded'",
+  'authenticated:',
+  'scopeRequired:',
+  'retryable:',
+  'expired:',
+  'rateLimited:',
+  'accountDisabled:',
+  'scopeDenied:',
+  'invalidFormat:',
+]) {
+  if (!service.includes(token)) failures.push(`Missing API key realtime marker: ${token}`)
+}
+
+const payloadStart = service.indexOf('function apiKeyAuthenticationPayload(')
+const payloadEnd = service.indexOf('\n}\n\nasync function publishApiKeyRealtimeEvent', payloadStart)
+const payloadSource = payloadStart >= 0 && payloadEnd > payloadStart ? service.slice(payloadStart, payloadEnd) : ''
+
+for (const forbidden of [
+  'accountId:', 'keyId:', 'method:', 'requiredScope:', 'scope:', 'resource:', 'reason:', 'category:',
+  'token:', 'secret:', 'secretHash:', 'salt:', 'authorization', 'x-api-key', 'originalUrl',
+  'actor:', 'session', 'email:', 'userId:', 'authenticatedAt:', 'occurredAt:', 'createdAt:',
+  'error:', 'error.message', 'req.', '...authenticated', '...failure',
+]) {
+  if (payloadSource.includes(forbidden)) failures.push(`API key event payload exposes forbidden data: ${forbidden}`)
+}
+
+if (!service.includes("async function publishApiKeyRealtimeEvent(topic, payload) {\n  await publishDomainEvent(topic, payload)\n}")) {
+  failures.push('API key events must publish aggregate payloads without actor-derived metadata')
+}
+
+const expiryMutation = service.indexOf("key.status = 'expired'")
+const expiryOutcome = service.indexOf("return { authenticationError: { message: 'API key has expired', status: 401 } }")
+const expiryThrow = service.indexOf('if (outcome?.authenticationError) throw new ServiceAccountError(')
+const expiryPublish = service.indexOf("await publishApiKeyRealtimeEvent(failure.topic")
+if (expiryMutation < 0 || expiryOutcome < expiryMutation || expiryThrow < expiryOutcome || expiryPublish < expiryThrow) {
+  failures.push('API key expiry must persist before the expired realtime event is published')
+}
+
+const successMutation = service.indexOf('registry.usage.unshift(usage)')
+const successPublish = service.indexOf("await publishApiKeyRealtimeEvent('api-key.authenticated'")
+if (successMutation < 0 || successPublish < successMutation) {
+  failures.push('Successful API key usage must persist before authentication publication')
+}
+
+if (!service.includes("if (!key || key.status !== 'active') throw new ServiceAccountError('API key is invalid or revoked', 401)")) {
+  failures.push('Non-active API keys must be rejected before any repeated expiry mutation')
+}
 
 for (const topic of [
   'api-key.authenticated',
@@ -13,58 +61,13 @@ for (const topic of [
   'api-key.expired',
   'api-key.rate-limit-exceeded',
 ]) {
-  assert.ok(service.includes(`'${topic}'`), `Missing API key real-time topic: ${topic}`)
+  if (service.includes(`publishDomainEvent('${topic}'`)) failures.push(`API key topic must be owned by the canonical API key publisher: ${topic}`)
 }
 
-assert.match(service, /accountId:\s*authenticated\.account\.id/, 'Successful authentication events must identify the service account')
-assert.match(service, /keyId:\s*authenticated\.key\.id/, 'Successful authentication events must identify the API key')
-assert.match(service, /requiredScope:\s*requiredScope \|\| null/, 'Authentication events must publish only the required scope')
-assert.match(service, /reason:\s*failure\.reason/, 'Failure events must use bounded reason codes')
-assert.match(service, /retryable:\s*Number\(error\.status\) === 429/, 'Rate-limit events must expose retryability metadata')
-
-function domainEventCalls(code) {
-  const calls = []
-  const marker = 'publishDomainEvent('
-  let start = 0
-  while ((start = code.indexOf(marker, start)) !== -1) {
-    let depth = 0
-    let quote = null
-    let escaped = false
-    let end = start + marker.length
-    for (; end < code.length; end += 1) {
-      const character = code[end]
-      if (quote) {
-        if (escaped) escaped = false
-        else if (character === '\\') escaped = true
-        else if (character === quote) quote = null
-        continue
-      }
-      if (character === "'" || character === '"' || character === '`') { quote = character; continue }
-      if (character === '(') depth += 1
-      else if (character === ')') {
-        if (depth === 0) { end += 1; break }
-        depth -= 1
-      }
-    }
-    calls.push(code.slice(start, end))
-    start = end
-  }
-  return calls
-}
-
-const eventCalls = domainEventCalls(service).join('\n')
-
-for (const forbidden of [
-  /\bsecret\b/,
-  /\bsecretHash\b/,
-  /\bsalt\b/,
-  /\bauthorization\b/,
-  /\bx-api-key\b/,
-  /\boriginalUrl\b/,
-  /\bresource\b/,
-  /\berror\.message\b/,
-]) {
-  assert.doesNotMatch(eventCalls, forbidden, `API key events expose forbidden authentication data: ${forbidden}`)
+if (failures.length) {
+  console.error('API key real-time event check failed:')
+  failures.forEach(failure => console.error(`- ${failure}`))
+  process.exit(1)
 }
 
 console.log('API key real-time event checks passed')
