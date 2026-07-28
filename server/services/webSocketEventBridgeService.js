@@ -1,8 +1,9 @@
-import { registerEventHandler, upsertSubscription } from './eventBusService.js'
+import { getEventBusState, registerEventHandler, upsertSubscription } from './eventBusService.js'
 import { broadcastWebSocketEvent } from './webSocketService.js'
 
 const SUBSCRIPTION_ID = 'websocket-realtime-delivery'
 const HANDLER_NAME = 'websocket.broadcast'
+const SUBSCRIPTION = { id: SUBSCRIPTION_ID, name: 'WebSocket real-time delivery', topicPattern: '**', handler: HANDLER_NAME, enabled: true, retry: { maximumAttempts: 10, baseDelayMs: 500, maximumDelayMs: 30000 }, metadata: { system: true, transport: 'websocket' } }
 let unregisterHandler = null
 let bridgeState = { running: false, startedAt: null, deliveredEvents: 0, deliveredMessages: 0, lastEventAt: null, lastError: null }
 
@@ -24,23 +25,34 @@ function eventChannels(event) {
   return [...channels]
 }
 
+function aggregateRealtimePayload(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const result = {}
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item === 'boolean' || (typeof item === 'number' && Number.isFinite(item))) result[key] = item
+    else if (Array.isArray(item) && item.every(entry => typeof entry === 'boolean' || (typeof entry === 'number' && Number.isFinite(entry)))) result[key] = [...item]
+  }
+  return result
+}
+
+function subscriptionMatches(existing) {
+  return existing
+    && existing.name === SUBSCRIPTION.name
+    && existing.topicPattern === SUBSCRIPTION.topicPattern
+    && existing.handler === SUBSCRIPTION.handler
+    && existing.enabled !== false
+    && JSON.stringify(existing.retry || {}) === JSON.stringify(SUBSCRIPTION.retry)
+    && JSON.stringify(existing.metadata || {}) === JSON.stringify(SUBSCRIPTION.metadata)
+}
+
 async function deliverEvent(event) {
   try {
     let delivered = 0
-    for (const channel of eventChannels(event)) {
-      delivered += broadcastWebSocketEvent(channel, event.topic, {
-        eventId: event.id,
-        payload: event.payload,
-        headers: event.headers,
-        correlationId: event.correlationId,
-        causationId: event.causationId,
-        source: event.source,
-        publishedAt: event.publishedAt,
-      }).delivered
-    }
+    const payload = aggregateRealtimePayload(event?.payload)
+    for (const channel of eventChannels(event)) delivered += broadcastWebSocketEvent(channel, event.topic, payload).delivered
     bridgeState = { ...bridgeState, deliveredEvents: bridgeState.deliveredEvents + 1, deliveredMessages: bridgeState.deliveredMessages + delivered, lastEventAt: nowIso(), lastError: null }
   } catch (error) {
-    bridgeState = { ...bridgeState, lastError: String(error?.message || error), lastEventAt: nowIso() }
+    bridgeState = { ...bridgeState, lastError: 'delivery-failed', lastEventAt: nowIso() }
     throw error
   }
 }
@@ -48,17 +60,20 @@ async function deliverEvent(event) {
 export async function startWebSocketEventBridge() {
   if (bridgeState.running) return getWebSocketEventBridgeState()
   unregisterHandler = registerEventHandler(HANDLER_NAME, deliverEvent)
-  await upsertSubscription({ id: SUBSCRIPTION_ID, name: 'WebSocket real-time delivery', topicPattern: '**', handler: HANDLER_NAME, enabled: true, retry: { maximumAttempts: 10, baseDelayMs: 500, maximumDelayMs: 30000 }, metadata: { system: true, transport: 'websocket' } }, { type: 'system', id: 'websocket-event-bridge' })
+  const state = await getEventBusState({ limit: 1 })
+  const existing = state.subscriptions.find(item => item.id === SUBSCRIPTION_ID)
+  if (!subscriptionMatches(existing)) await upsertSubscription(SUBSCRIPTION, null)
   bridgeState = { running: true, startedAt: nowIso(), deliveredEvents: 0, deliveredMessages: 0, lastEventAt: null, lastError: null }
   return getWebSocketEventBridgeState()
 }
 
 export function stopWebSocketEventBridge() {
+  if (!bridgeState.running) return getWebSocketEventBridgeState()
   if (unregisterHandler) unregisterHandler()
   unregisterHandler = null
   bridgeState = { ...bridgeState, running: false }
   return getWebSocketEventBridgeState()
 }
 
-export function getWebSocketEventBridgeState() { return { ...bridgeState, subscriptionId: SUBSCRIPTION_ID, handlerName: HANDLER_NAME } }
-export { eventChannels as resolveWebSocketEventChannels }
+export function getWebSocketEventBridgeState() { return { ...bridgeState, subscriptionConfigured: true, handlerRegistered: Boolean(unregisterHandler) } }
+export { aggregateRealtimePayload, eventChannels as resolveWebSocketEventChannels }
