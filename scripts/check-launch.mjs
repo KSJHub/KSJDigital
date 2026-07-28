@@ -31,11 +31,6 @@ function readJson(file, fallback) {
   }
 }
 
-function writeJson(file, value) {
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
-}
-
 function present(value) {
   return Boolean(String(value || '').trim())
 }
@@ -88,11 +83,11 @@ function uniquePrefix(base, used) {
   return `${normalised.slice(0, 3)}999`
 }
 
-function repairOrderPrefixes(websitesFile, websites) {
+function assessOrderPrefixes(websites) {
   const active = websites.filter(website => ACTIVE_WEBSITE_IDS.has(String(website.id || '').toLowerCase()))
   const used = new Set(active.map(website => normalisePrefix(website.orderPrefix)).filter(Boolean))
   let changed = active.length !== websites.length
-  const repaired = active.map(website => {
+  const assessed = active.map(website => {
     const existing = normalisePrefix(website.orderPrefix)
     if (existing) return { ...website, orderPrefix: existing }
     const orderPrefix = uniquePrefix(suggestedPrefix(website), used)
@@ -101,8 +96,7 @@ function repairOrderPrefixes(websitesFile, websites) {
     return { ...website, orderPrefix }
   })
 
-  if (changed) writeJson(websitesFile, repaired)
-  return { websites: repaired, changed }
+  return { websites: assessed, changed }
 }
 
 function line(status, label, detail = '') {
@@ -115,8 +109,8 @@ loadEnvironmentFile('.env.local')
 
 const websitesFile = path.join(dataDir, 'websites.json')
 const storedWebsites = readJson(websitesFile, [])
-const repaired = repairOrderPrefixes(websitesFile, storedWebsites)
-const websites = repaired.websites
+const assessed = assessOrderPrefixes(storedWebsites)
+const websites = assessed.websites
 const clients = readJson(path.join(dataDir, 'clients.json'), [])
 const settingsDir = path.join(dataDir, 'commerce-settings')
 const contentDir = path.join(dataDir, 'content')
@@ -146,7 +140,7 @@ for (const [key, label] of [
   else warn(label, 'blank; development fallback remains active')
 }
 
-if (repaired.changed) pass('Active-site migration', 'inactive website records were removed and prefixes repaired')
+if (assessed.changed) warn('Stored website records', 'cleanup or order-prefix normalisation is recommended; readiness checks do not modify stored data')
 if (!websites.length) warn('Websites', 'no active website records found yet')
 
 for (const website of websites) {
