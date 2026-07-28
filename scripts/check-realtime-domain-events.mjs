@@ -51,6 +51,20 @@ const realtimeChecks = [
   ['check:migration-realtime', 'scripts/check-migration-realtime-events.mjs'],
 ]
 
+const EXPECTED_REALTIME_VALIDATOR_COUNT = 44
+if (realtimeChecks.length !== EXPECTED_REALTIME_VALIDATOR_COUNT) {
+  throw new Error(`Realtime validator inventory must contain exactly ${EXPECTED_REALTIME_VALIDATOR_COUNT} modules (found ${realtimeChecks.length})`)
+}
+
+const scriptNames = realtimeChecks.map(([scriptName]) => scriptName)
+const validatorFiles = realtimeChecks.map(([, validatorFile]) => validatorFile)
+if (new Set(scriptNames).size !== realtimeChecks.length) {
+  throw new Error('Realtime validator inventory contains duplicate npm script registrations')
+}
+if (new Set(validatorFiles).size !== realtimeChecks.length) {
+  throw new Error('Realtime validator inventory contains duplicate validator files')
+}
+
 for (const [scriptName, validatorFile] of realtimeChecks) {
   const expectedCommand = `node ${validatorFile}`
   if (scripts[scriptName] !== expectedCommand) {
