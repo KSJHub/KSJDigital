@@ -100,12 +100,29 @@ function parsePresentedKey(value) {
 }
 function authenticationFailure(error) {
   const message = String(error?.message || '')
-  if (message === 'API key has expired') return { topic: 'api-key.expired', reason: 'expired' }
-  if (message === 'API key rate limit exceeded') return { topic: 'api-key.rate-limit-exceeded', reason: 'rate-limit-exceeded' }
-  if (message === 'Service account is disabled') return { topic: 'api-key.authentication-failed', reason: 'account-disabled' }
-  if (message === 'API key does not grant the required scope') return { topic: 'api-key.authentication-failed', reason: 'scope-denied' }
-  if (message === 'API key format is invalid') return { topic: 'api-key.authentication-failed', reason: 'invalid-format' }
-  return { topic: 'api-key.authentication-failed', reason: 'invalid-credentials' }
+  if (message === 'API key has expired') return { topic: 'api-key.expired', category: 'expired' }
+  if (message === 'API key rate limit exceeded') return { topic: 'api-key.rate-limit-exceeded', category: 'rate-limited' }
+  if (message === 'Service account is disabled') return { topic: 'api-key.authentication-failed', category: 'account-disabled' }
+  if (message === 'API key does not grant the required scope') return { topic: 'api-key.authentication-failed', category: 'scope-denied' }
+  if (message === 'API key format is invalid') return { topic: 'api-key.authentication-failed', category: 'invalid-format' }
+  return { topic: 'api-key.authentication-failed', category: 'invalid-credentials' }
+}
+
+function apiKeyAuthenticationPayload(details = {}) {
+  return {
+    authenticated: details.authenticated === true,
+    scopeRequired: details.scopeRequired === true,
+    retryable: details.retryable === true,
+    expired: details.category === 'expired',
+    rateLimited: details.category === 'rate-limited',
+    accountDisabled: details.category === 'account-disabled',
+    scopeDenied: details.category === 'scope-denied',
+    invalidFormat: details.category === 'invalid-format',
+  }
+}
+
+async function publishApiKeyRealtimeEvent(topic, payload) {
+  await publishDomainEvent(topic, payload)
 }
 
 export async function getServiceAccountState(query = {}) {
@@ -201,10 +218,14 @@ export async function revokeApiKey(keyIdValue, actor = null, reason = 'revoked')
 
 export async function authenticateApiKey(presentedValue, options = {}) {
   const { keyId, secret } = parsePresentedKey(presentedValue)
-  return mutate(async registry => {
+  const outcome = await mutate(async registry => {
     const key = registry.keys.find(item => item.id === keyId)
     if (!key || key.status !== 'active') throw new ServiceAccountError('API key is invalid or revoked', 401)
-    if (new Date(key.expiresAt).getTime() <= Date.now()) { key.status = 'expired'; throw new ServiceAccountError('API key has expired', 401) }
+    if (new Date(key.expiresAt).getTime() <= Date.now()) {
+      key.status = 'expired'
+      registry.history.unshift({ id: crypto.randomUUID(), action: 'api-key.expired', accountId: key.accountId, keyId: key.id, createdAt: nowIso() })
+      return { authenticationError: { message: 'API key has expired', status: 401 } }
+    }
     const account = registry.accounts.find(item => item.id === key.accountId)
     if (!account || !account.enabled) throw new ServiceAccountError('Service account is disabled', 403)
     if (!await matchesSecret(secret, key)) throw new ServiceAccountError('API key is invalid', 401)
@@ -217,6 +238,8 @@ export async function authenticateApiKey(presentedValue, options = {}) {
     registry.usage.unshift(usage)
     return { account: structuredClone(account), key: publicKey(key), usage }
   })
+  if (outcome?.authenticationError) throw new ServiceAccountError(outcome.authenticationError.message, outcome.authenticationError.status)
+  return outcome
 }
 
 export function createApiKeyAuthMiddleware(requiredScope = null) {
@@ -225,25 +248,11 @@ export function createApiKeyAuthMiddleware(requiredScope = null) {
       const authenticated = await authenticateApiKey(req.get('authorization') || req.get('x-api-key'), { scope: requiredScope, resource: req.originalUrl })
       req.serviceAccount = authenticated.account
       req.apiKey = authenticated.key
-      await publishDomainEvent('api-key.authenticated', {
-        accountId: authenticated.account.id,
-        keyId: authenticated.key.id,
-        method: req.method,
-        requiredScope: requiredScope || null,
-        status: 'authenticated',
-        authenticatedAt: authenticated.usage.createdAt,
-      }, { id: authenticated.account.id, type: 'service-account' })
+      await publishApiKeyRealtimeEvent('api-key.authenticated', apiKeyAuthenticationPayload({ authenticated: true, scopeRequired: Boolean(requiredScope) }))
       next()
     } catch (error) {
       const failure = authenticationFailure(error)
-      await publishDomainEvent(failure.topic, {
-        method: req.method,
-        requiredScope: requiredScope || null,
-        status: Number(error.status) || 401,
-        reason: failure.reason,
-        retryable: Number(error.status) === 429,
-        occurredAt: nowIso(),
-      }, { type: 'service-account' })
+      await publishApiKeyRealtimeEvent(failure.topic, apiKeyAuthenticationPayload({ category: failure.category, scopeRequired: Boolean(requiredScope), retryable: Number(error.status) === 429 }))
       res.status(Number(error.status) || 401).json({ error: error.message || 'API key authentication failed', ...(error.details ? { details: error.details } : {}) })
     }
   }
