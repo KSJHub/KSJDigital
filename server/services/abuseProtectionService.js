@@ -26,6 +26,7 @@ async function mutate(operation) {
   const current = previous.catch(() => {}).then(async () => {
     const registry = structuredClone(await readRegistry())
     const result = await operation(registry)
+    if (result?.__skipWrite === true) return result.value
     registry.version += 1; registry.updatedAt = nowIso(); registry.history = registry.history.slice(0, MAX_HISTORY)
     registry.blocks = registry.blocks.filter(item => !item.expiresAt || new Date(item.expiresAt).getTime() > Date.now()).slice(0, MAX_HISTORY)
     const stale = Date.now() - 7 * 86_400_000
@@ -77,6 +78,20 @@ function overrideMatches(item, subject, id) { return item.subjectType === subjec
 function blockMatches(item, subject, id) { return item.subjectType === subject.type && item.subjectId === subject.id && (!item.policyId || item.policyId === id) && (!item.expiresAt || new Date(item.expiresAt).getTime() > Date.now()) }
 function subjectHash(subject) { return crypto.createHash('sha256').update(`${subject.type}:${subject.id}`).digest('hex') }
 
+function blockedRequestRealtimePayload(decision = {}) {
+  return {
+    blocked: decision.allowed === false,
+    retryable: Number(decision.retryAfterMs) > 0,
+    temporary: Number(decision.retryAfterMs) > 0,
+    rateLimited: decision.reason === 'rate-limit-exceeded' || decision.reason === 'temporarily-blocked',
+    overrideApplied: decision.reason === 'block-override',
+    statusCode: Number(decision.status) || 429,
+  }
+}
+async function publishAbuseEnforcementRealtimeEvent(topic, payload) {
+  await publishDomainEvent(topic, payload)
+}
+
 export async function getAbuseProtectionState(query = {}) {
   const registry = await readRegistry(); const limit = Math.min(1000, Math.max(1, Number(query.limit || 200)))
   return { ...registry, counters: undefined, blocks: registry.blocks.slice(0, limit), history: registry.history.slice(0, limit), activeCounterCount: Object.keys(registry.counters).length }
@@ -92,7 +107,7 @@ export async function upsertAbusePolicy(input = {}, actor = null) {
 }
 export async function deleteAbusePolicy(value, actor = null) {
   const id = policyId(value); if (id === 'global') throw new AbuseProtectionError('The global abuse policy cannot be deleted', 409)
-  return mutate(registry => { const existed = registry.policies.some(item => item.id === id); registry.policies = registry.policies.filter(item => item.id !== id); registry.history.unshift({ id: crypto.randomUUID(), action: 'abuse-policy.deleted', policyId: id, actor, createdAt: nowIso() }); return { deleted: existed, id } })
+  return mutate(registry => { const existed = registry.policies.some(item => item.id === id); registry.policies = registry.policies.filter(item => item.id !== id); if (existed) registry.history.unshift({ id: crypto.randomUUID(), action: 'abuse-policy.deleted', policyId: id, actor, createdAt: nowIso() }); return { deleted: existed, id } })
 }
 export async function updateTrustedProxies(values = [], actor = null) {
   const proxies = [...new Set((Array.isArray(values) ? values : []).map(item => stripMappedAddress(item.trim())).filter(item => net.isIP(item)))]
@@ -108,12 +123,13 @@ export async function setAbuseOverride(input = {}, actor = null) {
 }
 export async function removeAbuseOverride(value, actor = null) {
   const id = text(value, 'Override ID', 100)
-  return mutate(registry => { const existed = registry.overrides.some(item => item.id === id); registry.overrides = registry.overrides.filter(item => item.id !== id); registry.history.unshift({ id: crypto.randomUUID(), action: 'abuse-override.removed', overrideId: id, actor, createdAt: nowIso() }); return { removed: existed, id } })
+  return mutate(registry => { const existed = registry.overrides.some(item => item.id === id); registry.overrides = registry.overrides.filter(item => item.id !== id); if (existed) registry.history.unshift({ id: crypto.randomUUID(), action: 'abuse-override.removed', overrideId: id, actor, createdAt: nowIso() }); return { removed: existed, id } })
 }
 export async function evaluateAbuseRequest(context = {}) {
   const route = text(context.route || '/', 'Request route', 2000); const method = String(context.method || 'GET').toUpperCase()
   return mutate(registry => {
     const policies = registry.policies.filter(policy => policyMatches(policy, route, method)); const requestSubjects = subjects(context); const now = Date.now(); const decisions = []
+    if (!policies.length || !requestSubjects.length) return { __skipWrite: true, value: { allowed: true, reason: policies.length ? 'no-subject' : 'no-policy', decisions: [] } }
     for (const policy of policies) {
       for (const subject of requestSubjects.filter(item => policy.subjectTypes.includes(item.type))) {
         const override = registry.overrides.find(item => overrideMatches(item, subject, policy.id))
@@ -135,7 +151,7 @@ export async function evaluateAbuseRequest(context = {}) {
         decisions.push({ policyId: policy.id, subjectType: subject.type, allowed: true, limit: policy.maximum, remaining: Math.max(0, policy.maximum - timestamps.length), resetAt })
       }
     }
-    return { allowed: true, reason: policies.length ? 'within-limits' : 'no-policy', decisions }
+    return { allowed: true, reason: 'within-limits', decisions }
   })
 }
 export function createAbuseProtectionMiddleware() {
@@ -148,13 +164,7 @@ export function createAbuseProtectionMiddleware() {
       if (!decision.allowed) {
         res.set('Retry-After', String(Math.max(1, Math.ceil((decision.retryAfterMs || 1000) / 1000))))
         await writeStructuredLog('warn', 'Request blocked by abuse protection', { route: req.path, method: req.method, policyId: decision.policyId, subjectType: decision.subjectType })
-        await publishDomainEvent('abuse-protection.request-blocked', {
-          policyId: decision.policyId,
-          subjectType: decision.subjectType,
-          method: req.method,
-          reason: decision.reason,
-          retryAfterMs: decision.retryAfterMs,
-        })
+        await publishAbuseEnforcementRealtimeEvent('abuse-protection.request-blocked', blockedRequestRealtimePayload(decision))
         return res.status(decision.status || 429).json({ error: 'Too many requests', reason: decision.reason, retryAfterMs: decision.retryAfterMs })
       }
       req.abuseProtection = decision; next()
