@@ -24,6 +24,11 @@ function releaseTokenHash(token = '') {
   return crypto.createHash('sha256').update(String(token)).digest('hex')
 }
 
+function reservationCapability(value = '') {
+  const [id = '', releaseToken = ''] = String(value).split('.', 2)
+  return { id, releaseToken }
+}
+
 function validReleaseToken(record, token) {
   if (!record?.releaseTokenHash || !token) return false
   const expected = Buffer.from(record.releaseTokenHash, 'hex')
@@ -93,28 +98,32 @@ export async function reserveProductStock({ websiteId, product, quantity, varian
       activeReservationCount: active.length,
       expiresWithinMinutes: Math.round(RESERVATION_MS / 60000),
     })
-    const { releaseTokenHash: _releaseTokenHash, ...response } = reservation
-    return { ...response, releaseToken }
+    const response = { ...reservation }
+    delete response.releaseTokenHash
+    response.id = `${reservation.id}.${releaseToken}`
+    return response
   })
 }
 
 export async function getActiveStockReservation(reservationId) {
-  if (!reservationId) return null
+  const { id } = reservationCapability(reservationId)
+  if (!id) return null
   return serialise(async () => {
     await restoreExpiredLocked()
     const records = await readReservations()
-    return records.find(record => record.id === reservationId && record.status === 'reserved') || null
+    return records.find(record => record.id === id && record.status === 'reserved') || null
   })
 }
 
 export async function consumeStockReservation(reservationId) {
-  if (!reservationId) return false
+  const { id } = reservationCapability(reservationId)
+  if (!id) return false
   return serialise(async () => {
     await restoreExpiredLocked()
     const records = await readReservations()
-    const record = records.find(item => item.id === reservationId)
+    const record = records.find(item => item.id === id)
     if (!record) return false
-    const active = records.filter(item => item.id !== reservationId)
+    const active = records.filter(item => item.id !== id)
     await writeJson(paths.stockReservations(), active)
     await publishReservationEvent('inventory.reservation-consumed', {
       quantity: Math.max(1, Number(record.quantity || 1)),
@@ -126,13 +135,14 @@ export async function consumeStockReservation(reservationId) {
 }
 
 async function releaseReservationLocked(reservationId, releaseToken = null, requireToken = false) {
+  const { id } = reservationCapability(reservationId)
   const records = await readReservations()
-  const record = records.find(item => item.id === reservationId)
+  const record = records.find(item => item.id === id)
   if (!record) return false
   if (requireToken && !validReleaseToken(record, releaseToken)) return false
 
   await restoreProductStock(record.websiteId, record.productId, record.quantity, record.variant)
-  const active = records.filter(item => item.id !== reservationId)
+  const active = records.filter(item => item.id !== id)
   await writeJson(paths.stockReservations(), active)
   await publishReservationEvent('inventory.reservation-released', {
     quantity: Math.max(1, Number(record.quantity || 1)),
@@ -144,13 +154,15 @@ async function releaseReservationLocked(reservationId, releaseToken = null, requ
 }
 
 export async function releaseStockReservation(reservationId) {
-  if (!reservationId) return false
-  return serialise(() => releaseReservationLocked(reservationId))
+  const { id } = reservationCapability(reservationId)
+  if (!id) return false
+  return serialise(() => releaseReservationLocked(id))
 }
 
-export async function releasePublicStockReservation(reservationId, releaseToken) {
-  if (!reservationId || !releaseToken) return false
-  return serialise(() => releaseReservationLocked(reservationId, releaseToken, true))
+export async function releasePublicStockReservation(reservationCapabilityValue) {
+  const { id, releaseToken } = reservationCapability(reservationCapabilityValue)
+  if (!id || !releaseToken) return false
+  return serialise(() => releaseReservationLocked(id, releaseToken, true))
 }
 
 const cleanupTimer = setInterval(() => {
