@@ -19,7 +19,7 @@ import { getPublishedContent } from './publishedContent.js'
 import { createRefundRouter } from './refundRouter.js'
 import { createLiveSessionAccessMiddleware } from './sessionAccess.js'
 import { createStripeCheckoutSession, createStripeRouter, processStripeCheckoutCompleted, verifyStripeWebhook } from './stripeCheckout.js'
-import { releaseStockReservation } from './stockReservations.js'
+import { releasePublicStockReservation } from './stockReservations.js'
 import { createTaxonomyRouter } from './taxonomyRouter.js'
 import { createTeamRouter } from './teamRouter.js'
 import { trustedOriginGuard } from './trustedOriginGuard.js'
@@ -132,10 +132,13 @@ function publicAssetMetadata(asset = {}) {
 export function mountPublicRoutes(app) {
   app.use('/api/checkout/reservations/:id/release', async (req, res) => {
     try {
-      const released = await releaseStockReservation(req.params.id)
-      res.json({ released })
-    } catch (error) {
-      res.status(400).json({ error: error.message })
+      const releaseToken = String(req.query.release_token || req.headers['x-reservation-release-token'] || '')
+      if (!releaseToken) return res.status(403).json({ error: 'Reservation release token required' })
+      const released = await releasePublicStockReservation(req.params.id, releaseToken)
+      if (!released) return res.status(404).json({ error: 'Reservation could not be released' })
+      res.json({ released: true })
+    } catch {
+      res.status(400).json({ error: 'Reservation could not be released' })
     }
   })
 
