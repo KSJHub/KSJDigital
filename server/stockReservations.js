@@ -20,6 +20,17 @@ async function readReservations() {
   return readJson(paths.stockReservations(), [])
 }
 
+function releaseTokenHash(token = '') {
+  return crypto.createHash('sha256').update(String(token)).digest('hex')
+}
+
+function validReleaseToken(record, token) {
+  if (!record?.releaseTokenHash || !token) return false
+  const expected = Buffer.from(record.releaseTokenHash, 'hex')
+  const actual = Buffer.from(releaseTokenHash(token), 'hex')
+  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual)
+}
+
 async function restoreExpiredLocked(now = Date.now()) {
   const records = await readReservations()
   const expired = records.filter(record => record.status === 'reserved' && new Date(record.expiresAt).getTime() <= now)
@@ -56,6 +67,7 @@ export async function reserveProductStock({ websiteId, product, quantity, varian
     await decrementProductStock(websiteId, product.id, quantity, variant)
 
     const now = Date.now()
+    const releaseToken = crypto.randomBytes(32).toString('hex')
     const reservation = {
       id: crypto.randomBytes(12).toString('hex'),
       websiteId,
@@ -67,6 +79,7 @@ export async function reserveProductStock({ websiteId, product, quantity, varian
       },
       provider: String(provider || '').toLowerCase(),
       status: 'reserved',
+      releaseTokenHash: releaseTokenHash(releaseToken),
       createdAt: new Date(now).toISOString(),
       expiresAt: new Date(now + RESERVATION_MS).toISOString(),
     }
@@ -80,7 +93,8 @@ export async function reserveProductStock({ websiteId, product, quantity, varian
       activeReservationCount: active.length,
       expiresWithinMinutes: Math.round(RESERVATION_MS / 60000),
     })
-    return reservation
+    const { releaseTokenHash: _releaseTokenHash, ...response } = reservation
+    return { ...response, releaseToken }
   })
 }
 
@@ -111,24 +125,32 @@ export async function consumeStockReservation(reservationId) {
   })
 }
 
+async function releaseReservationLocked(reservationId, releaseToken = null, requireToken = false) {
+  const records = await readReservations()
+  const record = records.find(item => item.id === reservationId)
+  if (!record) return false
+  if (requireToken && !validReleaseToken(record, releaseToken)) return false
+
+  await restoreProductStock(record.websiteId, record.productId, record.quantity, record.variant)
+  const active = records.filter(item => item.id !== reservationId)
+  await writeJson(paths.stockReservations(), active)
+  await publishReservationEvent('inventory.reservation-released', {
+    quantity: Math.max(1, Number(record.quantity || 1)),
+    hasVariant: Boolean(record.variant?.size || record.variant?.colour),
+    activeReservationCount: active.length,
+    stockRestored: true,
+  })
+  return true
+}
+
 export async function releaseStockReservation(reservationId) {
   if (!reservationId) return false
-  return serialise(async () => {
-    const records = await readReservations()
-    const record = records.find(item => item.id === reservationId)
-    if (!record) return false
+  return serialise(() => releaseReservationLocked(reservationId))
+}
 
-    await restoreProductStock(record.websiteId, record.productId, record.quantity, record.variant)
-    const active = records.filter(item => item.id !== reservationId)
-    await writeJson(paths.stockReservations(), active)
-    await publishReservationEvent('inventory.reservation-released', {
-      quantity: Math.max(1, Number(record.quantity || 1)),
-      hasVariant: Boolean(record.variant?.size || record.variant?.colour),
-      activeReservationCount: active.length,
-      stockRestored: true,
-    })
-    return true
-  })
+export async function releasePublicStockReservation(reservationId, releaseToken) {
+  if (!reservationId || !releaseToken) return false
+  return serialise(() => releaseReservationLocked(reservationId, releaseToken, true))
 }
 
 const cleanupTimer = setInterval(() => {
