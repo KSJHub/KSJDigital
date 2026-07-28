@@ -3,6 +3,8 @@ import fs from 'node:fs/promises'
 const packageJson = JSON.parse(await fs.readFile(new URL('../package.json', import.meta.url), 'utf8'))
 const scripts = packageJson.scripts || {}
 const fullCheck = String(scripts.check || '')
+const fullCheckCommands = fullCheck.split('&&').map(command => command.trim()).filter(Boolean)
+const fullCheckCommandSet = new Set(fullCheckCommands)
 
 const realtimeChecks = [
   ['check:authentication-realtime', 'scripts/check-authentication-realtime-events.mjs'],
@@ -56,6 +58,10 @@ if (realtimeChecks.length !== EXPECTED_REALTIME_VALIDATOR_COUNT) {
   throw new Error(`Realtime validator inventory must contain exactly ${EXPECTED_REALTIME_VALIDATOR_COUNT} modules (found ${realtimeChecks.length})`)
 }
 
+if (fullCheckCommands.length !== fullCheckCommandSet.size) {
+  throw new Error('Full project check contains duplicate commands')
+}
+
 const scriptNames = realtimeChecks.map(([scriptName]) => scriptName)
 const validatorFiles = realtimeChecks.map(([, validatorFile]) => validatorFile)
 if (new Set(scriptNames).size !== realtimeChecks.length) {
@@ -71,14 +77,14 @@ for (const [scriptName, validatorFile] of realtimeChecks) {
     throw new Error(`Missing or incorrect realtime validator script: ${scriptName}`)
   }
   await fs.access(new URL(`../${validatorFile}`, import.meta.url))
-  if (!fullCheck.includes(`npm run ${scriptName}`)) {
+  if (!fullCheckCommandSet.has(`npm run ${scriptName}`)) {
     throw new Error(`Realtime validator is not included in the full project check: ${scriptName}`)
   }
 }
 
 const projectCheckScripts = Object.keys(scripts).filter(scriptName => scriptName.startsWith('check:'))
 for (const scriptName of projectCheckScripts) {
-  if (!fullCheck.includes(`npm run ${scriptName}`)) {
+  if (!fullCheckCommandSet.has(`npm run ${scriptName}`)) {
     throw new Error(`Project validator is not included in the full project check: ${scriptName}`)
   }
 }
