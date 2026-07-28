@@ -123,8 +123,7 @@ export function createMfaRouter() {
   router.post('/accounts/:accountId/disable', requireAssurance(2), (req, res, next) => handle(res, next, async () => {
     const state = await getMfaState({ limit: 1000 })
     const existing = state.accounts.find(item => item.accountId === req.params.accountId)
-    if (!existing) return res.status(404).json({ error: 'MFA account not found' })
-    if (existing.enabled !== true) return existing
+    if (existing?.enabled !== true && existing) return existing
     const result = await disableMfa(req.params.accountId, null)
     const updatedState = await getMfaState({ limit: 1000 })
     await publishMfaRealtimeEvent('mfa.disabled', mfaRegistryPayload(updatedState, result, { disabled: true }))
@@ -152,8 +151,7 @@ export function createMfaRouter() {
   router.post('/trusted-devices/:deviceId/revoke', requireAssurance(2), (req, res, next) => handle(res, next, async () => {
     const state = await getMfaState({ limit: 1000 })
     const existing = state.trustedDevices.find(item => item.id === req.params.deviceId)
-    if (!existing) return res.status(404).json({ error: 'Trusted device not found' })
-    if (existing.effectiveStatus === 'revoked') return existing
+    if (existing?.effectiveStatus === 'revoked') return existing
     const result = await revokeTrustedDevice(req.params.deviceId, null)
     await publishMfaRealtimeEvent('mfa.trusted-device-revoked', trustedDeviceEventPayload(result, { revoked: true }))
     return result
