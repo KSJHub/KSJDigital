@@ -6,6 +6,7 @@ import {
   upsertNotificationRecipient,
   upsertNotificationTemplate,
 } from './services/notificationService.js'
+import { getJobQueue } from './services/jobQueueService.js'
 import { publishDomainEvent } from './services/realtimeDomainEventService.js'
 
 function requireOwner(req, res) {
@@ -131,7 +132,7 @@ export function createNotificationRouter() {
   router.post('/deliveries', async (req, res) => {
     try {
       const input = req.body || {}
-      const before = await getNotificationState({ limit: 1 })
+      const before = await getJobQueue({ limit: 1000, queue: 'notifications' })
       const queued = await queueNotification(input, null)
       const knownJobIds = new Set((before.jobs || []).map(item => item.id))
       const newlyQueued = Array.isArray(queued.jobs) ? queued.jobs.filter(item => !knownJobIds.has(item.id)).length : Number(queued.queued) || 0
