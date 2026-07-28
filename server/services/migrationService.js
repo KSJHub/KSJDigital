@@ -17,15 +17,7 @@ export class MigrationError extends Error {
 function nowIso() { return new Date().toISOString() }
 function initialRegistry() {
   return {
-    definitions: [],
-    applied: [],
-    rollbacks: [],
-    locks: {},
-    retentionPolicies: [],
-    retentionRuns: [],
-    history: [],
-    version: 1,
-    updatedAt: nowIso(),
+    definitions: [], applied: [], rollbacks: [], locks: {}, retentionPolicies: [], retentionRuns: [], history: [], version: 1, updatedAt: nowIso(),
   }
 }
 async function readRegistry() {
@@ -45,6 +37,7 @@ async function mutate(operation) {
   const current = previous.catch(() => {}).then(async () => {
     const registry = structuredClone(await readRegistry())
     const result = await operation(registry)
+    if (result?.__skipWrite === true) return result.value
     registry.version += 1
     registry.updatedAt = nowIso()
     await writeJson(REGISTRY_FILE, registry)
@@ -236,9 +229,7 @@ export async function executeMigration(idValue, input = {}, actor = null) {
   const backup = input.createBackup === false ? null : await createBackup({ label: `Pre-migration ${plan.migration.version} ${direction}`, skipPrune: true })
   const operations = direction === 'down' ? plan.migration.down : plan.migration.up
   const execution = await planOperations(operations)
-  for (const [file, document] of execution.documents) {
-    if (execution.changedFiles.includes(file)) await writeJson(file, document)
-  }
+  for (const [file, document] of execution.documents) if (execution.changedFiles.includes(file)) await writeJson(file, document)
   const result = await mutate(registry => {
     const lock = requireLock(registry, scope, input.lockToken)
     if (registry.version !== plan.registryVersion) throw new MigrationError('Migration registry changed after planning', 409)
@@ -268,7 +259,12 @@ export async function upsertRetentionPolicy(input = {}, actor = null) {
   const retentionDays = Math.min(3650, Math.max(1, Number(input.retentionDays || 90)))
   if (!arrayKey || !dateKey) throw new MigrationError('Retention policy requires arrayKey and dateKey', 422)
   return mutate(registry => {
-    const policy = { id, name: String(input.name || id).trim().slice(0, 200), file, arrayKey, dateKey, retentionDays, enabled: input.enabled !== false, updatedAt: nowIso(), updatedBy: actor }
+    const existing = registry.retentionPolicies.find(item => item.id === id)
+    const comparable = { id, name: String(input.name || id).trim().slice(0, 200), file, arrayKey, dateKey, retentionDays, enabled: input.enabled !== false }
+    if (existing && JSON.stringify({ id: existing.id, name: existing.name, file: existing.file, arrayKey: existing.arrayKey, dateKey: existing.dateKey, retentionDays: existing.retentionDays, enabled: existing.enabled }) === JSON.stringify(comparable)) {
+      return { __skipWrite: true, value: { ...existing, unchanged: true } }
+    }
+    const policy = { ...comparable, updatedAt: nowIso(), updatedBy: actor }
     const index = registry.retentionPolicies.findIndex(item => item.id === id)
     if (index >= 0) registry.retentionPolicies[index] = policy; else registry.retentionPolicies.push(policy)
     registry.history.unshift({ id: crypto.randomUUID(), action: 'retention.policy-updated', policyId: id, actor, createdAt: nowIso() })
@@ -298,6 +294,7 @@ export async function executeRetention(policyId, input = {}, actor = null) {
   if (input.confirmationToken !== plan.confirmationToken) throw new MigrationError('Retention confirmation token is invalid', 409)
   const scope = safeName(input.scope || 'retention')
   const preflight = await readRegistry(); requireLock(preflight, scope, input.lockToken)
+  if (plan.removable === 0) return { policyId: plan.policy.id, removed: 0, retained: plan.retained, status: 'noop', noop: true }
   const backup = input.createBackup === false ? null : await createBackup({ label: `Pre-retention ${plan.policy.id}`, skipPrune: true })
   const target = safeRelativeFile(plan.policy.file)
   const document = await readJson(target.resolved, {})
@@ -311,7 +308,7 @@ export async function executeRetention(policyId, input = {}, actor = null) {
   })
   const { parent, leaf } = parentAt(document, plan.policy.arrayKey)
   parent[leaf] = retained
-  if (plan.removable) await writeJson(target.resolved, document)
+  await writeJson(target.resolved, document)
   const result = await mutate(registry => {
     const lock = requireLock(registry, scope, input.lockToken)
     if (registry.version !== plan.registryVersion) throw new MigrationError('Retention registry changed after planning', 409)
