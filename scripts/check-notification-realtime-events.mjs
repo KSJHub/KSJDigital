@@ -2,86 +2,102 @@ import fs from 'node:fs/promises'
 
 const router = await fs.readFile(new URL('../server/notificationRouter.js', import.meta.url), 'utf8')
 const service = await fs.readFile(new URL('../server/services/notificationService.js', import.meta.url), 'utf8')
-const source = `${router}\n${service}`
+const failures = []
 
-const requiredTopics = [
-  'notification.template-updated',
-  'notification.recipient-updated',
-  'notification.rate-limit-updated',
-  'notification.queued',
-  'notification.delivery-started',
-  'notification.delivered',
-  'notification.failed',
-]
-
-for (const topic of requiredTopics) {
-  if (!source.includes(`'${topic}'`)) throw new Error(`Missing notification real-time event: ${topic}`)
+for (const token of [
+  "publishNotificationRealtimeEvent('notification.template-updated'",
+  "publishNotificationRealtimeEvent('notification.recipient-updated'",
+  "publishNotificationRealtimeEvent('notification.rate-limit-updated'",
+  "publishNotificationRealtimeEvent('notification.queued'",
+  "publishNotificationDeliveryRealtimeEvent('notification.delivery-started'",
+  "publishNotificationDeliveryRealtimeEvent('notification.delivered'",
+  "publishNotificationDeliveryRealtimeEvent('notification.failed'",
+  'templateCount:',
+  'enabledTemplateCount:',
+  'recipientCount:',
+  'enabledRecipientCount:',
+  'deliveryCount:',
+  'queuedCount:',
+  'attemptCount:',
+  'hasMessageData:',
+  'hasProviderResult:',
+  'hasError:',
+  'retryable:',
+]) {
+  if (!`${router}\n${service}`.includes(token)) failures.push(`Missing notification realtime marker: ${token}`)
 }
 
-if (!router.includes("import { publishDomainEvent } from './services/realtimeDomainEventService.js'")) {
-  throw new Error('Notification router must publish through the canonical real-time domain event service')
-}
-if (!service.includes("import { publishDomainEvent } from './realtimeDomainEventService.js'")) {
-  throw new Error('Notification delivery worker must publish through the canonical real-time domain event service')
+const routerPayloadStart = router.indexOf('function notificationRegistryPayload(')
+const routerPayloadEnd = router.indexOf('\n}\n\nasync function publishNotificationRealtimeEvent', routerPayloadStart)
+const routerPayloadSource = routerPayloadStart >= 0 && routerPayloadEnd > routerPayloadStart ? router.slice(routerPayloadStart, routerPayloadEnd) : ''
+const deliveryPayloadStart = service.indexOf('function deliveryRealtimePayload(')
+const deliveryPayloadEnd = service.indexOf('\n}\n\nasync function publishNotificationDeliveryRealtimeEvent', deliveryPayloadStart)
+const deliveryPayloadSource = deliveryPayloadStart >= 0 && deliveryPayloadEnd > deliveryPayloadStart ? service.slice(deliveryPayloadStart, deliveryPayloadEnd) : ''
+const payloadSource = `${routerPayloadSource}\n${deliveryPayloadSource}`
+
+for (const forbidden of [
+  'accountId:', 'templateId:', 'recipientId:', 'deliveryId:', 'jobId:', 'jobIds:', 'websiteId:',
+  'provider:', 'address:', 'message:', 'variables:', 'deduplicationKey:', 'providerResult:',
+  'actor:', 'session', 'email:', 'userId:', 'createdAt:', 'updatedAt:', 'deliveredAt:', 'failedAt:',
+  'req.body', 'req.params', '...template', '...recipient', '...delivery', '...queued',
+]) {
+  if (payloadSource.includes(forbidden)) failures.push(`Notification event payload exposes forbidden data: ${forbidden}`)
 }
 
-function domainEventCalls(code) {
-  const calls = []
-  const marker = 'publishDomainEvent('
-  let start = 0
-  while ((start = code.indexOf(marker, start)) !== -1) {
-    let depth = 0
-    let quote = null
-    let escaped = false
-    let end = start + marker.length
-    for (; end < code.length; end += 1) {
-      const character = code[end]
-      if (quote) {
-        if (escaped) escaped = false
-        else if (character === '\\') escaped = true
-        else if (character === quote) quote = null
-        continue
-      }
-      if (character === "'" || character === '"' || character === '`') { quote = character; continue }
-      if (character === '(') depth += 1
-      else if (character === ')') {
-        if (depth === 0) { end += 1; break }
-        depth -= 1
-      }
-    }
-    calls.push(code.slice(start, end))
-    start = end
+if (!router.includes("async function publishNotificationRealtimeEvent(topic, payload) {\n  await publishDomainEvent(topic, payload)\n}")) {
+  failures.push('Notification request events must publish aggregate payloads without actor metadata')
+}
+if (!service.includes("async function publishNotificationDeliveryRealtimeEvent(topic, payload) {\n  await publishDomainEvent(topic, payload)\n}")) {
+  failures.push('Notification delivery events must publish aggregate payloads without actor metadata')
+}
+
+const templateGuard = router.indexOf('if (!templatePatchChanges(existing, input)) return res.json(existing)')
+const templateMutation = router.indexOf('const template = await upsertNotificationTemplate(')
+const templatePublish = router.indexOf("await publishNotificationRealtimeEvent('notification.template-updated'")
+if (templateGuard < 0 || templateMutation < templateGuard || templatePublish < templateMutation) {
+  failures.push('Unchanged notification templates must return before persistence and publication')
+}
+
+const recipientGuard = router.indexOf('if (!recipientPatchChanges(existing, input)) return res.json(existing)')
+const recipientMutation = router.indexOf('const recipient = await upsertNotificationRecipient(')
+const recipientPublish = router.indexOf("await publishNotificationRealtimeEvent('notification.recipient-updated'")
+if (recipientGuard < 0 || recipientMutation < recipientGuard || recipientPublish < recipientMutation) {
+  failures.push('Unchanged notification recipients must return before persistence and publication')
+}
+
+const rateGuard = router.indexOf('if (!rateLimitPatchChanges(existing, input)) return res.json(existing)')
+const rateMutation = router.indexOf('const policy = await updateNotificationRateLimit(')
+const ratePublish = router.indexOf("await publishNotificationRealtimeEvent('notification.rate-limit-updated'")
+if (rateGuard < 0 || rateMutation < rateGuard || ratePublish < rateMutation) {
+  failures.push('Unchanged notification rate limits must return before persistence and publication')
+}
+
+if (!router.includes("if (newlyQueued > 0) await publishNotificationRealtimeEvent('notification.queued'")) {
+  failures.push('Idempotent notification queue requests must not publish duplicate queued events')
+}
+
+const duplicateGuard = service.indexOf("if (duplicate) return { __skipWrite: true, value: { ...duplicate, duplicate: true } }")
+const deliveryStartedPublish = service.indexOf("await publishNotificationDeliveryRealtimeEvent('notification.delivery-started'")
+if (duplicateGuard < 0 || deliveryStartedPublish < duplicateGuard) {
+  failures.push('Duplicate delivered notifications must return before persistence and publication')
+}
+if (!service.includes('if (result?.__skipWrite === true) return result.value')) {
+  failures.push('Notification storage must support semantic no-write results')
+}
+
+for (const topic of [
+  'notification.template-updated', 'notification.recipient-updated', 'notification.rate-limit-updated',
+  'notification.queued', 'notification.delivery-started', 'notification.delivered', 'notification.failed',
+]) {
+  if (router.includes(`publishDomainEvent('${topic}'`) || service.includes(`publishDomainEvent('${topic}'`)) {
+    failures.push(`Notification topic must be owned by a canonical notification publisher: ${topic}`)
   }
-  return calls
 }
 
-const routerEvents = domainEventCalls(router).join('\n')
-const deliveryEvents = domainEventCalls(service).join('\n')
-
-const forbiddenRouterPayloads = [
-  'recipientIds:',
-  'jobIds:',
-  'deduplicationKey: queued.deduplicationKey',
-  'policy, accountId:',
-]
-for (const fragment of forbiddenRouterPayloads) {
-  if (routerEvents.includes(fragment)) throw new Error(`Notification events must not publish sensitive queue or recipient data: ${fragment}`)
+if (failures.length) {
+  console.error('Notification real-time event check failed:')
+  failures.forEach(failure => console.error(`- ${failure}`))
+  process.exit(1)
 }
-
-const forbiddenDeliveryPayloads = [
-  'message: delivery.message',
-  'recipient: delivery.recipient',
-  'providerResult: completed.providerResult',
-  'error: error?.message',
-  'deduplicationKey: delivery.deduplicationKey',
-  'variables: input.variables',
-  'address: delivery.recipient',
-]
-for (const fragment of forbiddenDeliveryPayloads) {
-  if (deliveryEvents.includes(fragment)) throw new Error(`Notification delivery events must exclude message, recipient, provider and error contents: ${fragment}`)
-}
-
-if (!deliveryEvents.includes('retryable:')) throw new Error('Failed notification events must expose a safe retryability signal')
-if (!routerEvents.includes('queuedCount: queued.queued')) throw new Error('Queued notification events must publish a count instead of recipient or job identifiers')
 
 console.log('Notification real-time event checks passed')
