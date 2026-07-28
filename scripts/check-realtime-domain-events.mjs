@@ -76,6 +76,13 @@ for (const [scriptName, validatorFile] of realtimeChecks) {
   }
 }
 
+const projectCheckScripts = Object.keys(scripts).filter(scriptName => scriptName.startsWith('check:'))
+for (const scriptName of projectCheckScripts) {
+  if (!fullCheck.includes(`npm run ${scriptName}`)) {
+    throw new Error(`Project validator is not included in the full project check: ${scriptName}`)
+  }
+}
+
 const files = {
   service: 'server/services/realtimeDomainEventService.js',
   notifications: 'server/notificationRouter.js',
@@ -106,4 +113,4 @@ for (const [file, token] of canonicalRequirements) {
   }
 }
 
-console.log(`Real-time domain event checks passed (${realtimeChecks.length} module validators registered).`)
+console.log(`Real-time domain event checks passed (${realtimeChecks.length} module validators registered; ${projectCheckScripts.length} project validators covered).`)
