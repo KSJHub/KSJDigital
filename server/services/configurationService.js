@@ -50,6 +50,7 @@ async function mutate(operation) {
   const current = previous.catch(() => {}).then(async () => {
     const registry = structuredClone(await readRegistry())
     const result = await operation(registry)
+    if (result?.__skipWrite === true) return result.value
     registry.version += 1
     registry.updatedAt = nowIso()
     await writeJson(REGISTRY_FILE, registry)
@@ -83,7 +84,6 @@ function resolveSecretRecord(record) {
 function maskSecret(record) {
   return { name: record.name, reference: `secret://${record.name}`, source: record.source, configured: record.source === 'environment' ? Boolean(process.env[record.environment]) : Boolean(record.encrypted), environment: record.environment || null, updatedAt: record.updatedAt }
 }
-
 function validateValue(key, value, definition) {
   if (value === null && definition.nullable) return null
   if (definition.type === 'boolean' && typeof value === 'boolean') return value
@@ -94,9 +94,7 @@ function validateValue(key, value, definition) {
     try {
       const parsed = new URL(value)
       if (['http:', 'https:'].includes(parsed.protocol)) return parsed.toString()
-    } catch {
-      // Invalid URLs fall through to the schema error below.
-    }
+    } catch {}
   }
   if (definition.type === 'string' && typeof value === 'string') return value
   throw new ConfigurationError(`${key} does not satisfy its ${definition.type} schema`, 422)
@@ -135,11 +133,13 @@ export async function updateConfiguration(environmentValue, input = {}, actor = 
       else after[key] = validateValue(key, value, definition)
       if (definition.restartRequired) restartRequired.push(key)
     }
+    if (JSON.stringify(after) === JSON.stringify(before)) return { __skipWrite: true, value: { environment, values: before, restartRequired: [], version: registry.version, unchanged: true } }
     registry.environments[environment] = after
     registry.history.unshift({ id: crypto.randomUUID(), action: 'configuration.updated', environment, actor, before, after, restartRequired, createdAt: nowIso() })
     registry.history = registry.history.slice(0, 2000)
     return { environment, values: after, restartRequired, version: registry.version + 1 }
   })
+  if (result.unchanged) return result
   notify({ type: 'configuration.updated', environment, restartRequired: result.restartRequired })
   await writeStructuredLog('info', 'Configuration updated', { environment, actor, keys: Object.keys(changes), restartRequired: result.restartRequired })
   return result
@@ -153,6 +153,8 @@ export async function setSecret(nameValue, input = {}, actor = null) {
     const environment = String(input.environment || name).trim()
     if (!/^[A-Z_][A-Z0-9_]*$/i.test(environment)) throw new ConfigurationError('Secret environment variable is invalid', 422)
     return mutate(registry => {
+      const existing = registry.secrets[name]
+      if (existing?.source === source && existing.environment === environment) return { __skipWrite: true, value: maskSecret(existing) }
       registry.secrets[name] = { name, source, environment, updatedAt: nowIso() }
       registry.history.unshift({ id: crypto.randomUUID(), action: 'secret.reference.updated', secret: name, source, environment, actor, createdAt: nowIso() })
       registry.history = registry.history.slice(0, 2000)
@@ -173,11 +175,11 @@ export async function setSecret(nameValue, input = {}, actor = null) {
 export async function deleteSecret(nameValue, actor = null) {
   const name = String(nameValue || '').trim()
   return mutate(registry => {
-    const deleted = Boolean(registry.secrets[name])
+    if (!registry.secrets[name]) return { __skipWrite: true, value: { deleted: false, name } }
     delete registry.secrets[name]
     registry.history.unshift({ id: crypto.randomUUID(), action: 'secret.deleted', secret: name, actor, createdAt: nowIso() })
     registry.history = registry.history.slice(0, 2000)
-    return { deleted, name }
+    return { deleted: true, name }
   })
 }
 
@@ -219,11 +221,13 @@ export async function activateEnvironment(environmentValue, actor = null) {
   if (!validation.valid) throw new ConfigurationError('Configuration cannot be activated because validation failed', 409, validation.errors)
   const result = await mutate(registry => {
     const previous = registry.activeEnvironment
+    if (previous === environment) return { __skipWrite: true, value: { previous, environment, unchanged: true } }
     registry.activeEnvironment = environment
     registry.history.unshift({ id: crypto.randomUUID(), action: 'environment.activated', previous, environment, actor, createdAt: nowIso() })
     registry.history = registry.history.slice(0, 2000)
     return { previous, environment, activatedAt: nowIso() }
   })
+  if (result.unchanged) return result
   notify({ type: 'environment.activated', environment })
   publishIntegrationEvent('global', 'configuration.activated', result, { configuration: true }).catch(() => {})
   return result
