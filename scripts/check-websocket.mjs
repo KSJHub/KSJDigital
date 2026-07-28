@@ -30,6 +30,7 @@ const root = process.cwd()
 const start = await fs.readFile(path.join(root, 'server/start.js'), 'utf8')
 const router = await fs.readFile(path.join(root, 'server/webSocketRouter.js'), 'utf8')
 const service = await fs.readFile(path.join(root, 'server/services/webSocketService.js'), 'utf8')
+
 assert.match(start, /createServer\(this\)/)
 assert.match(start, /startWebSocketGateway\(server\)/)
 assert.match(start, /createWebSocketRouter/)
@@ -39,4 +40,32 @@ assert.match(service, /findAuthenticationSession/)
 assert.match(service, /heartbeatIntervalMs/)
 assert.match(service, /maximumBufferedBytes/)
 assert.match(service, /broadcastWebSocketEvent/)
+assert.match(service, /type: 'connected', channelCount:/)
+assert.match(service, /type: 'subscribed', changed, channelCount:/)
+assert.match(service, /type: 'unsubscribed', changed, channelCount:/)
+assert.match(service, /activeAccountCount:/)
+assert.match(service, /maximumConnectionsForSingleAccount:/)
+
+const connectedMessage = service.slice(service.indexOf("sendJson(connection, { type: 'connected'"), service.indexOf('\n}', service.indexOf("sendJson(connection, { type: 'connected'")))
+for (const forbidden of ['connectionId:', 'channels:', 'sessionId:', 'accountId:', 'accountName:', 'connectedAt:', 'lastSeenAt:']) {
+  assert.ok(!connectedMessage.includes(forbidden), `Connected WebSocket acknowledgement exposes ${forbidden}`)
+}
+
+const broadcastStart = service.indexOf('export function broadcastWebSocketEvent(')
+const broadcastEnd = service.indexOf('\nexport function disconnectWebSocketConnection', broadcastStart)
+const broadcast = service.slice(broadcastStart, broadcastEnd)
+for (const forbidden of ['channel, event', 'channel:', 'publishedAt:', 'connectionId:', 'sessionId:', 'accountId:']) {
+  if (forbidden === 'channel, event') continue
+  assert.ok(!broadcast.includes(forbidden), `WebSocket broadcast envelope exposes ${forbidden}`)
+}
+assert.match(broadcast, /const message = \{ type: 'event', event: String\(event \|\| ''\), payload \}/)
+assert.match(broadcast, /return \{ delivered \}/)
+
+const connectionListStart = service.indexOf('export function getWebSocketConnections()')
+const connectionListEnd = service.indexOf('\nexport function getWebSocketGatewayState()', connectionListStart)
+const connectionList = service.slice(connectionListStart, connectionListEnd)
+for (const forbidden of ['accountId:', 'accountName:', 'sessionId:', 'channels:']) {
+  assert.ok(!connectionList.includes(forbidden), `Administrative WebSocket connection list exposes ${forbidden}`)
+}
+
 console.log('WebSocket gateway checks passed')
