@@ -17,11 +17,46 @@ function requireOwner(req, res) {
   res.status(403).json({ error: 'Owner permission required' })
   return false
 }
-function actor(req) { return { id: req.session?.userId || null, email: req.session?.email || null } }
 function sendError(res, error) {
   const body = { error: error.message || 'Release request failed' }
   if (error.details) body.details = error.details
   res.status(Number(error.status) || 400).json(body)
+}
+
+function releaseRegistryPayload(state = {}, details = {}) {
+  const releases = Array.isArray(state.releases) ? state.releases : []
+  const deployments = Array.isArray(state.deployments) ? state.deployments : []
+  const environments = state.environments && typeof state.environments === 'object' ? Object.values(state.environments) : []
+  const maintenance = state.maintenance && typeof state.maintenance === 'object' ? Object.values(state.maintenance) : []
+  const deploymentLocks = state.deploymentLocks && typeof state.deploymentLocks === 'object' ? Object.values(state.deploymentLocks) : []
+  const checks = Array.isArray(details.checks) ? details.checks : []
+  return {
+    releaseCount: releases.length,
+    registeredReleaseCount: releases.filter(release => release.status === 'registered').length,
+    promotedReleaseCount: releases.filter(release => release.status === 'promoted').length,
+    releasedReleaseCount: releases.filter(release => release.status === 'released').length,
+    deploymentCount: deployments.length,
+    completedDeploymentCount: deployments.filter(deployment => deployment.status === 'completed').length,
+    environmentCount: environments.length,
+    activeEnvironmentCount: environments.filter(environment => Boolean(environment.currentReleaseId)).length,
+    maintenanceEnabledCount: maintenance.filter(item => item.enabled === true).length,
+    deploymentLockCount: deploymentLocks.length,
+    checkCount: checks.length,
+    failedCheckCount: checks.filter(check => check.status === 'failed').length,
+    warningCheckCount: checks.filter(check => check.status === 'warning').length,
+    ready: details.ready === true,
+    created: details.created === true,
+    maintenanceChanged: details.maintenanceChanged === true,
+    locked: details.locked === true,
+    unlocked: details.unlocked === true,
+    planned: details.planned === true,
+    promoted: details.promoted === true,
+    rolledBack: details.rolledBack === true,
+  }
+}
+
+async function publishReleaseRealtimeEvent(topic, payload) {
+  await publishDomainEvent(topic, payload)
 }
 
 export function createReleaseRouter() {
@@ -32,17 +67,9 @@ export function createReleaseRouter() {
 
   router.post('/', async (req, res) => {
     try {
-      const requestedBy = actor(req)
-      const release = await createRelease(req.body || {}, requestedBy)
-      await publishDomainEvent('release.created', {
-        releaseId: release.id,
-        version: release.version,
-        status: release.status,
-        commitSha: release.source?.commitSha || null,
-        branch: release.source?.branch || null,
-        artifactName: release.artifact?.name || null,
-        artifactSize: release.artifact?.size || null,
-      }, requestedBy)
+      const release = await createRelease(req.body || {}, null)
+      const state = await listReleaseState()
+      await publishReleaseRealtimeEvent('release.created', releaseRegistryPayload(state, { created: true }))
       res.status(201).json(release)
     } catch (error) { sendError(res, error) }
   })
@@ -51,93 +78,58 @@ export function createReleaseRouter() {
 
   router.put('/maintenance/:environment', async (req, res) => {
     try {
-      const requestedBy = actor(req)
-      const state = await setMaintenanceMode(req.params.environment, req.body || {}, requestedBy)
-      await publishDomainEvent(state.enabled ? 'release.maintenance-enabled' : 'release.maintenance-disabled', {
-        environment: state.environment,
-        enabled: state.enabled,
-        message: state.message,
-        enabledAt: state.enabledAt,
-      }, requestedBy)
-      res.json(state)
+      const before = await getMaintenanceMode(req.params.environment)
+      const enabled = req.body?.enabled === true
+      const message = enabled ? String(req.body?.message || 'Scheduled maintenance is in progress.').trim().slice(0, 500) : null
+      if (before.enabled === enabled && before.message === message) return res.json({ ...before, unchanged: true })
+      const maintenance = await setMaintenanceMode(req.params.environment, req.body || {}, null)
+      const state = await listReleaseState()
+      await publishReleaseRealtimeEvent(maintenance.enabled ? 'release.maintenance-enabled' : 'release.maintenance-disabled', releaseRegistryPayload(state, { maintenanceChanged: true }))
+      res.json(maintenance)
     } catch (error) { sendError(res, error) }
   })
 
   router.post('/locks/:environment', async (req, res) => {
     try {
-      const requestedBy = actor(req)
-      const lock = await acquireDeploymentLock(req.params.environment, req.body || {}, requestedBy)
-      await publishDomainEvent('release.deployment-locked', {
-        environment: lock.environment,
-        owner: lock.owner,
-        acquiredAt: lock.acquiredAt,
-        expiresAt: lock.expiresAt,
-      }, requestedBy)
+      const lock = await acquireDeploymentLock(req.params.environment, req.body || {}, null)
+      const state = await listReleaseState()
+      await publishReleaseRealtimeEvent('release.deployment-locked', releaseRegistryPayload(state, { locked: true }))
       res.status(201).json(lock)
     } catch (error) { sendError(res, error) }
   })
 
   router.delete('/locks/:environment', async (req, res) => {
     try {
-      const requestedBy = actor(req)
-      const result = await releaseDeploymentLock(req.params.environment, req.body?.lockToken || req.headers['x-deployment-lock'], requestedBy)
-      await publishDomainEvent('release.deployment-unlocked', {
-        environment: result.environment,
-        released: result.released,
-      }, requestedBy)
+      const result = await releaseDeploymentLock(req.params.environment, req.body?.lockToken || req.headers['x-deployment-lock'], null)
+      const state = await listReleaseState()
+      await publishReleaseRealtimeEvent('release.deployment-unlocked', releaseRegistryPayload(state, { unlocked: result.released }))
       res.json(result)
     } catch (error) { sendError(res, error) }
   })
 
   router.get('/:releaseId/plan/:environment', async (req, res) => {
     try {
-      const requestedBy = actor(req)
       const plan = await deploymentPlan(req.params.releaseId, req.params.environment)
-      await publishDomainEvent('release.deployment-planned', {
-        releaseId: plan.release.id,
-        version: plan.release.version,
-        environment: plan.environment,
-        currentReleaseId: plan.currentReleaseId,
-        ready: plan.ready,
-        checks: plan.checks,
-        plannedAt: plan.plannedAt,
-      }, requestedBy)
+      const state = await listReleaseState()
+      await publishReleaseRealtimeEvent('release.deployment-planned', releaseRegistryPayload(state, { planned: true, ready: plan.ready, checks: plan.checks }))
       res.json(plan)
     } catch (error) { sendError(res, error) }
   })
 
   router.post('/:releaseId/promote/:environment', async (req, res) => {
     try {
-      const requestedBy = actor(req)
-      const deployment = await promoteRelease(req.params.releaseId, req.params.environment, req.body || {}, requestedBy)
-      await publishDomainEvent('release.promoted', {
-        deploymentId: deployment.id,
-        releaseId: deployment.releaseId,
-        version: deployment.version,
-        environment: deployment.environment,
-        previousReleaseId: deployment.previousReleaseId,
-        backupId: deployment.backupId,
-        status: deployment.status,
-        completedAt: deployment.completedAt,
-      }, requestedBy)
+      const deployment = await promoteRelease(req.params.releaseId, req.params.environment, req.body || {}, null)
+      const state = await listReleaseState()
+      await publishReleaseRealtimeEvent('release.promoted', releaseRegistryPayload(state, { promoted: true }))
       res.json(deployment)
     } catch (error) { sendError(res, error) }
   })
 
   router.post('/rollback/:environment', async (req, res) => {
     try {
-      const requestedBy = actor(req)
-      const rollback = await rollbackRelease(req.params.environment, req.body || {}, requestedBy)
-      await publishDomainEvent('release.rolled-back', {
-        rollbackId: rollback.id,
-        environment: rollback.environment,
-        fromReleaseId: rollback.fromReleaseId,
-        toReleaseId: rollback.toReleaseId,
-        backupId: rollback.backupId,
-        restoreId: rollback.restoreId,
-        status: rollback.status,
-        rolledBackAt: rollback.rolledBackAt,
-      }, requestedBy)
+      const rollback = await rollbackRelease(req.params.environment, req.body || {}, null)
+      const state = await listReleaseState()
+      await publishReleaseRealtimeEvent('release.rolled-back', releaseRegistryPayload(state, { rolledBack: true }))
       res.json(rollback)
     } catch (error) { sendError(res, error) }
   })
