@@ -93,6 +93,42 @@ function isBasketMiss(error) {
   return ['Checkout basket was not found', 'Stripe basket reference is missing'].includes(error?.message)
 }
 
+function publicWebsiteMetadata(website = {}) {
+  return {
+    id: website.id || null,
+    name: website.name || '',
+    domain: website.domain || '',
+    status: website.status || '',
+    logo: website.logo || '',
+  }
+}
+
+function publicAssetVariant(variant = {}) {
+  return {
+    id: variant.id || null,
+    label: variant.label || '',
+    url: variant.url || '',
+    mimeType: variant.mimeType || '',
+    width: Number(variant.width) > 0 ? Number(variant.width) : null,
+    height: Number(variant.height) > 0 ? Number(variant.height) : null,
+  }
+}
+
+function publicAssetMetadata(asset = {}) {
+  return {
+    id: asset.id || null,
+    name: asset.name || '',
+    description: asset.description || '',
+    alt: asset.alt || '',
+    kind: asset.kind || 'other',
+    mimeType: asset.mimeType || '',
+    url: asset.url || '',
+    width: Number(asset.width) > 0 ? Number(asset.width) : null,
+    height: Number(asset.height) > 0 ? Number(asset.height) : null,
+    variants: Array.isArray(asset.variants) ? asset.variants.map(publicAssetVariant) : [],
+  }
+}
+
 export function mountPublicRoutes(app) {
   app.use('/api/checkout/reservations/:id/release', async (req, res) => {
     try {
@@ -211,9 +247,9 @@ export function mountPublicRoutes(app) {
     if (!website) return res.status(404).json({ error: 'Website not found' })
 
     const content = await getPublishedContent(websiteId)
-    const assets = await readWebsiteAssets(websiteId)
+    const assets = (await readWebsiteAssets(websiteId)).map(publicAssetMetadata)
     res.setHeader('Cache-Control', 'no-store')
-    res.json({ website, content, assets, publishedAt: content.publishedAt || null })
+    res.json({ website: publicWebsiteMetadata(website), content, assets, publishedAt: content.publishedAt || null })
   })
 
   app.use('/api/public/orders', createPublicOrdersRouter())
