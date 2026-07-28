@@ -1,76 +1,78 @@
 import fs from 'node:fs/promises'
 
 const router = await fs.readFile(new URL('../server/cacheRouter.js', import.meta.url), 'utf8')
+const service = await fs.readFile(new URL('../server/services/cacheService.js', import.meta.url), 'utf8')
+const failures = []
 
-const requiredTopics = [
-  'cache.policy-updated',
-  'cache.policy-deleted',
-  'cache.invalidated',
-  'cache.cleared',
-]
-
-if (!router.includes("import { publishDomainEvent } from './services/realtimeDomainEventService.js'")) {
-  throw new Error('Cache router must publish through the canonical real-time domain event service')
+for (const token of [
+  "publishCacheRealtimeEvent('cache.policy-updated'",
+  "publishCacheRealtimeEvent('cache.policy-deleted'",
+  "publishCacheRealtimeEvent('cache.invalidated'",
+  "publishCacheRealtimeEvent('cache.cleared'",
+  'policyCount:',
+  'enabledPolicyCount:',
+  'entryCount:',
+  'memoryPolicyCount:',
+  'filePolicyCount:',
+  'methodCount:',
+  'tagCount:',
+  'invalidatedCount:',
+  'namespaceFiltered:',
+  'tagFilterCount:',
+  'cleared:',
+]) {
+  if (!router.includes(token)) failures.push(`Missing cache realtime marker: ${token}`)
 }
 
-for (const topic of requiredTopics) {
-  if (!router.includes(`'${topic}'`)) throw new Error(`Missing cache real-time event: ${topic}`)
+const payloadStart = router.indexOf('function cacheRegistryPayload(')
+const payloadEnd = router.indexOf('\n}\n\nasync function publishCacheRealtimeEvent', payloadStart)
+const payloadSource = payloadStart >= 0 && payloadEnd > payloadStart ? router.slice(payloadStart, payloadEnd) : ''
+
+for (const forbidden of [
+  'policyId:', 'entryId:', 'provider:', 'namespace:', 'route:', 'methods:', 'tags:', 'key:',
+  'cacheKey:', 'value:', 'body:', 'headers:', 'actor:', 'payload:', 'session', 'email:', 'role:',
+  'createdAt:', 'updatedAt:', 'expiresAt:', 'staleUntil:', 'req.body', 'req.params', 'authorization',
+  'cookie', '...result', '...policy', '...entry',
+]) {
+  if (payloadSource.includes(forbidden)) failures.push(`Cache event payload exposes forbidden data: ${forbidden}`)
 }
 
-function eventCalls(code, marker) {
-  const calls = []
-  let start = 0
-  while ((start = code.indexOf(marker, start)) !== -1) {
-    let depth = 0
-    let quote = null
-    let escaped = false
-    let end = start + marker.length
-    for (; end < code.length; end += 1) {
-      const character = code[end]
-      if (quote) {
-        if (escaped) escaped = false
-        else if (character === '\\') escaped = true
-        else if (character === quote) quote = null
-        continue
-      }
-      if (character === "'" || character === '"' || character === '`') { quote = character; continue }
-      if (character === '(') depth += 1
-      else if (character === ')') {
-        if (depth === 0) { end += 1; break }
-        depth -= 1
-      }
-    }
-    calls.push(code.slice(start, end))
-    start = end
-  }
-  return calls
+if (!router.includes("async function publishCacheRealtimeEvent(topic, payload) {\n  await publishDomainEvent(topic, payload)\n}")) {
+  failures.push('Cache events must use an awaited aggregate-only canonical publisher')
 }
 
-const events = eventCalls(router, 'publishCacheEvent(').join('\n')
-const forbiddenPayloads = [
-  'value:',
-  'body:',
-  'key:',
-  'cacheKey:',
-  'route:',
-  'namespace:',
-  'tags:',
-  'payload: req.body',
-  '...req.body',
-  'headers:',
-  'authorization',
-  'cookie',
-  'error.message',
-]
-for (const fragment of forbiddenPayloads) {
-  if (events.includes(fragment)) throw new Error(`Cache events expose forbidden cache data: ${fragment}`)
+const policyGuard = router.indexOf('if (!cachePolicyPatchChanges(existing, input)) return existing')
+const policyMutation = router.indexOf('const result = await upsertCachePolicy(')
+const policyPublish = router.indexOf("await publishCacheRealtimeEvent('cache.policy-updated'")
+if (policyGuard < 0 || policyMutation < policyGuard || policyPublish < policyMutation) failures.push('Unchanged cache policies must return before persistence and publication')
+
+const deleteGuard = router.indexOf("if (!existing) return { deleted: false, id: req.params.policyId }")
+const deleteMutation = router.indexOf('const result = await deleteCachePolicy(')
+const deletePublish = router.indexOf("await publishCacheRealtimeEvent('cache.policy-deleted'")
+if (deleteGuard < 0 || deleteMutation < deleteGuard || deletePublish < deleteMutation) failures.push('Missing cache policies must not be persisted or published')
+
+const invalidateMutation = router.indexOf('const result = await invalidateCache(')
+const invalidateGuard = router.indexOf('if (result.invalidated === 0) return result', invalidateMutation)
+const invalidatePublish = router.indexOf("await publishCacheRealtimeEvent('cache.invalidated'")
+if (invalidateMutation < 0 || invalidateGuard < invalidateMutation || invalidatePublish < invalidateGuard) failures.push('Zero-match cache invalidations must not publish')
+
+const clearMutation = router.indexOf('const result = await clearCache(')
+const clearGuard = router.indexOf('if (result.invalidated === 0) return result', clearMutation)
+const clearPublish = router.indexOf("await publishCacheRealtimeEvent('cache.cleared'")
+if (clearMutation < 0 || clearGuard < clearMutation || clearPublish < clearGuard) failures.push('Empty cache clears must not publish')
+
+if (!service.includes('if (result?.__skipWrite === true) return result.value')) failures.push('Cache storage must support semantic no-write results')
+if (!service.includes("if (!existed) return { __skipWrite: true, value: { deleted: false, id } }")) failures.push('Missing cache policy deletion must not rewrite storage')
+if (!service.includes('if (!ids.length) return { invalidated: 0 }')) failures.push('Zero-match cache invalidation must return before storage mutation')
+
+for (const topic of ['cache.policy-updated', 'cache.policy-deleted', 'cache.invalidated', 'cache.cleared']) {
+  if (router.includes(`publishDomainEvent('${topic}'`)) failures.push(`Cache topic must be owned by the canonical cache publisher: ${topic}`)
 }
 
-if (!events.includes('invalidatedCount: result.invalidated')) throw new Error('Cache invalidation events must publish only aggregate invalidation counts')
-if (!events.includes('namespaceFiltered: Boolean(req.body?.namespace)')) throw new Error('Targeted cache invalidation must publish only a namespace-filter signal')
-if (!events.includes('tagFilterCount: Array.isArray(req.body?.tags) ? req.body.tags.length : 0')) throw new Error('Targeted cache invalidation must publish only the tag-filter count')
-if (!events.includes('methodCount: result.methods.length') || !events.includes('tagCount: result.tags.length')) {
-  throw new Error('Cache policy events must publish bounded method and tag counts')
+if (failures.length) {
+  console.error('Cache real-time event check failed:')
+  failures.forEach(failure => console.error(`- ${failure}`))
+  process.exit(1)
 }
 
 console.log('Cache real-time event checks passed')
