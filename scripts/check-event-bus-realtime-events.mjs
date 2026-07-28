@@ -1,75 +1,88 @@
 import fs from 'node:fs/promises'
 
 const router = await fs.readFile(new URL('../server/eventBusRouter.js', import.meta.url), 'utf8')
+const failures = []
 
-const requiredTopics = [
-  'event-bus.subscription-updated',
-  'event-bus.subscription-deleted',
-  'event-bus.event-replayed',
-  'event-bus.dead-letter-replayed',
-]
-
-if (!router.includes("import { publishDomainEvent } from './services/realtimeDomainEventService.js'")) {
-  throw new Error('Event bus router must publish through the canonical real-time domain event service')
+for (const token of [
+  "publishEventBusRealtimeEvent('event-bus.subscription-updated'",
+  "publishEventBusRealtimeEvent('event-bus.subscription-deleted'",
+  "publishEventBusRealtimeEvent('event-bus.event-replayed'",
+  "publishEventBusRealtimeEvent('event-bus.dead-letter-replayed'",
+  'subscriptionCount:',
+  'enabledSubscriptionCount:',
+  'eventCount:',
+  'pendingDeliveryCount:',
+  'processingDeliveryCount:',
+  'deadLetterCount:',
+  'maximumAttempts:',
+  'metadataFieldCount:',
+  'deliveryCount:',
+  'deadLetterReplay:',
+]) {
+  if (!router.includes(token)) failures.push(`Missing event bus realtime marker: ${token}`)
 }
 
-for (const topic of requiredTopics) {
-  if (!router.includes(`'${topic}'`)) throw new Error(`Missing event bus real-time event: ${topic}`)
+const payloadStart = router.indexOf('function eventBusRegistryPayload(')
+const payloadEnd = router.indexOf('\n}\n\nasync function publishEventBusRealtimeEvent', payloadStart)
+const payloadSource = payloadStart >= 0 && payloadEnd > payloadStart ? router.slice(payloadStart, payloadEnd) : ''
+
+for (const forbidden of [
+  'subscriptionId:', 'eventId:', 'sourceEventId:', 'replayEventId:', 'deadLetterId:',
+  'topic:', 'topicPattern:', 'handler:', 'metadata:', 'payload:', 'headers:', 'correlationId:',
+  'causationId:', 'source:', 'error:', 'lastError:', 'actor:', 'session', 'email:', 'role:',
+  'createdAt:', 'updatedAt:', 'publishedAt:', 'deliveredAt:', 'replayedAt:', 'req.body',
+  'req.params', '...result', '...event', '...subscription', '...deadLetter',
+]) {
+  if (payloadSource.includes(forbidden)) failures.push(`Event bus event payload exposes forbidden data: ${forbidden}`)
 }
 
-function eventCalls(code, marker) {
-  const calls = []
-  let start = 0
-  while ((start = code.indexOf(marker, start)) !== -1) {
-    let depth = 0
-    let quote = null
-    let escaped = false
-    let end = start + marker.length
-    for (; end < code.length; end += 1) {
-      const character = code[end]
-      if (quote) {
-        if (escaped) escaped = false
-        else if (character === '\\') escaped = true
-        else if (character === quote) quote = null
-        continue
-      }
-      if (character === "'" || character === '"' || character === '`') { quote = character; continue }
-      if (character === '(') depth += 1
-      else if (character === ')') {
-        if (depth === 0) { end += 1; break }
-        depth -= 1
-      }
-    }
-    calls.push(code.slice(start, end))
-    start = end
-  }
-  return calls
+if (!router.includes("async function publishEventBusRealtimeEvent(topic, payload) {\n  await publishDomainEvent(topic, payload)\n}")) {
+  failures.push('Event bus events must use an awaited aggregate-only canonical publisher')
 }
 
-const events = eventCalls(router, 'publishEventBusEvent(').join('\n')
-const forbiddenPayloads = [
-  'payload: req.body',
-  'topic: req.body',
-  'options: req.body',
-  'metadata:',
-  'handler:',
-  'topicPattern:',
-  'error:',
-  'lastError:',
-  'headers:',
-  'correlationId:',
-  'causationId:',
-]
-for (const fragment of forbiddenPayloads) {
-  if (events.includes(fragment)) throw new Error(`Event bus events expose forbidden delivery data: ${fragment}`)
+const subscriptionGuard = router.indexOf('if (!subscriptionPatchChanges(existing, input)) return existing')
+const subscriptionMutation = router.indexOf('const result = await upsertSubscription(')
+const subscriptionPublish = router.indexOf("await publishEventBusRealtimeEvent('event-bus.subscription-updated'")
+if (subscriptionGuard < 0 || subscriptionMutation < subscriptionGuard || subscriptionPublish < subscriptionMutation) {
+  failures.push('Unchanged event subscriptions must return before persistence and publication')
 }
 
-if (!events.includes('maximumAttempts: result.retry.maximumAttempts')) throw new Error('Subscription events must publish only bounded retry configuration')
-if (!events.includes('deliveryCount: result.deliveryCount')) throw new Error('Replay events must publish aggregate delivery counts')
+const deleteGuard = router.indexOf("if (!existing) return { deleted: false, id: req.params.subscriptionId }")
+const deleteMutation = router.indexOf('const result = await deleteSubscription(')
+const deletePublish = router.indexOf("await publishEventBusRealtimeEvent('event-bus.subscription-deleted'")
+if (deleteGuard < 0 || deleteMutation < deleteGuard || deletePublish < deleteMutation) {
+  failures.push('Missing event subscriptions must not be persisted or published')
+}
+
+const replayMutation = router.indexOf('const result = await replayEvent(')
+const replayPublish = router.indexOf("await publishEventBusRealtimeEvent('event-bus.event-replayed'")
+if (replayMutation < 0 || replayPublish < replayMutation) failures.push('Event replay must persist before publication')
+
+const deadLetterGuard = router.indexOf("if (existing?.replayedAt) return { replayed: false, alreadyReplayed: true }")
+const deadLetterMutation = router.indexOf('const result = await replayDeadLetter(')
+const deadLetterPublish = router.indexOf("await publishEventBusRealtimeEvent('event-bus.dead-letter-replayed'")
+if (deadLetterGuard < 0 || deadLetterMutation < deadLetterGuard || deadLetterPublish < deadLetterMutation) {
+  failures.push('Already-replayed dead letters must return before persistence and publication')
+}
 
 const publishRouteStart = router.indexOf("router.post('/publish'")
 const processRouteStart = router.indexOf("router.post('/process'")
 const publishRoute = router.slice(publishRouteStart, processRouteStart)
-if (publishRoute.includes('publishEventBusEvent(')) throw new Error('Administrative event publication must not emit recursive event-bus meta-events')
+if (publishRoute.includes('publishEventBusRealtimeEvent(')) failures.push('Administrative event publication must not emit recursive event-bus meta-events')
+
+for (const topic of [
+  'event-bus.subscription-updated',
+  'event-bus.subscription-deleted',
+  'event-bus.event-replayed',
+  'event-bus.dead-letter-replayed',
+]) {
+  if (router.includes(`publishDomainEvent('${topic}'`)) failures.push(`Event bus topic must be owned by the canonical event bus publisher: ${topic}`)
+}
+
+if (failures.length) {
+  console.error('Event bus real-time event check failed:')
+  failures.forEach(failure => console.error(`- ${failure}`))
+  process.exit(1)
+}
 
 console.log('Event bus real-time event checks passed')
