@@ -58,45 +58,9 @@ function normalisePrefix(value = '') {
   return String(value).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)
 }
 
-function suggestedPrefix(website = {}) {
-  const known = { ksjdigital: 'KSJ', twotonetaj: 'TAJ' }
-  const id = String(website.id || '').toLowerCase()
-  if (known[id]) return known[id]
-
-  const name = String(website.name || website.id || 'WEB')
-  const words = name.replace(/[^A-Za-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean)
-  if (words.length > 1) {
-    const initials = normalisePrefix(words.map(word => word[0]).join(''))
-    if (initials) return initials.slice(0, 3)
-  }
-  return normalisePrefix(name).slice(0, 3) || 'WEB'
-}
-
-function uniquePrefix(base, used) {
-  const normalised = normalisePrefix(base) || 'WEB'
-  if (!used.has(normalised)) return normalised
-  for (let index = 2; index < 1000; index += 1) {
-    const suffix = String(index)
-    const candidate = `${normalised.slice(0, 6 - suffix.length)}${suffix}`
-    if (!used.has(candidate)) return candidate
-  }
-  return `${normalised.slice(0, 3)}999`
-}
-
-function assessOrderPrefixes(websites) {
+function activeWebsiteState(websites) {
   const active = websites.filter(website => ACTIVE_WEBSITE_IDS.has(String(website.id || '').toLowerCase()))
-  const used = new Set(active.map(website => normalisePrefix(website.orderPrefix)).filter(Boolean))
-  let changed = active.length !== websites.length
-  const assessed = active.map(website => {
-    const existing = normalisePrefix(website.orderPrefix)
-    if (existing) return { ...website, orderPrefix: existing }
-    const orderPrefix = uniquePrefix(suggestedPrefix(website), used)
-    used.add(orderPrefix)
-    changed = true
-    return { ...website, orderPrefix }
-  })
-
-  return { websites: assessed, changed }
+  return { active, inactiveCount: websites.length - active.length }
 }
 
 function line(status, label, detail = '') {
@@ -109,8 +73,8 @@ loadEnvironmentFile('.env.local')
 
 const websitesFile = path.join(dataDir, 'websites.json')
 const storedWebsites = readJson(websitesFile, [])
-const assessed = assessOrderPrefixes(storedWebsites)
-const websites = assessed.websites
+const websiteState = activeWebsiteState(storedWebsites)
+const websites = websiteState.active
 const clients = readJson(path.join(dataDir, 'clients.json'), [])
 const settingsDir = path.join(dataDir, 'commerce-settings')
 const contentDir = path.join(dataDir, 'content')
@@ -140,9 +104,10 @@ for (const [key, label] of [
   else warn(label, 'blank; development fallback remains active')
 }
 
-if (assessed.changed) warn('Stored website records', 'cleanup or order-prefix normalisation is recommended; readiness checks do not modify stored data')
+if (websiteState.inactiveCount) warn('Stored website records', `${websiteState.inactiveCount} inactive record(s) remain; readiness checks do not modify stored data`)
 if (!websites.length) warn('Websites', 'no active website records found yet')
 
+const seenOrderPrefixes = new Set()
 for (const website of websites) {
   const websiteId = String(website.id || '').trim()
   if (!websiteId) continue
@@ -156,8 +121,15 @@ for (const website of websites) {
     client.websiteId === websiteId || (client.websiteIds || []).includes(websiteId),
   )
 
-  if (present(website.orderPrefix)) pass('Order prefix', website.orderPrefix)
-  else fail('Order prefix', 'required for unique client order numbers')
+  const rawOrderPrefix = String(website.orderPrefix || '').trim()
+  const orderPrefix = normalisePrefix(rawOrderPrefix)
+  if (!rawOrderPrefix) fail('Order prefix', 'required for unique client order numbers')
+  else if (rawOrderPrefix !== orderPrefix) fail('Order prefix', 'must already be normalised to 1-6 uppercase letters or digits')
+  else if (seenOrderPrefixes.has(orderPrefix)) fail('Order prefix', `duplicate prefix ${orderPrefix}`)
+  else {
+    seenOrderPrefixes.add(orderPrefix)
+    pass('Order prefix', orderPrefix)
+  }
 
   if (clientAccounts.length) pass('Account access', `${clientAccounts.length} account(s) assigned`)
   else warn('Account access', 'no account assigned')
