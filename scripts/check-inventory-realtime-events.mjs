@@ -4,6 +4,7 @@ const files = {
   stock: await fs.readFile(new URL('../server/merchValidation.js', import.meta.url), 'utf8'),
   reservations: await fs.readFile(new URL('../server/stockReservations.js', import.meta.url), 'utf8'),
   router: await fs.readFile(new URL('../server/inventoryRouter.js', import.meta.url), 'utf8'),
+  publicRoutes: await fs.readFile(new URL('../server/routeExtensions.js', import.meta.url), 'utf8'),
 }
 const failures = []
 
@@ -139,6 +140,44 @@ const expirySource = expiryStart >= 0 && expiryEnd > expiryStart
   : ''
 if (!expirySource.includes("if (expired.length) {\n    const expiredIds")) {
   failures.push('Expired reservation cleanup must not publish or persist when no reservations expired')
+}
+
+for (const token of [
+  "const releaseToken = crypto.randomBytes(32).toString('hex')",
+  'releaseTokenHash: releaseTokenHash(releaseToken)',
+  "response.id = `${reservation.id}.${releaseToken}`",
+  'delete response.releaseTokenHash',
+  "const [id = '', releaseToken = ''] = String(value).split('.', 2)",
+  'crypto.timingSafeEqual(expected, actual)',
+  'export async function releasePublicStockReservation(reservationCapabilityValue)',
+  'if (!id || !releaseToken) return false',
+  'releaseReservationLocked(id, releaseToken, true)',
+]) {
+  if (!files.reservations.includes(token)) failures.push(`Missing tokenized reservation-release protection: ${token}`)
+}
+
+const reservationCreationStart = files.reservations.indexOf('export async function reserveProductStock(')
+const reservationCreationEnd = files.reservations.indexOf('\nexport async function getActiveStockReservation', reservationCreationStart)
+const reservationCreation = reservationCreationStart >= 0 && reservationCreationEnd > reservationCreationStart
+  ? files.reservations.slice(reservationCreationStart, reservationCreationEnd)
+  : ''
+if (/\breleaseToken\s*:/.test(reservationCreation)) {
+  failures.push('Plaintext reservation release tokens must not be persisted as reservation fields')
+}
+
+if (!files.publicRoutes.includes("import { releasePublicStockReservation } from './stockReservations.js'")) {
+  failures.push('Public reservation release must use the token-validating reservation service')
+}
+const publicReleaseStart = files.publicRoutes.indexOf("app.use('/api/checkout/reservations/:id/release'")
+const publicReleaseEnd = files.publicRoutes.indexOf("app.use('/api/checkout/stripe/start'", publicReleaseStart)
+const publicReleaseSource = publicReleaseStart >= 0 && publicReleaseEnd > publicReleaseStart
+  ? files.publicRoutes.slice(publicReleaseStart, publicReleaseEnd)
+  : ''
+if (!publicReleaseSource.includes('await releasePublicStockReservation(req.params.id)')) {
+  failures.push('Public reservation release must validate the tokenized capability')
+}
+if (publicReleaseSource.includes('releaseStockReservation(')) {
+  failures.push('Public reservation release must never call the trusted internal release function')
 }
 
 if (failures.length) {
