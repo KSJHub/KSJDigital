@@ -72,15 +72,21 @@ function closeConnection(connection, code = 1000, reason = '') {
 }
 function handleMessage(connection, payload) {
   let message
-  try { message = JSON.parse(payload.toString('utf8')) } catch { return sendJson(connection, { type: 'error', error: 'Message must be valid JSON' }) }
-  if (message.type === 'ping') return sendJson(connection, { type: 'pong', timestamp: nowIso() })
+  try { message = JSON.parse(payload.toString('utf8')) } catch { return sendJson(connection, { type: 'error', invalidJson: true }) }
+  if (message.type === 'ping') return sendJson(connection, { type: 'pong' })
   if (message.type === 'subscribe') {
     const channel = String(message.channel || '')
-    if (!canSubscribe(connection.account, channel)) return sendJson(connection, { type: 'error', error: 'Channel access denied', channel })
-    connection.channels.add(channel); return sendJson(connection, { type: 'subscribed', channel })
+    if (!canSubscribe(connection.account, channel)) return sendJson(connection, { type: 'error', accessDenied: true })
+    const changed = !connection.channels.has(channel)
+    if (changed) connection.channels.add(channel)
+    return sendJson(connection, { type: 'subscribed', changed, channelCount: connection.channels.size })
   }
-  if (message.type === 'unsubscribe') { const channel = String(message.channel || ''); connection.channels.delete(channel); return sendJson(connection, { type: 'unsubscribed', channel }) }
-  return sendJson(connection, { type: 'error', error: 'Unsupported message type' })
+  if (message.type === 'unsubscribe') {
+    const channel = String(message.channel || '')
+    const changed = connection.channels.delete(channel)
+    return sendJson(connection, { type: 'unsubscribed', changed, channelCount: connection.channels.size })
+  }
+  return sendJson(connection, { type: 'error', unsupportedMessage: true })
 }
 function handleData(connection, chunk) {
   connection.buffer = Buffer.concat([connection.buffer, chunk])
@@ -113,7 +119,7 @@ async function handleUpgrade(request, socket, head) {
   connections.set(connection.id, connection)
   socket.on('data', chunk => handleData(connection, chunk)); socket.on('error', () => closeConnection(connection, 1011, 'Socket error')); socket.on('end', () => closeConnection(connection)); socket.on('close', () => { connection.closed = true; connections.delete(connection.id) })
   if (head?.length) handleData(connection, head)
-  sendJson(connection, { type: 'connected', connectionId: connection.id, channels: [...connection.channels], heartbeatIntervalMs: gateway.options.heartbeatIntervalMs })
+  sendJson(connection, { type: 'connected', channelCount: connection.channels.size, heartbeatIntervalMs: gateway.options.heartbeatIntervalMs })
 }
 function heartbeat() {
   const now = Date.now()
@@ -139,11 +145,14 @@ export function stopWebSocketGateway() {
   gateway = null; return { stopped: true }
 }
 export function broadcastWebSocketEvent(channel, event, payload = null) {
-  const message = { type: 'event', channel, event: String(event || ''), payload, publishedAt: nowIso() }
+  const message = { type: 'event', event: String(event || ''), payload }
   let delivered = 0
   for (const connection of connections.values()) if (connection.channels.has(channel) && sendJson(connection, message)) delivered += 1
-  return { channel, delivered }
+  return { delivered }
 }
 export function disconnectWebSocketConnection(connectionId, reason = 'Administrative disconnect') { const connection = connections.get(connectionId); if (!connection) return false; closeConnection(connection, 1001, reason); return true }
-export function getWebSocketConnections() { return [...connections.values()].map(item => ({ id: item.id, accountId: item.account.id, accountName: item.account.name, role: item.account.role, sessionId: item.sessionId, channels: [...item.channels], connectedAt: item.connectedAt, lastSeenAt: item.lastSeenAt, bufferedBytes: item.socket.writableLength || 0 })) }
-export function getWebSocketGatewayState() { return { running: Boolean(gateway), path: gateway?.options.path || '/ws', startedAt: gateway?.startedAt || null, connectionCount: connections.size, connectionsByAccount: Object.fromEntries([...connections.values()].reduce((map, item) => map.set(item.account.id, (map.get(item.account.id) || 0) + 1), new Map())), limits: gateway ? { maximumConnections: gateway.options.maximumConnections, maximumConnectionsPerAccount: gateway.options.maximumConnectionsPerAccount, maximumPayloadBytes: gateway.options.maximumPayloadBytes, maximumBufferedBytes: gateway.options.maximumBufferedBytes } : null } }
+export function getWebSocketConnections() { return [...connections.values()].map(item => ({ id: item.id, role: item.account.role, channelCount: item.channels.size, connectedAt: item.connectedAt, lastSeenAt: item.lastSeenAt, bufferedBytes: item.socket.writableLength || 0 })) }
+export function getWebSocketGatewayState() {
+  const counts = [...connections.values()].reduce((map, item) => map.set(item.account.id, (map.get(item.account.id) || 0) + 1), new Map())
+  return { running: Boolean(gateway), path: gateway?.options.path || '/ws', startedAt: gateway?.startedAt || null, connectionCount: connections.size, activeAccountCount: counts.size, maximumConnectionsForSingleAccount: Math.max(0, ...counts.values()), limits: gateway ? { maximumConnections: gateway.options.maximumConnections, maximumConnectionsPerAccount: gateway.options.maximumConnectionsPerAccount, maximumPayloadBytes: gateway.options.maximumPayloadBytes, maximumBufferedBytes: gateway.options.maximumBufferedBytes } : null }
+}
