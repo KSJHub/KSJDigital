@@ -24,16 +24,9 @@ export class NotificationError extends Error {
 
 function nowIso() { return new Date().toISOString() }
 function initialRegistry() {
-  return {
-    templates: [],
-    recipients: [],
-    deliveries: [],
-    rateLimits: {},
-    history: [],
-    version: 1,
-    updatedAt: nowIso(),
-  }
+  return { templates: [], recipients: [], deliveries: [], rateLimits: {}, history: [], version: 1, updatedAt: nowIso() }
 }
+
 async function readRegistry() {
   const registry = await readJson(REGISTRY_FILE, null) || initialRegistry()
   registry.templates ||= []
@@ -44,11 +37,13 @@ async function readRegistry() {
   registry.version ||= 1
   return registry
 }
+
 async function mutate(operation) {
   const previous = mutations.get('registry') || Promise.resolve()
   const current = previous.catch(() => {}).then(async () => {
     const registry = structuredClone(await readRegistry())
     const result = await operation(registry)
+    if (result?.__skipWrite === true) return result.value
     registry.version += 1
     registry.updatedAt = nowIso()
     registry.history = registry.history.slice(0, MAX_HISTORY)
@@ -59,32 +54,35 @@ async function mutate(operation) {
   mutations.set('registry', current)
   try { return await current } finally { if (mutations.get('registry') === current) mutations.delete('registry') }
 }
+
 function requiredText(value, label, maximum = 500) {
   const result = String(value || '').trim()
   if (!result) throw new NotificationError(`${label} is required`, 422)
   if (result.length > maximum) throw new NotificationError(`${label} is too long`, 422)
   return result
 }
+
 function templateId(value) {
   const id = safeName(value)
   if (!id || id === 'file') throw new NotificationError('Template ID is required', 422)
   return id
 }
+
 function normaliseRecipient(input = {}) {
   const id = safeName(input.id || input.address || input.name)
   if (!id || id === 'file') throw new NotificationError('Recipient ID is required', 422)
   const provider = requiredText(input.provider, 'Recipient provider', 100)
   if (!providers.has(provider)) throw new NotificationError('Unknown notification provider', 422, { provider })
-  const address = requiredText(input.address, 'Recipient address', 1000)
   return {
     id,
     name: String(input.name || id).trim().slice(0, 200),
     provider,
-    address,
+    address: requiredText(input.address, 'Recipient address', 1000),
     enabled: input.enabled !== false,
     metadata: input.metadata && typeof input.metadata === 'object' && !Array.isArray(input.metadata) ? structuredClone(input.metadata) : {},
   }
 }
+
 function renderString(source, variables) {
   return String(source || '').replace(/\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g, (_, key) => {
     let current = variables
@@ -92,6 +90,7 @@ function renderString(source, variables) {
     return current === null || current === undefined ? '' : String(current)
   })
 }
+
 function renderTemplate(template, variables = {}) {
   return {
     subject: renderString(template.subject, variables),
@@ -99,23 +98,39 @@ function renderTemplate(template, variables = {}) {
     data: template.data && typeof template.data === 'object' ? JSON.parse(renderString(JSON.stringify(template.data), variables)) : {},
   }
 }
+
 function rateLimit(input = {}, existing = null) {
-  const windowMs = Math.min(86_400_000, Math.max(1000, Number(input.windowMs ?? existing?.windowMs ?? DEFAULT_RATE_LIMIT.windowMs)))
-  const maximum = Math.min(10_000, Math.max(1, Number(input.maximum ?? existing?.maximum ?? DEFAULT_RATE_LIMIT.maximum)))
-  return { windowMs, maximum }
+  return {
+    windowMs: Math.min(86_400_000, Math.max(1000, Number(input.windowMs ?? existing?.windowMs ?? DEFAULT_RATE_LIMIT.windowMs))),
+    maximum: Math.min(10_000, Math.max(1, Number(input.maximum ?? existing?.maximum ?? DEFAULT_RATE_LIMIT.maximum))),
+  }
 }
+
 function consumeRateLimit(registry, recipient) {
   const policy = rateLimit(registry.rateLimits[recipient.provider])
   const key = `${recipient.provider}:${recipient.id}`
   const now = Date.now()
   const current = registry.rateLimits[key] || { startedAt: now, count: 0 }
-  if (now - current.startedAt >= policy.windowMs) {
-    current.startedAt = now
-    current.count = 0
-  }
+  if (now - current.startedAt >= policy.windowMs) { current.startedAt = now; current.count = 0 }
   if (current.count >= policy.maximum) throw new NotificationError('Notification rate limit exceeded', 429, { recipientId: recipient.id, retryAfterMs: policy.windowMs - (now - current.startedAt) })
   current.count += 1
   registry.rateLimits[key] = current
+}
+
+function deliveryRealtimePayload(delivery = {}, details = {}) {
+  return {
+    status: ['sending', 'delivered', 'failed'].includes(delivery.status) ? delivery.status : 'sending',
+    attemptCount: Number(delivery.attempts) || 0,
+    hasMessageData: delivery.message && typeof delivery.message === 'object' ? Object.keys(delivery.message).length > 0 : false,
+    hasProviderResult: delivery.providerResult !== null && delivery.providerResult !== undefined,
+    hasError: Boolean(delivery.error),
+    delivered: delivery.status === 'delivered',
+    retryable: details.retryable === true,
+  }
+}
+
+async function publishNotificationDeliveryRealtimeEvent(topic, payload) {
+  await publishDomainEvent(topic, payload)
 }
 
 export function registerNotificationProvider(definition = {}) {
@@ -125,13 +140,12 @@ export function registerNotificationProvider(definition = {}) {
   providers.set(id, Object.freeze({ id, label: String(definition.label || id), send: definition.send }))
   return { id, label: String(definition.label || id) }
 }
-export function listNotificationProviders() { return [...providers.values()].map(({ id, label }) => ({ id, label })).sort((a, b) => a.id.localeCompare(b.id)) }
 
-registerNotificationProvider({
-  id: 'in-app',
-  label: 'In-app inbox',
-  async send({ delivery }) { return { accepted: true, messageId: delivery.id } },
-})
+export function listNotificationProviders() {
+  return [...providers.values()].map(({ id, label }) => ({ id, label })).sort((a, b) => a.id.localeCompare(b.id))
+}
+
+registerNotificationProvider({ id: 'in-app', label: 'In-app inbox', async send({ delivery }) { return { accepted: true, messageId: delivery.id } } })
 registerNotificationProvider({
   id: 'integration-event',
   label: 'Integration event',
@@ -146,6 +160,7 @@ export async function getNotificationState(query = {}) {
   const limit = Math.min(1000, Math.max(1, Number(query.limit || 200)))
   return { ...registry, deliveries: registry.deliveries.slice(0, limit), history: registry.history.slice(0, limit), providers: listNotificationProviders() }
 }
+
 export async function upsertNotificationTemplate(input = {}, actor = null) {
   const id = templateId(input.id || input.name)
   const name = requiredText(input.name || id, 'Template name', 200)
@@ -159,6 +174,7 @@ export async function upsertNotificationTemplate(input = {}, actor = null) {
     return template
   })
 }
+
 export async function upsertNotificationRecipient(input = {}, actor = null) {
   const normalised = normaliseRecipient(input)
   return mutate(registry => {
@@ -169,6 +185,7 @@ export async function upsertNotificationRecipient(input = {}, actor = null) {
     return recipient
   })
 }
+
 export async function updateNotificationRateLimit(providerValue, input = {}, actor = null) {
   const provider = requiredText(providerValue, 'Provider', 100)
   if (!providers.has(provider)) throw new NotificationError('Unknown notification provider', 422)
@@ -179,6 +196,7 @@ export async function updateNotificationRateLimit(providerValue, input = {}, act
     return policy
   })
 }
+
 export async function queueNotification(input = {}, actor = null) {
   const registry = await readRegistry()
   const template = registry.templates.find(item => item.id === templateId(input.templateId))
@@ -193,29 +211,24 @@ export async function queueNotification(input = {}, actor = null) {
   const jobs = []
   for (const recipient of recipients) {
     jobs.push(await enqueueJob({
-      queue: 'notifications',
-      handler: 'notification-delivery',
-      priority: input.priority,
-      scheduledFor: input.scheduledFor,
-      timeoutMs: input.timeoutMs || 60_000,
-      retry: input.retry,
-      idempotencyKey: `${deduplicationKey}:${recipient.id}`,
+      queue: 'notifications', handler: 'notification-delivery', priority: input.priority, scheduledFor: input.scheduledFor,
+      timeoutMs: input.timeoutMs || 60_000, retry: input.retry, idempotencyKey: `${deduplicationKey}:${recipient.id}`,
       payload: { templateId: template.id, recipientId: recipient.id, variables, deduplicationKey, requestedBy: actor },
     }, actor))
   }
   return { queued: jobs.length, jobs, deduplicationKey }
 }
+
 export async function deliverNotification(input = {}) {
   const templateIdValue = templateId(input.templateId)
   const recipientId = safeName(input.recipientId)
-  const currentActor = input.requestedBy || null
-  const delivery = await mutate(async registry => {
+  const delivery = await mutate(registry => {
     const template = registry.templates.find(item => item.id === templateIdValue)
     const recipient = registry.recipients.find(item => item.id === recipientId)
     if (!template || !template.enabled) throw new NotificationError('Notification template was not found or is disabled', 404)
     if (!recipient || !recipient.enabled) throw new NotificationError('Notification recipient was not found or is disabled', 404)
     const duplicate = registry.deliveries.find(item => item.deduplicationKey === input.deduplicationKey && item.recipientId === recipient.id && item.status === 'delivered')
-    if (duplicate) return { ...duplicate, duplicate: true }
+    if (duplicate) return { __skipWrite: true, value: { ...duplicate, duplicate: true } }
     consumeRateLimit(registry, recipient)
     const message = renderTemplate(template, input.variables || {})
     const record = { id: crypto.randomUUID(), templateId: template.id, recipientId: recipient.id, provider: recipient.provider, deduplicationKey: String(input.deduplicationKey || ''), message, status: 'sending', attempts: 1, createdAt: nowIso(), deliveredAt: null, failedAt: null, error: null, providerResult: null }
@@ -224,15 +237,7 @@ export async function deliverNotification(input = {}) {
     return { ...record, recipient, duplicate: false }
   })
   if (delivery.duplicate) return delivery
-  await publishDomainEvent('notification.delivery-started', {
-    accountId: currentActor?.id || null,
-    deliveryId: delivery.id,
-    templateId: delivery.templateId,
-    provider: delivery.provider,
-    status: delivery.status,
-    attempts: delivery.attempts,
-    createdAt: delivery.createdAt,
-  }, currentActor)
+  await publishNotificationDeliveryRealtimeEvent('notification.delivery-started', deliveryRealtimePayload(delivery))
   const provider = providers.get(delivery.provider)
   try {
     const result = await provider.send({ recipient: delivery.recipient, delivery, message: delivery.message })
@@ -242,15 +247,7 @@ export async function deliverNotification(input = {}) {
       registry.history.unshift({ id: crypto.randomUUID(), action: 'notification.delivered', deliveryId: record.id, recipientId: record.recipientId, createdAt: nowIso() })
       return structuredClone(record)
     })
-    await publishDomainEvent('notification.delivered', {
-      accountId: currentActor?.id || null,
-      deliveryId: completed.id,
-      templateId: completed.templateId,
-      provider: completed.provider,
-      status: completed.status,
-      attempts: completed.attempts,
-      deliveredAt: completed.deliveredAt,
-    }, currentActor)
+    await publishNotificationDeliveryRealtimeEvent('notification.delivered', deliveryRealtimePayload(completed))
     await writeStructuredLog('info', 'Notification delivered', { deliveryId: completed.id, provider: completed.provider, recipientId: completed.recipientId })
     return completed
   } catch (error) {
@@ -258,18 +255,10 @@ export async function deliverNotification(input = {}) {
       const record = registry.deliveries.find(item => item.id === delivery.id)
       if (record) { record.status = 'failed'; record.failedAt = nowIso(); record.error = error?.message || 'Notification delivery failed' }
       registry.history.unshift({ id: crypto.randomUUID(), action: 'notification.failed', deliveryId: delivery.id, recipientId: delivery.recipientId, error: error?.message || 'Notification delivery failed', createdAt: nowIso() })
-      return record ? structuredClone(record) : { id: delivery.id, templateId: delivery.templateId, provider: delivery.provider, status: 'failed', attempts: delivery.attempts, failedAt: nowIso() }
+      return record ? structuredClone(record) : { status: 'failed', attempts: delivery.attempts, error: error?.message || 'Notification delivery failed' }
     })
-    await publishDomainEvent('notification.failed', {
-      accountId: currentActor?.id || null,
-      deliveryId: failed.id,
-      templateId: failed.templateId,
-      provider: failed.provider,
-      status: failed.status,
-      attempts: failed.attempts,
-      failedAt: failed.failedAt,
-      retryable: error?.status !== 400 && error?.status !== 401 && error?.status !== 403 && error?.status !== 404 && error?.status !== 422,
-    }, currentActor)
+    const retryable = ![400, 401, 403, 404, 422].includes(error?.status)
+    await publishNotificationDeliveryRealtimeEvent('notification.failed', deliveryRealtimePayload(failed, { retryable }))
     throw error
   }
 }
