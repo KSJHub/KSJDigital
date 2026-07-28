@@ -39,6 +39,7 @@ async function mutate(operation) {
   const current = previous.catch(() => {}).then(async () => {
     const registry = structuredClone(await readRegistry())
     const result = await operation(registry)
+    if (result?.__skipWrite === true) return result.value
     registry.version += 1; registry.updatedAt = nowIso()
     await writeJson(REGISTRY_FILE, registry)
     return result === undefined ? registry : result
@@ -176,12 +177,16 @@ export async function promoteRelease(releaseId, environmentValue, input = {}, ac
 
 export async function setMaintenanceMode(environmentValue, input = {}, actor = null) {
   const environment = environmentName(environmentValue); const enabled = input.enabled === true
+  const message = enabled ? String(input.message || 'Scheduled maintenance is in progress.').trim().slice(0, 500) : null
   const result = await mutate(registry => {
-    const state = { enabled, message: enabled ? String(input.message || 'Scheduled maintenance is in progress.').trim().slice(0, 500) : null, enabledAt: enabled ? nowIso() : null, enabledBy: enabled ? actor : null }
+    const existing = registry.maintenance[environment]
+    if (existing?.enabled === enabled && existing.message === message) return { __skipWrite: true, value: { environment, ...existing, unchanged: true } }
+    const state = { enabled, message, enabledAt: enabled ? nowIso() : null, enabledBy: enabled ? actor : null }
     registry.maintenance[environment] = state
     registry.history.unshift({ id: crypto.randomUUID(), action: enabled ? 'maintenance.enabled' : 'maintenance.disabled', environment, actor, createdAt: nowIso() })
     return { environment, ...state }
   })
+  if (result.unchanged) return result
   publishIntegrationEvent('global', enabled ? 'maintenance.enabled' : 'maintenance.disabled', result, { releaseManagement: true }).catch(() => {})
   return result
 }
