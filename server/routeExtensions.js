@@ -132,9 +132,7 @@ function publicAssetMetadata(asset = {}) {
 export function mountPublicRoutes(app) {
   app.use('/api/checkout/reservations/:id/release', async (req, res) => {
     try {
-      const releaseToken = String(req.query.release_token || req.headers['x-reservation-release-token'] || '')
-      if (!releaseToken) return res.status(403).json({ error: 'Reservation release token required' })
-      const released = await releasePublicStockReservation(req.params.id, releaseToken)
+      const released = await releasePublicStockReservation(req.params.id)
       if (!released) return res.status(404).json({ error: 'Reservation could not be released' })
       res.json({ released: true })
     } catch {
