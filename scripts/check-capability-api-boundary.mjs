@@ -12,6 +12,7 @@ for (const binding of [
   "{ prefix: '/orders', capability: 'commerce' }",
   "{ prefix: '/inventory', capability: 'commerce' }",
   "{ prefix: '/commerce-settings', capability: 'commerce' }",
+  "{ prefix: '/taxonomies', capability: 'website' }",
   "{ prefix: '/content', capability: 'website' }",
   "{ prefix: '/publish', capability: 'website' }",
 ]) {
@@ -24,6 +25,7 @@ for (const marker of [
   "res.status(403).json({ error: 'This tool is not enabled for your website' })",
   'assigned.has(targetWebsiteId)',
   'hasSessionCapability(req.session, rule.capability)',
+  "['content', 'forms', 'cms', 'commerce-settings', 'taxonomies'].includes(parts[0])",
 ]) {
   if (!guard.includes(marker)) errors.push(`Capability guard is missing required marker: ${marker}`)
 }
