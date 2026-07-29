@@ -71,6 +71,43 @@ function loadLocalEnvironment() {
     if (!(key in process.env)) process.env[key] = value
   }
 }
+function configuredCorsOrigins() {
+  return new Set(
+    [process.env.KSJ_PORTAL_ORIGIN, ...(process.env.KSJ_ALLOWED_ORIGINS || '').split(',')]
+      .map(value => String(value || '').trim())
+      .filter(Boolean),
+  )
+}
+function localDevelopmentCorsOrigin(origin) {
+  if (process.env.NODE_ENV === 'production') return false
+  try {
+    const url = new URL(origin)
+    return ['localhost', '127.0.0.1', '::1'].includes(url.hostname)
+  } catch {
+    return false
+  }
+}
+function corsOriginAllowed(origin) {
+  if (!origin) return true
+  if (localDevelopmentCorsOrigin(origin)) return true
+  return configuredCorsOrigins().has(origin)
+}
+function trustedCorsMiddleware(req, res, next) {
+  const origin = String(req.headers.origin || '').trim()
+  if (!origin) return next()
+  if (!corsOriginAllowed(origin)) return res.status(403).json({ error: 'Cross-origin request denied' })
+
+  res.setHeader('Access-Control-Allow-Origin', origin)
+  res.setHeader('Access-Control-Allow-Credentials', 'true')
+  res.setHeader('Vary', 'Origin')
+  if (req.method === 'OPTIONS') {
+    res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE')
+    const requestedHeaders = String(req.headers['access-control-request-headers'] || '').trim()
+    if (requestedHeaders) res.setHeader('Access-Control-Allow-Headers', requestedHeaders)
+    return res.status(204).end()
+  }
+  next()
+}
 const credentialConfiguration = {
   morgan: 'KSJ_OWNER_PASSWORD',
   taj: 'TWOTONETAJ_CLIENT_PASSWORD',
@@ -135,6 +172,7 @@ express.application.patch = function guardedPatch(...args) {
 express.application.use = function routeAwareUse(...args) {
   const mountPath = typeof args[0] === 'string' ? args[0] : ''
   const middleware = mountPath ? args[1] : args[0]
+  if (!mountPath && middleware?.name === 'corsMiddleware') return originalUse.call(this, trustedCorsMiddleware)
   if (!publicRoutesMounted && middleware?.name === 'jsonParser') {
     publicRoutesMounted = true
     originalUse.call(this, createAbuseProtectionMiddleware())
