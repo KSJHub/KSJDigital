@@ -43,6 +43,23 @@ function httpsUrl(value) {
   }
 }
 
+function httpsOrigin(value) {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && !url.username && !url.password && url.pathname === '/' && !url.search && !url.hash && url.origin === String(value || '').trim().replace(/\/$/, '')
+  } catch {
+    return false
+  }
+}
+
+function configuredTrustedOrigins() {
+  return [...new Set(
+    [process.env.KSJ_PORTAL_ORIGIN, ...(process.env.KSJ_ALLOWED_ORIGINS || '').split(',')]
+      .map(value => String(value || '').trim().replace(/\/$/, ''))
+      .filter(Boolean),
+  )]
+}
+
 function localOrHttpsUrl(value) {
   try {
     const url = new URL(value)
@@ -78,6 +95,7 @@ const websites = websiteState.active
 const clients = readJson(path.join(dataDir, 'clients.json'), [])
 const settingsDir = path.join(dataDir, 'commerce-settings')
 const contentDir = path.join(dataDir, 'content')
+const configurationRegistry = readJson(path.join(dataDir, 'configuration', 'registry.json'), {})
 
 let failures = 0
 let warnings = 0
@@ -94,6 +112,25 @@ else warn('Session secret', 'development only; set at least 32 characters before
 
 if (production) pass('Runtime mode', 'production')
 else warn('Runtime mode', `currently ${process.env.NODE_ENV || 'development'}`)
+
+if (present(process.env.INTEGRATION_SIGNING_SECRET)) pass('Integration signing secret', 'configured')
+else if (production) fail('Integration signing secret', 'INTEGRATION_SIGNING_SECRET is required in production')
+else warn('Integration signing secret', 'blank; configure before production')
+
+const trustedOrigins = configuredTrustedOrigins()
+if (production) {
+  if (!trustedOrigins.length) fail('Trusted origins', 'set KSJ_PORTAL_ORIGIN or KSJ_ALLOWED_ORIGINS')
+  else if (!trustedOrigins.every(httpsOrigin)) fail('Trusted origins', 'production origins must be canonical HTTPS origins without paths, queries, fragments, or credentials')
+  else pass('Trusted origins', `${trustedOrigins.length} approved HTTPS origin(s)`)
+} else if (trustedOrigins.length) pass('Trusted origins', `${trustedOrigins.length} configured`)
+else warn('Trusted origins', 'blank; production requests require approved origins')
+
+const storedSecrets = Object.values(configurationRegistry.secrets || {}).filter(secret => secret?.source === 'stored')
+if (storedSecrets.length) {
+  if (String(process.env.CONFIGURATION_MASTER_KEY || '').length >= 32) pass('Configuration master key', 'configured for stored secrets')
+  else fail('Configuration master key', 'CONFIGURATION_MASTER_KEY must contain at least 32 characters when encrypted stored secrets exist')
+} else if (String(process.env.CONFIGURATION_MASTER_KEY || '').length >= 32) pass('Configuration master key', 'configured')
+else warn('Configuration master key', 'not required while no encrypted stored secrets are configured')
 
 for (const [key, label] of [
   ['KSJ_OWNER_PASSWORD', 'Owner password'],
