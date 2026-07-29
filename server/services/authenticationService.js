@@ -55,7 +55,10 @@ export async function completeMfaLogin(req, res) {
     pendingLogins.delete(key); const previous = await currentToken(req); if (previous) await revokeSessionByToken(previous, 'mfa-session-rotation')
     const issued = await issuePersistentSession(pending.account, pending.context, { assuranceLevel: verification.assuranceLevel, assuranceMethod: verification.method, assuranceExpiresAt: verification.assuranceExpiresAt })
     res.setHeader('Set-Cookie', sessionCookie(issued.token)); return res.json({ ...publicSession(issued.session), trustedDeviceToken: verification.trustedDeviceToken, risk: pending.risk })
-  } catch (error) { return res.status(Number(error?.status || 403)).json({ error: error?.message || 'Second-factor verification failed' }) }
+  } catch (error) {
+    console.error('MFA login completion failed', error)
+    return res.status(Number(error?.status || 403)).json({ error: 'Second-factor verification failed' })
+  }
 }
 export async function logoutAuthenticationSession(req, res) { const token = await currentToken(req); if (token) await revokeSessionByToken(token); res.setHeader('Set-Cookie', sessionCookie('', { clear: true })); return res.json({ ok: true }) }
 export async function logoutAllAuthenticationSessions(req, res) { const session = await findAuthenticationSession(req); if (!session) return res.status(401).json({ error: 'Login required' }); const result = await revokeAccountSessions(session.accountId, 'global-logout'); res.setHeader('Set-Cookie', sessionCookie('', { clear: true })); return res.json(result) }
