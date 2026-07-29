@@ -175,11 +175,13 @@ express.application.use = function routeAwareUse(...args) {
   if (!mountPath && middleware?.name === 'corsMiddleware') return originalUse.call(this, trustedCorsMiddleware)
   if (!publicRoutesMounted && middleware?.name === 'jsonParser') {
     publicRoutesMounted = true
+    const jsonParserResult = originalUse.apply(this, args)
     originalUse.call(this, createAbuseProtectionMiddleware())
     originalUse.call(this, createResponseCacheMiddleware())
     originalUse.call(this, createAuthenticationPublicRouter())
     originalUse.call(this, createPasswordResetPublicRouter())
     mountPublicRoutes(this)
+    return jsonParserResult
   }
   if (!assetServingMounted && mountPath === '/assets') { assetServingMounted = true; originalUse.call(this, '/assets', assetServingGuard) }
   if (!assetUploadMounted && mountPath === '/api') { assetUploadMounted = true; originalUse.call(this, '/api/assets', assetUploadGuard) }
