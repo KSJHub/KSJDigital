@@ -3,6 +3,7 @@ import { normaliseWebsiteCapabilities } from './websiteCapabilities.js'
 
 const ROUTE_CAPABILITIES = [
   { prefix: '/assets', capability: 'media' },
+  { prefix: '/asset-library', capability: 'media' },
   { prefix: '/forms', capability: 'forms' },
   { prefix: '/cms', capability: 'website' },
   { prefix: '/dynamic-content', capability: 'website' },
@@ -24,7 +25,7 @@ function routeCapability(pathname = '') {
 function pathWebsiteId(pathname = '') {
   const parts = pathname.split('/').filter(Boolean)
   if (parts[0] === 'assets') return safeName(parts[2] || '')
-  if (['content', 'forms', 'cms', 'commerce-settings', 'taxonomies'].includes(parts[0])) return safeName(parts[1] || '')
+  if (['asset-library', 'content', 'forms', 'cms', 'commerce-settings', 'taxonomies'].includes(parts[0])) return safeName(parts[1] || '')
   if (parts[0] === 'dynamic-content' && !['field-types', 'types'].includes(parts[1])) return safeName(parts[1] || '')
   return ''
 }
