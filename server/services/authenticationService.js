@@ -24,6 +24,7 @@ function sessionCookie(value, { clear = false } = {}) {
 }
 function requestContext(req, success = true) { return { success, ip: req.ip || req.socket?.remoteAddress || '', userAgent: req.headers['user-agent'] || '', deviceName: req.body?.deviceName || '' } }
 function accountPayload(client) { return { id: client.id, name: client.name, email: String(client.email || '').trim().toLowerCase(), role: client.role, websiteId: client.websiteId || '', websiteIds: client.websiteIds || (client.websiteId ? [client.websiteId] : []), canEdit: client.canEdit !== false, canManageMedia: client.canManageMedia !== false, canRequestUpdates: client.canRequestUpdates !== false, canViewSupport: client.canViewSupport !== false } }
+function accountIsSuspended(client = {}) { return String(client.status || '').trim().toLowerCase() === 'suspended' }
 function publicSession(session) { const { account, ...metadata } = session; return { ...account, ...metadata } }
 function purgePending() { const now = Date.now(); for (const [key, pending] of pendingLogins) if (new Date(pending.expiresAt).getTime() <= now) pendingLogins.delete(key) }
 async function mfaAccount(accountId) { const state = await getMfaState({ limit: 1000 }); return state.accounts.find(item => item.accountId === accountId) || null }
@@ -37,6 +38,10 @@ export async function loginWithPassword(req, res) {
   if (!client || !credential?.passwordHash || !availability.available || !(await verifyPassword(password, credential.passwordHash))) {
     if (client?.id) { await recordCredentialFailure(client.id); await evaluateLoginRisk(client.id, requestContext(req, false)); await recordLoginEvent(client.id, requestContext(req, false), false, { reason: availability.reason || 'invalid-password' }) }
     return res.status(availability.reason === 'locked' ? 423 : 401).json({ error: availability.reason === 'locked' ? 'Account is temporarily locked' : 'Invalid email or password', lockedUntil: availability.lockedUntil })
+  }
+  if (accountIsSuspended(client)) {
+    await recordLoginEvent(client.id, requestContext(req, false), false, { reason: 'account-suspended' })
+    return res.status(401).json({ error: 'This account is no longer active' })
   }
   await recordCredentialSuccess(client.id); const previous = await currentToken(req); if (previous) await revokeSessionByToken(previous, 'session-rotation')
   const account = accountPayload(client); const risk = await evaluateLoginRisk(account.id, requestContext(req, true)); await recordLoginEvent(account.id, requestContext(req, true), true, { risk: risk.risk })
