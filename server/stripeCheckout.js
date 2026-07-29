@@ -8,7 +8,7 @@ import {
   resolveDiscount,
 } from './commerceSettingsRouter.js'
 import { decrementProductStock, resolveProductSelection } from './merchValidation.js'
-import { createPaidOrder } from './orderService.js'
+import { createPaidOrder, findOrderByProviderReference } from './orderService.js'
 import { sendOrderNotifications } from './orderNotificationService.js'
 import {
   consumeStockReservation,
@@ -334,7 +334,12 @@ export function createStripeRouter() {
   router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
     try {
       const event = verifyStripeWebhook(req.body, req.headers['stripe-signature'])
+      if (!event.id || !event.type) throw new Error('Stripe webhook event identity is missing')
       if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
+        const sessionId = event.data?.object?.id
+        if (!sessionId) throw new Error('Stripe checkout session identity is missing')
+        const existingOrder = await findOrderByProviderReference('stripe', sessionId)
+        if (existingOrder) return res.json({ received: true, replayed: true })
         await processStripeCheckoutCompleted(event)
       }
       if (event.type === 'checkout.session.expired') {
