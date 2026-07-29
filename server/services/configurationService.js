@@ -12,7 +12,7 @@ const ENVIRONMENTS = ['development', 'test', 'staging', 'production']
 const SCHEMA = {
   'runtime.environment': { type: 'enum', values: ENVIRONMENTS, default: 'development' },
   'runtime.publicUrl': { type: 'url', nullable: true, default: null },
-  'runtime.trustedOrigins': { type: 'string-array', default: [] },
+  'runtime.trustedOrigins': { type: 'origin-array', default: [] },
   'runtime.logLevel': { type: 'enum', values: ['debug', 'info', 'warn', 'error', 'fatal'], default: 'info' },
   'security.sessionSecret': { type: 'secret', environment: 'SESSION_SECRET', requiredIn: ['production'], restartRequired: true },
   'security.integrationSigningSecret': { type: 'secret', environment: 'INTEGRATION_SIGNING_SECRET', requiredIn: ['production'], restartRequired: true },
@@ -84,12 +84,26 @@ function resolveSecretRecord(record) {
 function maskSecret(record) {
   return { name: record.name, reference: `secret://${record.name}`, source: record.source, configured: record.source === 'environment' ? Boolean(process.env[record.environment]) : Boolean(record.encrypted), environment: record.environment || null, updatedAt: record.updatedAt }
 }
+function normaliseOrigin(value) {
+  if (typeof value !== 'string') return null
+  try {
+    const parsed = new URL(value.trim())
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) return null
+    return parsed.origin
+  } catch {
+    return null
+  }
+}
 function validateValue(key, value, definition) {
   if (value === null && definition.nullable) return null
   if (definition.type === 'boolean' && typeof value === 'boolean') return value
   if (definition.type === 'integer' && Number.isInteger(value) && (definition.min === undefined || value >= definition.min) && (definition.max === undefined || value <= definition.max)) return value
   if (definition.type === 'enum' && definition.values?.includes(value)) return value
   if (definition.type === 'string-array' && Array.isArray(value) && value.every(item => typeof item === 'string')) return [...new Set(value.map(item => item.trim()).filter(Boolean))]
+  if (definition.type === 'origin-array' && Array.isArray(value)) {
+    const origins = value.map(normaliseOrigin)
+    if (origins.every(Boolean)) return [...new Set(origins)]
+  }
   if (definition.type === 'url' && typeof value === 'string') {
     try {
       const parsed = new URL(value)
@@ -206,10 +220,13 @@ export async function deploymentReadiness(environmentValue = 'production') {
   const registry = await readRegistry()
   const publicUrl = effectiveValue(registry, 'runtime.publicUrl', environment)
   const origins = effectiveValue(registry, 'runtime.trustedOrigins', environment) || []
+  const secureOrigins = origins.length > 0 && origins.every(origin => {
+    try { return new URL(origin).protocol === 'https:' } catch { return false }
+  })
   const checks = [
     { id: 'configuration-valid', status: validation.valid ? 'passed' : 'failed', details: validation.errors },
     { id: 'public-url-https', status: String(publicUrl || '').startsWith('https://') ? 'passed' : 'failed' },
-    { id: 'trusted-origins', status: origins.length ? 'passed' : 'warning' },
+    { id: 'trusted-origins', status: environment === 'production' ? (secureOrigins ? 'passed' : 'failed') : (origins.length ? 'passed' : 'warning') },
     { id: 'master-key', status: process.env.CONFIGURATION_MASTER_KEY?.length >= 32 ? 'passed' : 'warning', message: 'Required only when encrypted stored secrets are used' },
   ]
   return { environment, ready: checks.every(item => item.status !== 'failed'), checks, checkedAt: nowIso() }
