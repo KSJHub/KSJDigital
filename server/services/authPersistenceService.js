@@ -92,6 +92,13 @@ export async function resolvePersistentSession(token) {
     return safeSession(current)
   })
 }
+export async function findPersistentSessionById(id) {
+  const sessionId = String(id || '').trim()
+  if (!sessionId) return null
+  const state = await readRegistry()
+  const session = state.sessions.find(item => item.id === sessionId)
+  return session && status(session) === 'active' ? safeSession(session) : null
+}
 export async function revokeSessionByToken(token, reason = 'logout') {
   const tokenHash = hashSessionToken(token)
   const revoked = await mutate(state => {
