@@ -72,15 +72,13 @@ function loadLocalEnvironment() {
   }
 }
 const credentialConfiguration = {
-  morgan: { environment: 'KSJ_OWNER_PASSWORD', development: 'Owner-access1!' },
-  taj: { environment: 'TWOTONETAJ_CLIENT_PASSWORD', development: 'Client-access1!' },
-  'goliath-admin': { environment: 'GOLIATH_CLIENT_PASSWORD', development: 'Draft-access1!' },
+  morgan: 'KSJ_OWNER_PASSWORD',
+  taj: 'TWOTONETAJ_CLIENT_PASSWORD',
+  'goliath-admin': 'GOLIATH_CLIENT_PASSWORD',
 }
 async function synchroniseConfiguredCredentials() {
-  const production = process.env.NODE_ENV === 'production'
-  for (const [accountId, configuration] of Object.entries(credentialConfiguration)) {
-    const configured = String(process.env[configuration.environment] || '').trim()
-    const desired = configured || (!production ? configuration.development : '')
+  for (const [accountId, environmentName] of Object.entries(credentialConfiguration)) {
+    const desired = String(process.env[environmentName] || '').trim()
     if (!desired) continue
     const current = await getCredential(accountId)
     if (current?.passwordHash && await verifyPassword(desired, current.passwordHash)) continue
