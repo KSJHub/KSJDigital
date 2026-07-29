@@ -61,8 +61,32 @@ async function validateAssetUploadSecurity() {
   }
 }
 
+async function validatePublicErrorSanitization() {
+  const routes = await readFile(path.join(serverDir, 'routeExtensions.js'), 'utf8')
+  const start = routes.indexOf('export function mountPublicRoutes(app)')
+  const end = routes.indexOf('\nexport function mountProtectedRoutes(app)', start)
+  if (start < 0 || end < 0) throw new Error('Public route boundary could not be inspected')
+
+  const publicRoutes = routes.slice(start, end)
+  if (/error\.message/.test(publicRoutes)) {
+    throw new Error('Public checkout routes expose raw error.message details')
+  }
+
+  for (const marker of [
+    "logPublicCheckoutFailure('Stripe start', error)",
+    "error: 'Unable to start Stripe checkout'",
+    "error: 'Stripe webhook could not be processed'",
+    "logPublicCheckoutFailure('PayPal start', error)",
+    "error: 'Unable to start PayPal checkout'",
+    "error: 'PayPal webhook could not be processed'",
+  ]) {
+    if (!routes.includes(marker)) throw new Error(`Public error sanitization marker is missing: ${marker}`)
+  }
+}
+
 await validateProjectCheckInventory()
 await validateAssetUploadSecurity()
+await validatePublicErrorSanitization()
 
 const files = await javascriptFiles(serverDir)
 let failed = false
@@ -81,4 +105,4 @@ for (const file of files.sort()) {
 }
 
 if (failed) process.exit(1)
-console.log(`Server syntax check passed (${files.length} files); project check inventory and asset upload security are complete.`)
+console.log(`Server syntax check passed (${files.length} files); project check inventory, asset upload security, and public error sanitization are complete.`)
