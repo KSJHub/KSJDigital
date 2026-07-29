@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 
 const runtime = await fs.readFile('server/sessionSecurityRuntime.js', 'utf8')
 const globals = await fs.readFile('server/runtimeGlobals.js', 'utf8')
+const access = await fs.readFile('server/sessionAccess.js', 'utf8')
 const errors = []
 
 for (const marker of [
@@ -14,6 +15,17 @@ for (const marker of [
   'Your session has expired. Please sign in again.',
 ]) {
   if (!runtime.includes(marker)) errors.push(`sessionSecurityRuntime.js is missing required marker: ${marker}`)
+}
+
+for (const marker of [
+  'function accountIsSuspended(account = {})',
+  "String(account.status || '').trim().toLowerCase() === 'suspended'",
+  'if (!account || accountIsSuspended(account))',
+]) {
+  if (!access.includes(marker)) errors.push(`sessionAccess.js is missing required suspended-account marker: ${marker}`)
+}
+if (access.includes("account.status === 'Suspended'")) {
+  errors.push('Suspended-account enforcement must not rely on case-sensitive status matching')
 }
 
 const sessionImport = globals.indexOf("import './sessionSecurityRuntime.js'")
