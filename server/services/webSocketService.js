@@ -12,6 +12,28 @@ export class WebSocketGatewayError extends Error {
 function nowIso() { return new Date().toISOString() }
 function socketKey(request) { return String(request.headers['sec-websocket-key'] || '').trim() }
 function acceptKey(key) { return crypto.createHash('sha1').update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64') }
+function configuredOrigins() {
+  return new Set(
+    [process.env.KSJ_PORTAL_ORIGIN, ...(process.env.KSJ_ALLOWED_ORIGINS || '').split(',')]
+      .map(value => String(value || '').trim())
+      .filter(Boolean),
+  )
+}
+function localDevelopmentOrigin(origin) {
+  if (process.env.NODE_ENV === 'production') return false
+  try {
+    const url = new URL(origin)
+    return ['localhost', '127.0.0.1', '::1'].includes(url.hostname)
+  } catch {
+    return false
+  }
+}
+function webSocketOriginAllowed(request) {
+  const origin = String(request.headers.origin || '').trim()
+  if (!origin) return true
+  if (localDevelopmentOrigin(origin)) return true
+  return configuredOrigins().has(origin)
+}
 function accountChannels(account) {
   const channels = new Set([`account:${account.id}`])
   for (const websiteId of account.websiteIds || (account.websiteId ? [account.websiteId] : [])) channels.add(`website:${websiteId}`)
@@ -110,6 +132,7 @@ async function handleUpgrade(request, socket, head) {
   const key = socketKey(request)
   const connectionHeaders = String(request.headers.connection || '').toLowerCase().split(',').map(value => value.trim())
   if (String(request.headers.upgrade || '').toLowerCase() !== 'websocket' || !connectionHeaders.includes('upgrade') || request.headers['sec-websocket-version'] !== '13' || !key) return sendHttpError(socket, 400, 'Invalid WebSocket upgrade request')
+  if (!webSocketOriginAllowed(request)) return sendHttpError(socket, 403, 'WebSocket origin is not approved')
   const session = await findAuthenticationSession(request)
   if (!session) return sendHttpError(socket, 401, 'Authentication required')
   const account = session.account
