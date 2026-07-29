@@ -33,6 +33,10 @@ function permissionValue(account, permission, role) {
   return String(account.access || '').trim().toLowerCase() !== 'read only'
 }
 
+function accountIsSuspended(account = {}) {
+  return String(account.status || '').trim().toLowerCase() === 'suspended'
+}
+
 export function createLiveSessionAccessMiddleware() {
   return async function refreshSessionAccess(req, res, next) {
     try {
@@ -46,7 +50,7 @@ export function createLiveSessionAccessMiddleware() {
       ])
       const account = accounts.find(item => safeName(item.id) === safeName(req.session.id))
 
-      if (!account || account.status === 'Suspended') {
+      if (!account || accountIsSuspended(account)) {
         return res.status(401).json({ error: 'This account is no longer active' })
       }
 
