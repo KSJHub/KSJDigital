@@ -84,9 +84,25 @@ async function validatePublicErrorSanitization() {
   }
 }
 
+async function validatePublicJsonParserOrder() {
+  const start = await readFile(path.join(serverDir, 'start.js'), 'utf8')
+  const parserIndex = start.indexOf('const jsonParserResult = originalUse.apply(this, args)')
+  const authenticationIndex = start.indexOf('originalUse.call(this, createAuthenticationPublicRouter())')
+  const passwordResetIndex = start.indexOf('originalUse.call(this, createPasswordResetPublicRouter())')
+  const publicRoutesIndex = start.indexOf('mountPublicRoutes(this)')
+
+  if (parserIndex < 0 || authenticationIndex < parserIndex || passwordResetIndex < parserIndex || publicRoutesIndex < parserIndex) {
+    throw new Error('Public POST routes must be mounted after the JSON request parser')
+  }
+  if (!start.includes('return jsonParserResult')) {
+    throw new Error('The intercepted JSON parser must not be mounted a second time')
+  }
+}
+
 await validateProjectCheckInventory()
 await validateAssetUploadSecurity()
 await validatePublicErrorSanitization()
+await validatePublicJsonParserOrder()
 
 const files = await javascriptFiles(serverDir)
 let failed = false
@@ -105,4 +121,4 @@ for (const file of files.sort()) {
 }
 
 if (failed) process.exit(1)
-console.log(`Server syntax check passed (${files.length} files); project check inventory, asset upload security, and public error sanitization are complete.`)
+console.log(`Server syntax check passed (${files.length} files); project check inventory, asset upload security, public error sanitization, and public JSON parsing order are complete.`)
