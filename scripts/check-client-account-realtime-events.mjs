@@ -4,6 +4,7 @@ const source = await fs.readFile(new URL('../server/services/clientAccountServic
 const failures = []
 
 for (const token of [
+  "import { revokeAccountSessions } from './authPersistenceService.js'",
   "import { publishDomainEvent } from './realtimeDomainEventService.js'",
   "publishClientAccountEvent('client-account.created'",
   "publishClientAccountEvent('client-account.updated'",
@@ -63,9 +64,16 @@ if (!createSource.includes("if (!password) return res.status(422)")) {
 const updateStart = source.indexOf('export async function updateClientAccount(')
 const updateSource = updateStart >= 0 ? source.slice(updateStart) : ''
 const updateWriteAt = updateSource.indexOf('await writeJson(paths.clients(), clients.map(')
+const updateRevokeAt = updateSource.indexOf('await revokeAccountSessions(current.id,')
 const updatePublishAt = updateSource.indexOf("await publishClientAccountEvent('client-account.updated'")
 if (updateWriteAt < 0 || updatePublishAt < updateWriteAt) {
   failures.push('Client account update events must publish after account persistence')
+}
+if (updateRevokeAt < updateWriteAt || updatePublishAt < updateRevokeAt) {
+  failures.push('Client account updates must revoke existing sessions after persistence and before publishing completion')
+}
+if (!updateSource.includes("password ? 'account-credentials-changed' : 'account-access-changed'")) {
+  failures.push('Client account session revocation must distinguish credential and access changes')
 }
 if (!updateSource.includes('const profileChanged = accountStateChanged(current, proposedClient)')) {
   failures.push('Client account updates must compare semantic profile state before persistence')
