@@ -28,6 +28,7 @@ function accountIsSuspended(client = {}) { return String(client.status || '').tr
 function publicSession(session) { const { account, ...metadata } = session; return { ...account, ...metadata } }
 function purgePending() { const now = Date.now(); for (const [key, pending] of pendingLogins) if (new Date(pending.expiresAt).getTime() <= now) pendingLogins.delete(key) }
 async function mfaAccount(accountId) { const state = await getMfaState({ limit: 1000 }); return state.accounts.find(item => item.accountId === accountId) || null }
+async function currentAccount(accountId) { const clients = await readJson(paths.clients(), []); return clients.find(item => item.id === accountId) || null }
 async function currentToken(req) { return parseCookies(req.headers.cookie || '')[SESSION_COOKIE] || '' }
 export async function findAuthenticationSession(req) { const plaintext = await currentToken(req); return plaintext ? resolvePersistentSession(plaintext) : null }
 export async function requireAuthenticationSession(req, res, next) { try { const session = await findAuthenticationSession(req); if (!session) return res.status(401).json({ error: 'Login required' }); req.session = { ...session.account, assuranceLevel: session.assuranceLevel, assuranceMethod: session.assuranceMethod, assuranceExpiresAt: session.assuranceExpiresAt, sessionId: session.id }; next() } catch (error) { next(error) } }
@@ -55,10 +56,17 @@ export async function loginWithPassword(req, res) {
 export async function completeMfaLogin(req, res) {
   purgePending(); const key = tokenHash(req.body?.pendingLoginToken); const pending = pendingLogins.get(key)
   if (!pending) return res.status(401).json({ error: 'Pending MFA login is invalid or expired' })
+  const client = await currentAccount(pending.account.id)
+  if (!client || accountIsSuspended(client)) {
+    pendingLogins.delete(key)
+    if (client?.id) await recordLoginEvent(client.id, requestContext(req, false), false, { reason: 'account-suspended-during-mfa' })
+    return res.status(401).json({ error: 'This account is no longer active' })
+  }
+  const account = accountPayload(client)
   try {
-    const verification = await verifySecondFactor(pending.account.id, { code: req.body?.code, recoveryCode: req.body?.recoveryCode, trustDevice: req.body?.trustDevice === true, deviceName: req.body?.deviceName, trustDays: req.body?.trustDays, userAgent: req.headers['user-agent'] || '' }, { id: pending.account.id, email: pending.account.email, role: pending.account.role })
+    const verification = await verifySecondFactor(account.id, { code: req.body?.code, recoveryCode: req.body?.recoveryCode, trustDevice: req.body?.trustDevice === true, deviceName: req.body?.deviceName, trustDays: req.body?.trustDays, userAgent: req.headers['user-agent'] || '' }, { id: account.id, email: account.email, role: account.role })
     pendingLogins.delete(key); const previous = await currentToken(req); if (previous) await revokeSessionByToken(previous, 'mfa-session-rotation')
-    const issued = await issuePersistentSession(pending.account, pending.context, { assuranceLevel: verification.assuranceLevel, assuranceMethod: verification.method, assuranceExpiresAt: verification.assuranceExpiresAt })
+    const issued = await issuePersistentSession(account, pending.context, { assuranceLevel: verification.assuranceLevel, assuranceMethod: verification.method, assuranceExpiresAt: verification.assuranceExpiresAt })
     res.setHeader('Set-Cookie', sessionCookie(issued.token)); return res.json({ ...publicSession(issued.session), trustedDeviceToken: verification.trustedDeviceToken, risk: pending.risk })
   } catch (error) {
     console.error('MFA login completion failed', error)
