@@ -220,8 +220,19 @@ function lockedPayPalName(unit, quantity, fallback) {
   return itemName.endsWith(suffix) ? itemName.slice(0, -suffix.length) : itemName
 }
 
+async function findCapturedPayPalOrder(orderId) {
+  const orders = await readJson(paths.orders(), [])
+  return orders.find(order => order.provider === 'paypal' && order.providerOrderId === orderId) || null
+}
+
 export async function capturePayPalOrder(orderId) {
-  const safeOrderId = encodeURIComponent(orderId)
+  const providerOrderId = String(orderId || '').trim()
+  if (!providerOrderId) throw new Error('PayPal order identity is missing')
+
+  const persistedOrder = await findCapturedPayPalOrder(providerOrderId)
+  if (persistedOrder) return { order: persistedOrder, created: false, completed: true, replayed: true }
+
+  const safeOrderId = encodeURIComponent(providerOrderId)
   const existing = await paypalRequest(`/v2/checkout/orders/${safeOrderId}`)
   const existingUnit = existing.purchase_units?.[0]
   const custom = JSON.parse(existingUnit?.custom_id || '{}')
@@ -236,7 +247,7 @@ export async function capturePayPalOrder(orderId) {
     ? existing
     : await paypalRequest(`/v2/checkout/orders/${safeOrderId}/capture`, {
         method: 'POST',
-        headers: { 'PayPal-Request-Id': `capture-${orderId}` },
+        headers: { 'PayPal-Request-Id': `capture-${providerOrderId}` },
       })
 
   if (capture.status !== 'COMPLETED') return { capture, completed: false }
@@ -371,8 +382,12 @@ export function createPayPalRouter() {
     try {
       const verified = await verifyPayPalWebhook(req.headers, req.body)
       if (!verified) return res.status(400).json({ error: 'PayPal webhook verification failed' })
-      if (req.body?.event_type === 'CHECKOUT.ORDER.APPROVED') {
-        await capturePayPalOrder(req.body.resource?.id)
+      if (!req.body?.id || !req.body?.event_type) throw new Error('PayPal webhook event identity is missing')
+      if (req.body.event_type === 'CHECKOUT.ORDER.APPROVED') {
+        const orderId = req.body.resource?.id
+        if (!orderId) throw new Error('PayPal order identity is missing')
+        const result = await capturePayPalOrder(orderId)
+        if (result.replayed) return res.json({ received: true, replayed: true })
       }
       res.json({ received: true })
     } catch (error) {
