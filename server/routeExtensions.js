@@ -72,8 +72,41 @@ function detectAssetType(buffer) {
   return null
 }
 
+function normalisedIdentifier(value) {
+  const raw = String(value || '').trim()
+  return raw ? safeName(raw) : ''
+}
+
+function assetUploadScopeAllowed(session = {}, params = {}) {
+  if (session.role === 'owner') return true
+
+  const accountId = normalisedIdentifier(session.id)
+  const websiteIds = new Set(
+    (Array.isArray(session.websiteIds) ? session.websiteIds : session.websiteId ? [session.websiteId] : [])
+      .map(normalisedIdentifier)
+      .filter(Boolean),
+  )
+  const websiteId = normalisedIdentifier(params.websiteId)
+  const ownerId = normalisedIdentifier(params.ownerId)
+
+  if (!websiteId || !websiteIds.has(websiteId)) return false
+  return Boolean(ownerId && (ownerId === accountId || websiteIds.has(ownerId)))
+}
+
 export function validateUploadedAsset(req, res, next) {
+  if (!assetUploadScopeAllowed(req.session, req.params)) {
+    return res.status(403).json({ error: 'Asset upload access denied' })
+  }
   if (!req.file) return next()
+
+  const fileSize = Number(req.file.size)
+  if (!Number.isFinite(fileSize) || fileSize <= 0) {
+    return res.status(400).json({ error: 'Asset file is empty or invalid' })
+  }
+  if (fileSize > MAX_ASSET_UPLOAD_BYTES) {
+    return res.status(413).json({ error: 'Asset uploads are limited to 15MB' })
+  }
+
   const extension = path.extname(req.file.originalname || '').toLowerCase()
   const detected = detectAssetType(req.file.buffer)
   if (!detected || !detected.extensions.has(extension)) {
