@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import { findAuthenticationSession } from './authenticationService.js'
+import { findPersistentSessionById } from './authPersistenceService.js'
 
 const connections = new Map()
 let gateway = null
@@ -121,9 +122,11 @@ async function handleUpgrade(request, socket, head) {
   if (head?.length) handleData(connection, head)
   sendJson(connection, { type: 'connected', channelCount: connection.channels.size, heartbeatIntervalMs: gateway.options.heartbeatIntervalMs })
 }
-function heartbeat() {
+async function heartbeat() {
   const now = Date.now()
-  for (const connection of connections.values()) {
+  for (const connection of [...connections.values()]) {
+    const session = await findPersistentSessionById(connection.sessionId)
+    if (!session) { closeConnection(connection, 1008, 'Authentication session expired'); continue }
     if (connection.awaitingPong && now - new Date(connection.lastSeenAt).getTime() >= gateway.options.idleTimeoutMs) { closeConnection(connection, 1001, 'Heartbeat timeout'); continue }
     connection.awaitingPong = true; sendFrame(connection, 0x9, Buffer.from(String(now)))
   }
@@ -134,7 +137,7 @@ export function startWebSocketGateway(server, options = {}) {
   const resolved = { path: '/ws', heartbeatIntervalMs: 30000, idleTimeoutMs: 90000, maximumConnections: 1000, maximumConnectionsPerAccount: 10, maximumPayloadBytes: 65536, maximumBufferedBytes: 1048576, ...options }
   const upgradeHandler = (request, socket, head) => { handleUpgrade(request, socket, head).catch(() => sendHttpError(socket, 500, 'WebSocket upgrade failed')) }
   server.on('upgrade', upgradeHandler)
-  const timer = setInterval(heartbeat, resolved.heartbeatIntervalMs); timer.unref?.()
+  const timer = setInterval(() => heartbeat().catch(error => console.error('WebSocket heartbeat failed', error)), resolved.heartbeatIntervalMs); timer.unref?.()
   gateway = { server, options: resolved, upgradeHandler, timer, startedAt: nowIso() }
   return getWebSocketGatewayState()
 }
