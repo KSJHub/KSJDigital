@@ -45,7 +45,24 @@ async function validateProjectCheckInventory() {
   }
 }
 
+async function validateAssetUploadSecurity() {
+  const routes = await readFile(path.join(serverDir, 'routeExtensions.js'), 'utf8')
+  const requiredMarkers = [
+    'assetUploadScopeAllowed(req.session, req.params)',
+    'websiteIds.has(websiteId)',
+    'ownerId === accountId || websiteIds.has(ownerId)',
+    'fileSize > MAX_ASSET_UPLOAD_BYTES',
+    "res.status(403).json({ error: 'Asset upload access denied' })",
+  ]
+
+  const missing = requiredMarkers.filter(marker => !routes.includes(marker))
+  if (missing.length) {
+    throw new Error(`Asset upload security markers are missing: ${missing.join(', ')}`)
+  }
+}
+
 await validateProjectCheckInventory()
+await validateAssetUploadSecurity()
 
 const files = await javascriptFiles(serverDir)
 let failed = false
@@ -64,4 +81,4 @@ for (const file of files.sort()) {
 }
 
 if (failed) process.exit(1)
-console.log(`Server syntax check passed (${files.length} files); project check inventory is complete.`)
+console.log(`Server syntax check passed (${files.length} files); project check inventory and asset upload security are complete.`)
