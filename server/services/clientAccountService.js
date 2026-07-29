@@ -1,5 +1,6 @@
 import { setPassword } from '../credentialStore.js'
 import { paths, readJson, safeName, writeJson } from '../storage.js'
+import { revokeAccountSessions } from './authPersistenceService.js'
 import { publishDomainEvent } from './realtimeDomainEventService.js'
 
 function idFrom(value = 'new-record') { return safeName(value).replace(/[._]+/g, '-') }
@@ -75,6 +76,7 @@ export async function updateClientAccount(req, res) {
   if (password) await setPassword(current.id, password, { enforcePolicy: true, forcePasswordReset })
   const updatedClient = { ...proposedClient, updatedAt: new Date().toISOString() }
   await writeJson(paths.clients(), clients.map(item => item.id === current.id ? updatedClient : item))
+  await revokeAccountSessions(current.id, password ? 'account-credentials-changed' : 'account-access-changed')
   await publishClientAccountEvent('client-account.updated', accountEventPayload(updatedClient, { passwordChanged: Boolean(password), forcePasswordReset }))
   return res.json(sanitise(updatedClient))
 }
