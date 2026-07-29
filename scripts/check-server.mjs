@@ -99,10 +99,25 @@ async function validatePublicJsonParserOrder() {
   }
 }
 
+async function validateBasketCheckoutErrorSanitization() {
+  const start = await readFile(path.join(serverDir, 'start.js'), 'utf8')
+  for (const marker of [
+    'function basketCheckoutErrorSanitizer(req, res, next)',
+    "console.error('Public basket checkout failed'",
+    "Unable to complete ${provider} checkout",
+    "Unable to start ${provider} checkout",
+    "mountPath === '/api/checkout/basket'",
+    'basketCheckoutErrorSanitizer, ...args.slice(1)',
+  ]) {
+    if (!start.includes(marker)) throw new Error(`Basket checkout error sanitization marker is missing: ${marker}`)
+  }
+}
+
 await validateProjectCheckInventory()
 await validateAssetUploadSecurity()
 await validatePublicErrorSanitization()
 await validatePublicJsonParserOrder()
+await validateBasketCheckoutErrorSanitization()
 
 const files = await javascriptFiles(serverDir)
 let failed = false
@@ -121,4 +136,4 @@ for (const file of files.sort()) {
 }
 
 if (failed) process.exit(1)
-console.log(`Server syntax check passed (${files.length} files); project check inventory, asset upload security, public error sanitization, and public JSON parsing order are complete.`)
+console.log(`Server syntax check passed (${files.length} files); project check inventory, asset upload security, public error sanitization, public JSON parsing order, and basket checkout error sanitization are complete.`)
