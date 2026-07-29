@@ -108,6 +108,19 @@ function trustedCorsMiddleware(req, res, next) {
   }
   next()
 }
+function basketCheckoutErrorSanitizer(req, res, next) {
+  const originalJson = res.json.bind(res)
+  res.json = body => {
+    if (res.statusCode < 400 || !body || typeof body !== 'object' || typeof body.error !== 'string') return originalJson(body)
+    console.error('Public basket checkout failed', { method: req.method, path: req.originalUrl || req.url, error: body.error })
+    const route = String(req.path || req.url || '')
+    const paypal = route.startsWith('/paypal')
+    const completing = route.includes('/capture') || route.includes('/complete')
+    const provider = paypal ? 'PayPal' : 'Stripe'
+    return originalJson({ error: completing ? `Unable to complete ${provider} checkout` : `Unable to start ${provider} checkout` })
+  }
+  next()
+}
 const credentialConfiguration = {
   morgan: 'KSJ_OWNER_PASSWORD',
   taj: 'TWOTONETAJ_CLIENT_PASSWORD',
@@ -183,6 +196,7 @@ express.application.use = function routeAwareUse(...args) {
     mountPublicRoutes(this)
     return jsonParserResult
   }
+  if (mountPath === '/api/checkout/basket') return originalUse.call(this, mountPath, basketCheckoutErrorSanitizer, ...args.slice(1))
   if (!assetServingMounted && mountPath === '/assets') { assetServingMounted = true; originalUse.call(this, '/assets', assetServingGuard) }
   if (!assetUploadMounted && mountPath === '/api') { assetUploadMounted = true; originalUse.call(this, '/api/assets', assetUploadGuard) }
   const replacingLegacySessionGuard = mountPath === '/api' && middleware?.name === 'requireSession'
