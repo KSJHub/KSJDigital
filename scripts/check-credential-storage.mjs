@@ -23,6 +23,13 @@ if (!files.storage.includes('currentVerifiedLogin')) errors.push('Stored account
 if (!files.runtime.includes('await migratePlaintextCredentials()')) errors.push('Credential migration is not run during startup')
 if (files.start.includes('next.accessCode = desired')) errors.push('start.js can still write plaintext starter credentials')
 if (!files.start.includes('synchroniseConfiguredCredentials')) errors.push('Configured credentials are not synchronised into the protected store')
+if (files.start.includes('development:')) errors.push('start.js contains a development credential fallback')
+for (const forbidden of ['Owner-access1!', 'Client-access1!', 'Draft-access1!']) {
+  if (files.start.includes(forbidden)) errors.push(`start.js contains a hardcoded credential: ${forbidden}`)
+}
+if (!files.start.includes("morgan: 'KSJ_OWNER_PASSWORD'")) errors.push('Owner credential is not sourced only from its environment variable')
+if (!files.start.includes("taj: 'TWOTONETAJ_CLIENT_PASSWORD'")) errors.push('Client credential is not sourced only from its environment variable')
+if (!files.start.includes("'goliath-admin': 'GOLIATH_CLIENT_PASSWORD'")) errors.push('Goliath credential is not sourced only from its environment variable')
 if (files.team.includes('accessCode,\n      role:')) errors.push('Team creation still stores a plaintext access code')
 if (!files.team.includes('await setPassword(member.id, temporaryPassword)')) errors.push('Team creation does not store a protected password')
 
