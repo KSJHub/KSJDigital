@@ -24,11 +24,27 @@ await service.setSecret('INTEGRATION_SIGNING_SECRET', { source: 'environment', e
 process.env.CHECK_INTEGRATION_SECRET = 'integration-secret-from-environment'
 assert.equal(await service.resolveSecret('secret://INTEGRATION_SIGNING_SECRET'), 'integration-secret-from-environment')
 
-await service.updateConfiguration('production', { values: { 'runtime.publicUrl': 'https://example.test', 'runtime.trustedOrigins': ['https://example.test'] } })
+await assert.rejects(
+  service.updateConfiguration('production', { values: { 'runtime.trustedOrigins': ['https://example.test/path'] } }),
+  /origin-array schema/,
+)
+await assert.rejects(
+  service.updateConfiguration('production', { values: { 'runtime.trustedOrigins': ['javascript:alert(1)'] } }),
+  /origin-array schema/,
+)
+
+await service.updateConfiguration('production', { values: { 'runtime.publicUrl': 'https://example.test', 'runtime.trustedOrigins': ['http://example.test'] } })
+const insecureReadiness = await service.deploymentReadiness('production')
+assert.equal(insecureReadiness.ready, false)
+assert.equal(insecureReadiness.checks.find(check => check.id === 'trusted-origins')?.status, 'failed')
+
+await service.updateConfiguration('production', { values: { 'runtime.trustedOrigins': ['https://example.test', 'https://example.test'] } })
 const validation = await service.validateConfiguration('production')
 assert.equal(validation.valid, true)
 const readiness = await service.deploymentReadiness('production')
 assert.equal(readiness.ready, true)
+const configured = await service.getConfiguration('production')
+assert.deepEqual(configured.values['runtime.trustedOrigins'], ['https://example.test'])
 
 const history = await service.configurationHistory({ limit: 20 })
 assert.ok(history.some(item => item.action === 'configuration.updated'))
