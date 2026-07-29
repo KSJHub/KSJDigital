@@ -126,6 +126,10 @@ function isBasketMiss(error) {
   return ['Checkout basket was not found', 'Stripe basket reference is missing'].includes(error?.message)
 }
 
+function logPublicCheckoutFailure(context, error) {
+  console.error(`Public checkout ${context} failed`, error)
+}
+
 function publicWebsiteMetadata(website = {}) {
   return {
     id: website.id || null,
@@ -186,7 +190,8 @@ export function mountPublicRoutes(app) {
       })
       res.redirect(303, session.url)
     } catch (error) {
-      res.status(400).send(`Unable to start Stripe checkout: ${error.message}`)
+      logPublicCheckoutFailure('Stripe start', error)
+      res.status(400).send('Unable to start Stripe checkout')
     }
   })
 
@@ -196,7 +201,8 @@ export function mountPublicRoutes(app) {
       await assertProductCheckoutAccess({ websiteId: req.body?.websiteId, productId: req.body?.productId, provider: 'stripe' })
       res.json(await createStripeCheckoutSession(req.body || {}))
     } catch (error) {
-      res.status(400).json({ error: error.message })
+      logPublicCheckoutFailure('Stripe session creation', error)
+      res.status(400).json({ error: 'Unable to start Stripe checkout' })
     }
   })
 
@@ -205,7 +211,8 @@ export function mountPublicRoutes(app) {
       const result = await processStripeCheckoutCompleted({ data: { object: { id: req.params.id } } })
       res.json({ ...result, completed: true })
     } catch (error) {
-      res.status(400).json({ error: error.message })
+      logPublicCheckoutFailure('Stripe session completion', error)
+      res.status(400).json({ error: 'Unable to complete Stripe checkout' })
     }
   })
 
@@ -221,7 +228,8 @@ export function mountPublicRoutes(app) {
         throw error
       }
     } catch (error) {
-      return res.status(400).json({ error: error.message })
+      logPublicCheckoutFailure('Stripe webhook', error)
+      return res.status(400).json({ error: 'Stripe webhook could not be processed' })
     }
   })
 
@@ -239,7 +247,8 @@ export function mountPublicRoutes(app) {
       if (!order.approvalUrl) throw new Error('PayPal approval URL was not returned')
       res.redirect(303, order.approvalUrl)
     } catch (error) {
-      res.status(400).send(`Unable to start PayPal checkout: ${error.message}`)
+      logPublicCheckoutFailure('PayPal start', error)
+      res.status(400).send('Unable to start PayPal checkout')
     }
   })
 
@@ -249,7 +258,8 @@ export function mountPublicRoutes(app) {
       await assertProductCheckoutAccess({ websiteId: req.body?.websiteId, productId: req.body?.productId, provider: 'paypal' })
       res.json(await createPayPalOrder(req.body || {}))
     } catch (error) {
-      res.status(400).json({ error: error.message })
+      logPublicCheckoutFailure('PayPal order creation', error)
+      res.status(400).json({ error: 'Unable to start PayPal checkout' })
     }
   })
 
@@ -266,7 +276,8 @@ export function mountPublicRoutes(app) {
         throw error
       }
     } catch (error) {
-      return res.status(400).json({ error: error.message })
+      logPublicCheckoutFailure('PayPal webhook', error)
+      return res.status(400).json({ error: 'PayPal webhook could not be processed' })
     }
   })
 
