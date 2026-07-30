@@ -9,6 +9,7 @@ import {
   updateBackupSettings,
   verifyBackup,
 } from './services/backupService.js'
+import { requireAssurance } from './services/mfaService.js'
 import { publishDomainEvent } from './services/realtimeDomainEventService.js'
 
 function requireOwner(req, res) {
@@ -67,12 +68,13 @@ function normaliseBackupSettings(input = {}, existing = {}) {
 export function createBackupRouter() {
   const router = express.Router()
   router.use((req, res, next) => requireOwner(req, res) && next())
+  const requireStepUp = requireAssurance(2)
 
   router.get('/', async (_req, res) => {
     try { res.json(await listBackups()) } catch (error) { sendError(res, error) }
   })
 
-  router.post('/', async (req, res) => {
+  router.post('/', requireStepUp, async (req, res) => {
     try {
       const backup = await createBackup(req.body || {})
       const state = await listBackups()
@@ -81,7 +83,7 @@ export function createBackupRouter() {
     } catch (error) { sendError(res, error) }
   })
 
-  router.post('/prune', async (_req, res) => {
+  router.post('/prune', requireStepUp, async (_req, res) => {
     try {
       const result = await pruneBackups()
       if (result.removed === 0) return res.json(result)
@@ -91,7 +93,7 @@ export function createBackupRouter() {
     } catch (error) { sendError(res, error) }
   })
 
-  router.patch('/settings', async (req, res) => {
+  router.patch('/settings', requireStepUp, async (req, res) => {
     try {
       const state = await listBackups()
       const requested = normaliseBackupSettings(req.body || {}, state.settings || {})
@@ -125,7 +127,7 @@ export function createBackupRouter() {
     } catch (error) { sendError(res, error) }
   })
 
-  router.post('/:backupId/restore', async (req, res) => {
+  router.post('/:backupId/restore', requireStepUp, async (req, res) => {
     try {
       const restore = await restoreBackup(req.params.backupId, req.body || {})
       const state = await listBackups()
@@ -136,7 +138,7 @@ export function createBackupRouter() {
     } catch (error) { sendError(res, error) }
   })
 
-  router.delete('/:backupId', async (req, res) => {
+  router.delete('/:backupId', requireStepUp, async (req, res) => {
     try {
       const state = await listBackups()
       const existing = state.backups.find(item => item.id === req.params.backupId)
