@@ -9,6 +9,7 @@ import {
   updateConfiguration,
   validateConfiguration,
 } from './services/configurationService.js'
+import { requireAssurance } from './services/mfaService.js'
 import { publishDomainEvent } from './services/realtimeDomainEventService.js'
 
 function requireOwner(req, res) {
@@ -61,6 +62,7 @@ export function createConfigurationRouter() {
     if (!requireOwner(req, res)) return
     next()
   })
+  const requireStepUp = requireAssurance(2)
 
   router.get('/', async (req, res) => {
     try { res.json(await getConfiguration(req.query.environment)) } catch (error) { sendError(res, error) }
@@ -95,7 +97,7 @@ export function createConfigurationRouter() {
     } catch (error) { sendError(res, error) }
   })
 
-  router.patch('/environments/:environment', async (req, res) => {
+  router.patch('/environments/:environment', requireStepUp, async (req, res) => {
     try {
       const before = await getConfiguration(req.params.environment)
       const requested = requestedConfigurationValues(req.body || {})
@@ -112,7 +114,7 @@ export function createConfigurationRouter() {
     } catch (error) { sendError(res, error) }
   })
 
-  router.post('/environments/:environment/activate', async (req, res) => {
+  router.post('/environments/:environment/activate', requireStepUp, async (req, res) => {
     try {
       const before = await getConfiguration(req.params.environment)
       if (before.activeEnvironment === before.environment) return res.json({ previous: before.environment, environment: before.environment, unchanged: true })
@@ -123,7 +125,7 @@ export function createConfigurationRouter() {
     } catch (error) { sendError(res, error) }
   })
 
-  router.put('/secrets/:name', async (req, res) => {
+  router.put('/secrets/:name', requireStepUp, async (req, res) => {
     try {
       const configuration = await getConfiguration()
       const existing = configuration.secrets.find(secret => secret.name === req.params.name)
@@ -135,7 +137,7 @@ export function createConfigurationRouter() {
     } catch (error) { sendError(res, error) }
   })
 
-  router.delete('/secrets/:name', async (req, res) => {
+  router.delete('/secrets/:name', requireStepUp, async (req, res) => {
     try {
       const configuration = await getConfiguration()
       if (!configuration.secrets.some(secret => secret.name === req.params.name)) return res.json({ deleted: false, name: req.params.name })
