@@ -250,11 +250,39 @@ export async function restoreContentRecord(websiteValue, typeValue, recordId, re
   const websiteId = identity(websiteValue, 'Website id')
   const definition = typeDefinition(typeValue)
   const typeId = definition.id
-  const revision = await getContentRevision(websiteId, typeId, recordId, revisionId)
+  const id = identity(recordId, 'Content record id')
+  const records = await getStoredRecords(websiteId, typeId)
+  const index = records.findIndex(record => record.id === recordId || safeName(record.id) === id)
+  if (index < 0) throw new ContentRecordError('Content record not found', 404)
+  const existing = records[index]
+  const revision = await getContentRevision(websiteId, typeId, existing.id, revisionId)
   if (!revision) throw new ContentRecordError('Revision not found', 404)
-  return updateContentRecord(websiteId, typeId, recordId, revision.snapshot, actor, {
-    topic: 'content-record.revision-restored',
-  })
+
+  const restoredFields = normalisedFields(typeId, workflowProtectedInput(definition, revision.snapshot), existing)
+  const fields = initialWorkflowFields(definition, restoredFields)
+  await validateRelationships(websiteId, typeId, fields)
+  const restored = {
+    ...existing,
+    ...fields,
+    id: existing.id,
+    type: typeId,
+    websiteId,
+    createdAt: existing.createdAt,
+    updatedAt: new Date().toISOString(),
+  }
+
+  if (!contentRecordStateChanged(existing, restored)) return hydrateRecord(websiteId, typeId, existing, actor)
+
+  await saveContentRevision(websiteId, typeId, existing)
+  records[index] = restored
+  await writeJson(recordsPath(websiteId, typeId), records)
+  await indexContentRecord(websiteId, typeId, restored)
+  await publishContentRecordEvent('content-record.revision-restored', contentRecordEventPayload(definition, restored, {
+    revisionCreated: true,
+    restoredRevisionId: revision.id,
+    restoredAsDraft: Boolean(definition.workflow),
+  }))
+  return hydrateRecord(websiteId, typeId, restored, actor)
 }
 
 export async function processScheduledContentRecords(websiteValue, now = new Date()) {
@@ -293,7 +321,7 @@ async function applyNullifyPolicies(websiteId, incoming, targetTypeId, targetRec
     const updated = { ...existing, updatedAt: new Date().toISOString() }
     for (const relationship of relationships) {
       const field = fieldsById.get(relationship.field)
-      if (field) updated[field.id] = nullifyRelationshipValue(field, updated[field.id], targetTypeId, targetRecordId)
+      updated[relationship.field] = nullifyRelationshipValue(field, updated[relationship.field], targetRecordId)
     }
     await saveContentRevision(websiteId, sourceType, existing)
     records[index] = updated
@@ -304,21 +332,17 @@ async function applyNullifyPolicies(websiteId, incoming, targetTypeId, targetRec
 
 export async function deleteContentRecord(websiteValue, typeValue, recordId) {
   const websiteId = identity(websiteValue, 'Website id')
-  const definition = typeDefinition(typeValue)
-  const typeId = definition.id
+  const typeId = typeDefinition(typeValue).id
   const records = await getStoredRecords(websiteId, typeId)
-  if (!records.some(record => record.id === recordId)) throw new ContentRecordError('Content record not found', 404)
-  const incoming = await findIncomingContentRelationships(typeId, recordId, sourceType => getStoredRecords(websiteId, sourceType))
-  const restricted = incoming.filter(relationship => relationship.onDelete === 'restrict')
+  const record = records.find(item => item.id === recordId)
+  if (!record) throw new ContentRecordError('Content record not found', 404)
+  const incoming = await findIncomingContentRelationships(websiteId, typeId, recordId, type => getStoredRecords(websiteId, type))
+  const restricted = incoming.filter(item => item.onDelete === 'restrict')
   if (restricted.length) throw new ContentRelationshipError('Content record is still referenced', 409, restricted)
   await applyNullifyPolicies(websiteId, incoming, typeId, recordId)
-  const next = records.filter(record => record.id !== recordId)
+  const next = records.filter(item => item.id !== recordId)
   await writeJson(recordsPath(websiteId, typeId), next)
   await removeContentSearchDocument(websiteId, typeId, recordId)
-  await publishContentRecordEvent('content-record.deleted', {
-    remainingRecordCount: next.length,
-    nullifiedRelationshipCount: incoming.filter(relationship => relationship.onDelete === 'nullify').length,
-    workflowEnabled: Boolean(definition.workflow),
-  })
-  return next
+  await publishContentRecordEvent('content-record.deleted', { websiteId, typeId, recordId })
+  return true
 }
