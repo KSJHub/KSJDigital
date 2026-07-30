@@ -56,6 +56,7 @@ export const api = {
   getForms: refreshForms,
   getPublicForms: websiteId => request(`/public/forms/${encodeURIComponent(websiteId)}`),
   submitPublicForm: (websiteId, formId, payload) => request(`/public/forms/${encodeURIComponent(websiteId)}/${encodeURIComponent(formId)}/submissions`, { method: 'POST', body: JSON.stringify(payload) }),
+  getFormDeliveryStatuses: (websiteId, formId) => request(`/notifications/form-deliveries?websiteId=${encodeURIComponent(websiteId)}&formId=${encodeURIComponent(formId)}`),
   saveForms: (websiteId, forms) => request(`/forms/${websiteId}`, { method: 'PUT', body: JSON.stringify({ forms }) }),
   createForm: async (websiteId, payload = {}) => {
     const form = await request(`/forms/${websiteId}`, { method: 'POST', body: JSON.stringify(payload) })
