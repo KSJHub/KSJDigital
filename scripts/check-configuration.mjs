@@ -58,5 +58,13 @@ const routerSource = await fs.readFile(new URL('../server/configurationRouter.js
 assert.match(routerSource, /Owner permission required/)
 assert.match(routerSource, /deployment-readiness/)
 assert.match(routerSource, /restore|activate|secrets/)
+assert.match(routerSource, /import \{ requireAssurance \} from '\.\/services\/mfaService\.js'/)
+assert.match(routerSource, /const requireStepUp = requireAssurance\(2\)/)
+for (const route of [
+  "router.patch('/environments/:environment', requireStepUp",
+  "router.post('/environments/:environment/activate', requireStepUp",
+  "router.put('/secrets/:name', requireStepUp",
+  "router.delete('/secrets/:name', requireStepUp",
+]) assert.ok(routerSource.includes(route), `Configuration mutation is missing step-up protection: ${route}`)
 
 console.log('Configuration and secrets management checks passed')
