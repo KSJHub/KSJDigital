@@ -7,6 +7,7 @@ import {
   rotateApiKey,
   upsertServiceAccount,
 } from './services/serviceAccountService.js'
+import { requireAssurance } from './services/mfaService.js'
 import { publishDomainEvent } from './services/realtimeDomainEventService.js'
 
 function requireOwner(req, res) {
@@ -63,12 +64,13 @@ function accountPatchChanges(existing, input = {}) {
 export function createServiceAccountRouter() {
   const router = express.Router()
   router.use((req, res, next) => { if (!requireOwner(req, res)) return; next() })
+  const requireStepUp = requireAssurance(2)
 
   router.get('/', async (req, res) => {
     try { res.json(await getServiceAccountState(req.query)) } catch (error) { sendError(res, error) }
   })
 
-  router.put('/accounts/:accountId', async (req, res) => {
+  router.put('/accounts/:accountId', requireStepUp, async (req, res) => {
     try {
       const input = req.body || {}
       const state = await getServiceAccountState({ limit: 1 })
@@ -81,7 +83,7 @@ export function createServiceAccountRouter() {
     } catch (error) { sendError(res, error) }
   })
 
-  router.post('/accounts/:accountId/disable', async (req, res) => {
+  router.post('/accounts/:accountId/disable', requireStepUp, async (req, res) => {
     try {
       const state = await getServiceAccountState({ limit: 1 })
       const existing = state.accounts.find(item => item.id === req.params.accountId)
@@ -94,7 +96,7 @@ export function createServiceAccountRouter() {
     } catch (error) { sendError(res, error) }
   })
 
-  router.post('/accounts/:accountId/keys', async (req, res) => {
+  router.post('/accounts/:accountId/keys', requireStepUp, async (req, res) => {
     try {
       const issued = await issueApiKey(req.params.accountId, req.body || {}, null)
       await publishServiceAccountRealtimeEvent('service-account.key-issued', keyEventPayload(issued.key, { issued: true }))
@@ -102,7 +104,7 @@ export function createServiceAccountRouter() {
     } catch (error) { sendError(res, error) }
   })
 
-  router.post('/keys/:keyId/rotate', async (req, res) => {
+  router.post('/keys/:keyId/rotate', requireStepUp, async (req, res) => {
     try {
       const state = await getServiceAccountState({ limit: 1 })
       const existing = state.keys.find(item => item.id === req.params.keyId)
@@ -114,7 +116,7 @@ export function createServiceAccountRouter() {
     } catch (error) { sendError(res, error) }
   })
 
-  router.post('/keys/:keyId/revoke', async (req, res) => {
+  router.post('/keys/:keyId/revoke', requireStepUp, async (req, res) => {
     try {
       const state = await getServiceAccountState({ limit: 1 })
       const existing = state.keys.find(item => item.id === req.params.keyId)
