@@ -30,6 +30,7 @@ export function FormBuilderPage({ client = false }) {
   const [busyAction, setBusyAction] = useState('')
   const selected = forms.find(form => form.id === selectedId) || forms[0]
   const busy = Boolean(busyAction)
+  const hasFileFields = Boolean((selected?.fields || []).some(field => field.type === 'File'))
 
   useEffect(() => {
     if (account?.role === 'owner' && !selectedWebsiteId && websites[0]?.id) setSelectedWebsiteId(websites[0].id)
@@ -209,12 +210,12 @@ export function FormBuilderPage({ client = false }) {
     if (!websiteId || !selected?.id || busy) return
     const formId = selected.id
     setBusyAction('test')
-    setNotice('Adding test submission')
+    setNotice('Adding portal test submission')
     try {
       const next = await api.submitTestForm(websiteId, formId)
       setForms(next)
       setSelectedId(formId)
-      setNotice('Test submission added')
+      setNotice('Portal test submission added')
     } catch (error) {
       setNotice(error.message || 'Test failed')
     } finally {
@@ -252,6 +253,12 @@ export function FormBuilderPage({ client = false }) {
               <label>Status<select value={selected.status || 'Draft'} disabled={!canEdit || busy} onChange={event => saveForm({ status: event.target.value })}><option>Active</option><option>Draft</option><option>Archived</option></select></label>
               <label className="formCheck"><input type="checkbox" checked={selected.spamProtection !== false} disabled={!canEdit || busy} onChange={event => saveForm({ spamProtection: event.target.checked })} /> Spam protection</label>
             </div>
+            <div className="submissions">
+              <h3>Public Submission Readiness</h3>
+              <p><b>Public website integration</b><small>Not connected yet</small></p>
+              <p><b>Portal preview test</b><small>Available below</small></p>
+              {hasFileFields && <p><b>File upload fields</b><small>Require a dedicated public upload pipeline before launch</small></p>}
+            </div>
             {canEdit && <div className="fieldTypeBar">{fieldTypes.map(type => <button key={type} disabled={busy} onClick={() => addNewField(type)}>{type}</button>)}</div>}
             {(selected.fields || []).map((field, index) => <article className="fieldEditor" key={field.id}>
               <div className="panelHead"><h3>{field.type}</h3>{canEdit && <div><button aria-label={`Move ${field.label || field.type} up`} disabled={busy || index === 0} onClick={() => shiftField(field.id, 'up')}>↑</button><button aria-label={`Move ${field.label || field.type} down`} disabled={busy || index === selected.fields.length - 1} onClick={() => shiftField(field.id, 'down')}>↓</button><button disabled={busy} onClick={() => removeField(field)}>{busyAction === `remove-${field.id}` ? 'Removing…' : 'Remove'}</button></div>}</div>
@@ -264,9 +271,9 @@ export function FormBuilderPage({ client = false }) {
           </>}
         </section>
         <aside className="card formPreview">
-          <div className="panelHead"><h2>Preview</h2>{canEdit && <button disabled={!websiteId || !selected?.id || busy} onClick={addTestSubmission}>{busyAction === 'test' ? 'Testing…' : 'Test'}</button>}</div>
-          {selected && <form onSubmit={event => event.preventDefault()}><h3>{selected.name}</h3>{(selected.fields || []).map(field => <label key={field.id}>{field.type !== 'Checkbox' && <span>{field.label}{field.required ? ' *' : ''}</span>}<FieldPreview field={field} /></label>)}<button type="button" disabled>Submit</button></form>}
-          <div className="submissions"><h3>Submissions</h3>{selected?.submissions?.length ? selected.submissions.map(sub => <p key={sub.id}><b>{sub.source}</b><small>{sub.createdAt}</small></p>) : <p>No submissions yet.</p>}</div>
+          <div className="panelHead"><h2>Portal Preview</h2>{canEdit && <button disabled={!websiteId || !selected?.id || busy} onClick={addTestSubmission}>{busyAction === 'test' ? 'Testing…' : 'Add Test Submission'}</button>}</div>
+          {selected && <form onSubmit={event => event.preventDefault()}><h3>{selected.name}</h3>{(selected.fields || []).map(field => <label key={field.id}>{field.type !== 'Checkbox' && <span>{field.label}{field.required ? ' *' : ''}</span>}<FieldPreview field={field} /></label>)}<button type="button" disabled>Preview only</button></form>}
+          <div className="submissions"><h3>Portal Test Submissions</h3>{selected?.submissions?.length ? selected.submissions.map(sub => <p key={sub.id}><b>{sub.source}</b><small>{sub.createdAt}</small></p>) : <p>No test submissions yet.</p>}</div>
         </aside>
       </section>
     </Layout>
