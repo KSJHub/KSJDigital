@@ -7,13 +7,14 @@ import { api } from '../services/api.js'
 const fieldTypes = ['Text', 'Email', 'Textarea', 'Phone', 'Select', 'Checkbox', 'Date', 'File']
 const submissionStatuses = ['New', 'Read', 'Resolved']
 const submissionPageSizes = [10, 25, 50]
+const lengthFieldTypes = new Set(['Text', 'Email', 'Textarea', 'Phone'])
 
 function FieldPreview({ field }) {
-  if (field.type === 'Textarea') return <textarea placeholder={field.placeholder} disabled />
-  if (field.type === 'Checkbox') return <label className="formCheck"><input type="checkbox" disabled /> {field.label}</label>
-  if (field.type === 'Select') return <select disabled><option>{field.placeholder || 'Choose an option'}</option></select>
-  if (field.type === 'File') return <input type="file" disabled />
-  return <input type={field.type === 'Email' ? 'email' : field.type === 'Date' ? 'date' : 'text'} placeholder={field.placeholder} disabled />
+  if (field.type === 'Textarea') return <><textarea placeholder={field.placeholder} disabled />{field.helpText && <small>{field.helpText}</small>}</>
+  if (field.type === 'Checkbox') return <label className="formCheck"><input type="checkbox" disabled /> {field.label}{field.helpText && <small>{field.helpText}</small>}</label>
+  if (field.type === 'Select') return <><select disabled><option>{field.placeholder || 'Choose an option'}</option>{(field.options || []).map(option => <option key={option}>{option}</option>)}</select>{field.helpText && <small>{field.helpText}</small>}</>
+  if (field.type === 'File') return <><input type="file" disabled />{field.helpText && <small>{field.helpText}</small>}</>
+  return <><input type={field.type === 'Email' ? 'email' : field.type === 'Date' ? 'date' : 'text'} placeholder={field.placeholder} disabled />{field.helpText && <small>{field.helpText}</small>}</>
 }
 
 function submissionSummary(submission, fields = []) {
@@ -57,15 +58,30 @@ function submissionSearchText(submission) {
     .toLowerCase()
 }
 
+function recordId(value, fallback = 'copy') {
+  const clean = String(value || fallback).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80)
+  return clean || fallback
+}
+
+function uniqueId(base, existingIds) {
+  const initial = recordId(base)
+  if (!existingIds.has(initial)) return initial
+  let index = 2
+  while (existingIds.has(`${initial}-${index}`)) index += 1
+  return `${initial}-${index}`
+}
+
+function normaliseOptions(value) {
+  return String(value || '').split(/\r?\n/).map(option => option.trim()).filter(Boolean).slice(0, 50)
+}
+
 export function FormBuilderPage({ client = false }) {
   const account = getAccountFromPath()
   const { websites } = useWebsites()
   const assignedWebsite = findClientWebsite(websites, account)
   const isOwner = account?.role === 'owner'
   const [selectedWebsiteId, setSelectedWebsiteId] = useState('')
-  const website = isOwner
-    ? websites.find(site => site.id === selectedWebsiteId) || websites[0] || null
-    : assignedWebsite
+  const website = isOwner ? websites.find(site => site.id === selectedWebsiteId) || websites[0] || null : assignedWebsite
   const websiteId = website?.id
   const canEdit = isOwner || account?.canEdit
   const [forms, setForms] = useState([])
@@ -163,8 +179,7 @@ export function FormBuilderPage({ client = false }) {
     }
     setEmailReadinessLoading(true)
     try {
-      const result = await api.getEmailReadiness()
-      setEmailReadiness(result)
+      setEmailReadiness(await api.getEmailReadiness())
     } catch {
       setEmailReadiness(null)
     } finally {
@@ -186,9 +201,7 @@ export function FormBuilderPage({ client = false }) {
     setSelectedSubmissionIds([])
   }, [websiteId, selected?.id])
 
-  useEffect(() => {
-    loadEmailReadiness()
-  }, [isOwner])
+  useEffect(() => { loadEmailReadiness() }, [isOwner])
 
   useEffect(() => {
     if (!isOwner) return
@@ -196,14 +209,8 @@ export function FormBuilderPage({ client = false }) {
     setEmailTestState('')
   }, [isOwner, selected?.id, emailReadiness?.from])
 
-  useEffect(() => {
-    setSubmissionPage(1)
-  }, [submissionQuery, submissionStatusFilter, submissionSourceFilter, submissionPageSize])
-
-  useEffect(() => {
-    if (submissionPage > submissionPageCount) setSubmissionPage(submissionPageCount)
-  }, [submissionPage, submissionPageCount])
-
+  useEffect(() => { setSubmissionPage(1) }, [submissionQuery, submissionStatusFilter, submissionSourceFilter, submissionPageSize])
+  useEffect(() => { if (submissionPage > submissionPageCount) setSubmissionPage(submissionPageCount) }, [submissionPage, submissionPageCount])
   useEffect(() => {
     const existing = new Set(allSubmissions.map(item => item.id))
     setSelectedSubmissionIds(current => current.filter(id => existing.has(id)))
@@ -221,6 +228,66 @@ export function FormBuilderPage({ client = false }) {
       : form))
   }
 
+  async function saveFormsConfiguration(nextForms, nextId, message) {
+    if (!canEdit || !websiteId || busy) return false
+    setBusyAction('save-configuration')
+    setNotice(message)
+    try {
+      await api.saveForms(websiteId, nextForms)
+      await loadForms(nextId, message.replace(/ing$/, 'ed'))
+      return true
+    } catch (error) {
+      setNotice(error.message || 'Configuration save failed')
+      await loadForms(nextId, error.message || 'Configuration save failed')
+      return false
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  async function saveFormConfiguration(changes) {
+    if (!selected?.id) return false
+    const nextForms = forms.map(form => form.id === selected.id ? { ...form, ...changes } : form)
+    return saveFormsConfiguration(nextForms, selected.id, 'Saving form configuration')
+  }
+
+  async function saveFieldConfiguration(fieldId, changes) {
+    if (!selected?.id || !fieldId) return false
+    const nextForms = forms.map(form => form.id === selected.id
+      ? { ...form, fields: (form.fields || []).map(field => field.id === fieldId ? { ...field, ...changes } : field) }
+      : form)
+    return saveFormsConfiguration(nextForms, selected.id, 'Saving field configuration')
+  }
+
+  async function duplicateForm() {
+    if (!canEdit || !selected?.id || busy) return
+    const ids = new Set(forms.map(form => form.id))
+    const id = uniqueId(`${selected.id || selected.name}-copy`, ids)
+    const duplicate = {
+      ...selected,
+      id,
+      name: `${selected.name || 'Form'} Copy`,
+      status: 'Draft',
+      fields: (selected.fields || []).map(field => ({ ...field })),
+      submissions: [],
+    }
+    const nextForms = [...forms, duplicate]
+    if (await saveFormsConfiguration(nextForms, id, 'Duplicating form')) setSelectedId(id)
+  }
+
+  async function duplicateField(field) {
+    if (!canEdit || !selected?.id || !field?.id || busy) return
+    const fields = selected.fields || []
+    const ids = new Set(fields.map(item => item.id))
+    const id = uniqueId(`${field.id || field.label}-copy`, ids)
+    const index = fields.findIndex(item => item.id === field.id)
+    const duplicate = { ...field, id, label: `${field.label || field.type} Copy` }
+    const nextFields = [...fields]
+    nextFields.splice(index + 1, 0, duplicate)
+    const nextForms = forms.map(form => form.id === selected.id ? { ...form, fields: nextFields } : form)
+    await saveFormsConfiguration(nextForms, selected.id, 'Duplicating field')
+  }
+
   async function sendEmailTest() {
     if (!isOwner || busy) return
     const recipient = testEmail.trim()
@@ -231,8 +298,7 @@ export function FormBuilderPage({ client = false }) {
     setNotice('Queuing email test')
     try {
       const result = await api.sendEmailTest(recipient)
-      const status = result?.jobs?.[0]?.status || 'queued'
-      setEmailTestState(`Test ${status}`)
+      setEmailTestState(`Test ${result?.jobs?.[0]?.status || 'queued'}`)
       setNotice('Email test queued')
     } catch (error) {
       setEmailTestState(error.message || 'Email test failed')
@@ -401,9 +467,7 @@ export function FormBuilderPage({ client = false }) {
     const formId = selected.id
     setBusyAction(`submission-${submissionId}`)
     setNotice(message)
-    const nextForms = forms.map(form => form.id === formId
-      ? { ...form, submissions: updater(Array.isArray(form.submissions) ? form.submissions : []) }
-      : form)
+    const nextForms = forms.map(form => form.id === formId ? { ...form, submissions: updater(Array.isArray(form.submissions) ? form.submissions : []) } : form)
     try {
       await api.saveForms(websiteId, nextForms)
       await loadForms(formId, message.replace(/ing$/, 'ed'))
@@ -422,9 +486,7 @@ export function FormBuilderPage({ client = false }) {
     const formId = selected.id
     setBusyAction('bulk-submissions')
     setNotice(message)
-    const nextForms = forms.map(form => form.id === formId
-      ? { ...form, submissions: updater(Array.isArray(form.submissions) ? form.submissions : []) }
-      : form)
+    const nextForms = forms.map(form => form.id === formId ? { ...form, submissions: updater(Array.isArray(form.submissions) ? form.submissions : []) } : form)
     try {
       await api.saveForms(websiteId, nextForms)
       setSelectedSubmissionIds([])
@@ -440,30 +502,19 @@ export function FormBuilderPage({ client = false }) {
 
   async function updateSubmissionStatus(submission, status) {
     if (!submissionStatuses.includes(status) || submission.status === status) return
-    await saveSubmissionChanges(
-      submission.id,
-      submissions => submissions.map(item => item.id === submission.id ? { ...item, status } : item),
-      'Updating submission',
-    )
+    await saveSubmissionChanges(submission.id, submissions => submissions.map(item => item.id === submission.id ? { ...item, status } : item), 'Updating submission')
   }
 
   async function removeSubmission(submission) {
     if (!submission?.id || busy) return
     if (!globalThis.confirm(`Delete this ${submission.source || 'form'} submission permanently? This action cannot be undone.`)) return
-    await saveSubmissionChanges(
-      submission.id,
-      submissions => submissions.filter(item => item.id !== submission.id),
-      'Deleting submission',
-    )
+    await saveSubmissionChanges(submission.id, submissions => submissions.filter(item => item.id !== submission.id), 'Deleting submission')
   }
 
   async function updateSelectedSubmissionStatus(status) {
     if (!submissionStatuses.includes(status) || !selectedSubmissionIds.length) return
     const ids = new Set(selectedSubmissionIds)
-    await saveBulkSubmissionChanges(
-      submissions => submissions.map(item => ids.has(item.id) ? { ...item, status } : item),
-      `Updating ${ids.size} submissions`,
-    )
+    await saveBulkSubmissionChanges(submissions => submissions.map(item => ids.has(item.id) ? { ...item, status } : item), `Updating ${ids.size} submissions`)
   }
 
   async function removeSelectedSubmissions() {
@@ -471,10 +522,7 @@ export function FormBuilderPage({ client = false }) {
     const count = selectedSubmissionIds.length
     if (!globalThis.confirm(`Delete ${count} selected submission${count === 1 ? '' : 's'} permanently? Stored attachments for deleted submissions will also be removed. This action cannot be undone.`)) return
     const ids = new Set(selectedSubmissionIds)
-    await saveBulkSubmissionChanges(
-      submissions => submissions.filter(item => !ids.has(item.id)),
-      `Deleting ${count} submissions`,
-    )
+    await saveBulkSubmissionChanges(submissions => submissions.filter(item => !ids.has(item.id)), `Deleting ${count} submissions`)
   }
 
   function toggleSubmissionSelection(id) {
@@ -519,30 +567,16 @@ export function FormBuilderPage({ client = false }) {
   return (
     <Layout client={client} title="Forms">
       <section className="moduleHero card">
-        <div>
-          <span>Form Builder</span>
-          <h2>{website?.name || 'Assigned Website'} Forms</h2>
-          <p>{canEdit ? 'Create contact, support, application and custom forms.' : 'View the forms currently configured for this website.'}</p>
-        </div>
+        <div><span>Form Builder</span><h2>{website?.name || 'Assigned Website'} Forms</h2><p>{canEdit ? 'Create contact, support, application and custom forms.' : 'View the forms currently configured for this website.'}</p></div>
         <button type="button" disabled aria-live="polite">{notice}</button>
       </section>
 
-      {isOwner && websites.length > 1 && <section className="card formSettings">
-        <label>Website<select value={websiteId || ''} disabled={busy} onChange={event => { setSelectedWebsiteId(event.target.value); setSelectedId(''); setDeliveryStatuses({}) }}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
-      </section>}
+      {isOwner && websites.length > 1 && <section className="card formSettings"><label>Website<select value={websiteId || ''} disabled={busy} onChange={event => { setSelectedWebsiteId(event.target.value); setSelectedId(''); setDeliveryStatuses({}) }}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label></section>}
 
       {isOwner && <section className="card emailReadinessPanel">
         <div className="panelHead"><div><span>Email Delivery</span><h2>{emailReadiness?.configured ? 'Ready' : emailReadinessLoading ? 'Checking…' : 'Setup required'}</h2></div><button type="button" disabled={emailReadinessLoading || busy} onClick={loadEmailReadiness}>{emailReadinessLoading ? 'Checking…' : 'Refresh'}</button></div>
-        <div className="emailReadinessGrid">
-          <p><b>HTTP endpoint</b><small>{emailReadiness?.endpointConfigured ? 'Configured' : 'Not configured'}</small></p>
-          <p><b>Sender</b><small>{emailReadiness?.from || 'Not configured'}</small></p>
-          <p><b>Authentication</b><small>{emailReadiness?.authenticationConfigured ? 'Token configured' : 'No token configured'}</small></p>
-        </div>
-        <div className="emailTestControls">
-          <label>Test recipient<input type="email" value={testEmail} disabled={busy} placeholder="you@example.com" onChange={event => { setTestEmail(event.target.value); setEmailTestState('') }} /></label>
-          <button type="button" disabled={busy || !emailReadiness?.configured || !testEmail.trim()} onClick={sendEmailTest}>{busyAction === 'email-test' ? 'Queuing…' : 'Send Test Email'}</button>
-          {emailTestState && <small aria-live="polite">{emailTestState}</small>}
-        </div>
+        <div className="emailReadinessGrid"><p><b>HTTP endpoint</b><small>{emailReadiness?.endpointConfigured ? 'Configured' : 'Not configured'}</small></p><p><b>Sender</b><small>{emailReadiness?.from || 'Not configured'}</small></p><p><b>Authentication</b><small>{emailReadiness?.authenticationConfigured ? 'Token configured' : 'No token configured'}</small></p></div>
+        <div className="emailTestControls"><label>Test recipient<input type="email" value={testEmail} disabled={busy} placeholder="you@example.com" onChange={event => { setTestEmail(event.target.value); setEmailTestState('') }} /></label><button type="button" disabled={busy || !emailReadiness?.configured || !testEmail.trim()} onClick={sendEmailTest}>{busyAction === 'email-test' ? 'Queuing…' : 'Send Test Email'}</button>{emailTestState && <small aria-live="polite">{emailTestState}</small>}</div>
       </section>}
 
       <section className="formsGrid">
@@ -551,58 +585,41 @@ export function FormBuilderPage({ client = false }) {
           {forms.map(form => <button className={form.id === selectedId ? 'active' : ''} disabled={busy} key={form.id} onClick={() => setSelectedId(form.id)}><b>{form.name}</b><small>{form.status} · {(form.fields || []).length} fields</small></button>)}
           {!forms.length && <p className="emptyState">No forms configured yet.</p>}
         </aside>
+
         <section className="card formEditor">
-          <div className="panelHead"><h2>{canEdit ? 'Form Settings' : 'Form Details'}</h2>{selected && <button type="button" disabled>{selected.status}</button>}</div>
+          <div className="panelHead"><h2>{canEdit ? 'Form Settings' : 'Form Details'}</h2>{selected && <div className="formHeaderActions"><button type="button" disabled>{selected.status}</button>{canEdit && <button type="button" disabled={busy} onClick={duplicateForm}>Duplicate Form</button>}</div>}</div>
           {selected && <>
             <div className="formSettings">
               <label>Name<input value={selected.name || ''} disabled={!canEdit || busy} onChange={event => updateSelectedLocal({ name: event.target.value })} onBlur={event => saveForm({ name: event.target.value })} /></label>
               <label>Email Destination<input type="email" value={selected.destination || ''} disabled={!canEdit || busy} onChange={event => updateSelectedLocal({ destination: event.target.value })} onBlur={event => saveForm({ destination: event.target.value.trim() })} /></label>
               <label>Status<select value={selected.status || 'Draft'} disabled={!canEdit || busy} onChange={event => saveForm({ status: event.target.value })}><option>Active</option><option>Draft</option><option>Archived</option></select></label>
               <label className="formCheck"><input type="checkbox" checked={selected.spamProtection !== false} disabled={!canEdit || busy} onChange={event => saveForm({ spamProtection: event.target.checked })} /> Spam protection</label>
+              <label className="formSettingsWide">Success Message<textarea value={selected.successMessage || ''} disabled={!canEdit || busy} placeholder="Thanks — your enquiry has been sent." onChange={event => updateSelectedLocal({ successMessage: event.target.value })} onBlur={event => saveFormConfiguration({ successMessage: event.target.value.trim().slice(0, 500) })} /></label>
             </div>
-            <div className="submissions">
-              <h3>Public Submission Readiness</h3>
-              <p><b>Public website integration</b><small>{publicReady ? 'Connected and accepting submissions' : 'Ready when this form is Active'}</small></p>
-              <p><b>Delivery destination</b><small>{selected.destination || 'No destination configured'}</small></p>
-              <p><b>Email transport</b><small>{isOwner ? (emailReadiness?.configured ? 'Configured' : 'Setup required') : 'Managed by KSJ Digital'}</small></p>
-              <p><b>Spam protection</b><small>{selected.spamProtection !== false ? 'Enabled for public submissions' : 'Disabled'}</small></p>
-              <p><b>Portal preview test</b><small>Available below and stored separately by source label</small></p>
-              {hasFileFields && <p><b>Secure file uploads</b><small>Enabled · PDF, PNG, JPG/JPEG and WebP · 5 MB per file · private authenticated downloads</small></p>}
-            </div>
+            <div className="submissions"><h3>Public Submission Readiness</h3><p><b>Public website integration</b><small>{publicReady ? 'Connected and accepting submissions' : 'Ready when this form is Active'}</small></p><p><b>Delivery destination</b><small>{selected.destination || 'No destination configured'}</small></p><p><b>Success message</b><small>{selected.successMessage || 'Default confirmation message'}</small></p><p><b>Email transport</b><small>{isOwner ? (emailReadiness?.configured ? 'Configured' : 'Setup required') : 'Managed by KSJ Digital'}</small></p><p><b>Spam protection</b><small>{selected.spamProtection !== false ? 'Enabled for public submissions' : 'Disabled'}</small></p><p><b>Portal preview test</b><small>Available below and stored separately by source label</small></p>{hasFileFields && <p><b>Secure file uploads</b><small>Enabled · PDF, PNG, JPG/JPEG and WebP · 5 MB per file · private authenticated downloads</small></p>}</div>
             {canEdit && <div className="fieldTypeBar">{fieldTypes.map(type => <button key={type} disabled={busy} onClick={() => addNewField(type)}>{type}</button>)}</div>}
             {(selected.fields || []).map((field, index) => <article className="fieldEditor" key={field.id}>
-              <div className="panelHead"><h3>{field.type}</h3>{canEdit && <div><button aria-label={`Move ${field.label || field.type} up`} disabled={busy || index === 0} onClick={() => shiftField(field.id, 'up')}>↑</button><button aria-label={`Move ${field.label || field.type} down`} disabled={busy || index === selected.fields.length - 1} onClick={() => shiftField(field.id, 'down')}>↓</button><button disabled={busy} onClick={() => removeField(field)}>{busyAction === `remove-${field.id}` ? 'Removing…' : 'Remove'}</button></div>}</div>
+              <div className="panelHead"><h3>{field.type}</h3>{canEdit && <div><button aria-label={`Move ${field.label || field.type} up`} disabled={busy || index === 0} onClick={() => shiftField(field.id, 'up')}>↑</button><button aria-label={`Move ${field.label || field.type} down`} disabled={busy || index === selected.fields.length - 1} onClick={() => shiftField(field.id, 'down')}>↓</button><button disabled={busy} onClick={() => duplicateField(field)}>Duplicate</button><button disabled={busy} onClick={() => removeField(field)}>{busyAction === `remove-${field.id}` ? 'Removing…' : 'Remove'}</button></div>}</div>
               <label>Label<input value={field.label || ''} disabled={!canEdit || busy} onChange={event => updateFieldLocal(field.id, { label: event.target.value })} onBlur={event => editField(field.id, { label: event.target.value })} /></label>
               <label>Placeholder<input value={field.placeholder || ''} disabled={!canEdit || busy} onChange={event => updateFieldLocal(field.id, { placeholder: event.target.value })} onBlur={event => editField(field.id, { placeholder: event.target.value })} /></label>
+              <label>Help Text<input value={field.helpText || ''} disabled={!canEdit || busy} placeholder="Optional guidance shown below the field" onChange={event => updateFieldLocal(field.id, { helpText: event.target.value })} onBlur={event => saveFieldConfiguration(field.id, { helpText: event.target.value.trim().slice(0, 300) })} /></label>
+              {field.type === 'Select' && <label>Options<textarea value={(field.options || []).join('\n')} disabled={!canEdit || busy} placeholder={'Option One\nOption Two\nOption Three'} onChange={event => updateFieldLocal(field.id, { options: normaliseOptions(event.target.value) })} onBlur={event => saveFieldConfiguration(field.id, { options: normaliseOptions(event.target.value) })} /><small>One option per line · up to 50 options</small></label>}
+              {lengthFieldTypes.has(field.type) && <div className="fieldValidationGrid"><label>Minimum Length<input type="number" min="0" max="5000" value={field.minLength || ''} disabled={!canEdit || busy} onChange={event => updateFieldLocal(field.id, { minLength: event.target.value ? Math.max(0, Math.min(5000, Number(event.target.value))) : null })} onBlur={event => saveFieldConfiguration(field.id, { minLength: event.target.value ? Math.max(0, Math.min(5000, Number(event.target.value))) : null })} /></label><label>Maximum Length<input type="number" min="1" max="5000" value={field.maxLength || ''} disabled={!canEdit || busy} onChange={event => updateFieldLocal(field.id, { maxLength: event.target.value ? Math.max(1, Math.min(5000, Number(event.target.value))) : null })} onBlur={event => saveFieldConfiguration(field.id, { maxLength: event.target.value ? Math.max(1, Math.min(5000, Number(event.target.value))) : null })} /></label></div>}
               <label className="formCheck"><input type="checkbox" checked={field.required === true} disabled={!canEdit || busy} onChange={event => editField(field.id, { required: event.target.checked })} /> Required</label>
             </article>)}
             {!(selected.fields || []).length && <p className="emptyState">Add the first field to build this form.</p>}
             {canEdit && <div className="formDanger"><button onClick={removeForm} disabled={busy}>{busyAction === 'delete-form' ? 'Deleting…' : 'Delete Form'}</button></div>}
           </>}
         </section>
+
         <aside className="card formPreview">
           <div className="panelHead"><h2>Portal Preview</h2>{canEdit && <button disabled={!websiteId || !selected?.id || busy} onClick={addTestSubmission}>{busyAction === 'test' ? 'Testing…' : 'Add Test Submission'}</button>}</div>
-          {selected && <form onSubmit={event => event.preventDefault()}><h3>{selected.name}</h3>{(selected.fields || []).map(field => <label key={field.id}>{field.type !== 'Checkbox' && <span>{field.label}{field.required ? ' *' : ''}</span>}<FieldPreview field={field} /></label>)}<button type="button" disabled>Preview only</button></form>}
+          {selected && <form onSubmit={event => event.preventDefault()}><h3>{selected.name}</h3>{(selected.fields || []).map(field => <label key={field.id}>{field.type !== 'Checkbox' && <span>{field.label}{field.required ? ' *' : ''}</span>}<FieldPreview field={field} /></label>)}<button type="button" disabled>Preview only</button>{selected.successMessage && <small>Success: {selected.successMessage}</small>}</form>}
           <div className="submissions submissionManager">
             <div className="panelHead"><div><h3>Submissions</h3><small>{filteredSubmissions.length === submissionStats.total ? `${submissionStats.total} total` : `${filteredSubmissions.length} of ${submissionStats.total}`}</small></div><div className="submissionToolbar"><button type="button" disabled={!selected?.id || deliveryLoading} onClick={() => loadDeliveryStatuses(selected?.id)}>{deliveryLoading ? 'Checking…' : 'Refresh delivery'}</button><button type="button" disabled={!filteredSubmissions.length || busy} onClick={() => exportSubmissions(filteredSubmissions, 'filtered')}>Export filtered</button>{selectedSubmissions.length > 0 && <button type="button" disabled={busy} onClick={() => exportSubmissions(selectedSubmissions, 'selected')}>Export selected ({selectedSubmissions.length})</button>}</div></div>
-            <div className="submissionStats" aria-label="Submission counts">
-              <span><b>{submissionStats.total}</b>Total</span>
-              <span><b>{submissionStats.new}</b>New</span>
-              <span><b>{submissionStats.read}</b>Read</span>
-              <span><b>{submissionStats.resolved}</b>Resolved</span>
-              <span><b>{submissionStats.public}</b>Public</span>
-            </div>
-            <div className="submissionFilters">
-              <label>Search<input type="search" value={submissionQuery} placeholder="ID, answer, filename…" onChange={event => setSubmissionQuery(event.target.value)} /></label>
-              <label>Status<select value={submissionStatusFilter} onChange={event => setSubmissionStatusFilter(event.target.value)}><option>All</option>{submissionStatuses.map(status => <option key={status}>{status}</option>)}</select></label>
-              <label>Source<select value={submissionSourceFilter} onChange={event => setSubmissionSourceFilter(event.target.value)}><option>All</option>{submissionSources.map(source => <option key={source}>{source}</option>)}</select></label>
-              <label>Per page<select value={submissionPageSize} onChange={event => setSubmissionPageSize(Number(event.target.value))}>{submissionPageSizes.map(size => <option key={size} value={size}>{size}</option>)}</select></label>
-            </div>
-            {filteredSubmissions.length > 0 && <div className="submissionBulkBar">
-              <label className="formCheck"><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisibleSubmissions} /> Select page</label>
-              <span>{selectedSubmissionIds.length ? `${selectedSubmissionIds.length} selected` : 'No selection'}</span>
-              {canEdit && selectedSubmissionIds.length > 0 && <><select aria-label="Set selected submission status" defaultValue="" disabled={busy} onChange={event => { const status = event.target.value; event.target.value = ''; updateSelectedSubmissionStatus(status) }}><option value="" disabled>Set status…</option>{submissionStatuses.map(status => <option key={status}>{status}</option>)}</select><button type="button" className="danger" disabled={busy} onClick={removeSelectedSubmissions}>{busyAction === 'bulk-submissions' ? 'Saving…' : 'Delete selected'}</button></>}
-            </div>}
+            <div className="submissionStats" aria-label="Submission counts"><span><b>{submissionStats.total}</b>Total</span><span><b>{submissionStats.new}</b>New</span><span><b>{submissionStats.read}</b>Read</span><span><b>{submissionStats.resolved}</b>Resolved</span><span><b>{submissionStats.public}</b>Public</span></div>
+            <div className="submissionFilters"><label>Search<input type="search" value={submissionQuery} placeholder="ID, answer, filename…" onChange={event => setSubmissionQuery(event.target.value)} /></label><label>Status<select value={submissionStatusFilter} onChange={event => setSubmissionStatusFilter(event.target.value)}><option>All</option>{submissionStatuses.map(status => <option key={status}>{status}</option>)}</select></label><label>Source<select value={submissionSourceFilter} onChange={event => setSubmissionSourceFilter(event.target.value)}><option>All</option>{submissionSources.map(source => <option key={source}>{source}</option>)}</select></label><label>Per page<select value={submissionPageSize} onChange={event => setSubmissionPageSize(Number(event.target.value))}>{submissionPageSizes.map(size => <option key={size} value={size}>{size}</option>)}</select></label></div>
+            {filteredSubmissions.length > 0 && <div className="submissionBulkBar"><label className="formCheck"><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisibleSubmissions} /> Select page</label><span>{selectedSubmissionIds.length ? `${selectedSubmissionIds.length} selected` : 'No selection'}</span>{canEdit && selectedSubmissionIds.length > 0 && <><select aria-label="Set selected submission status" defaultValue="" disabled={busy} onChange={event => { const status = event.target.value; event.target.value = ''; updateSelectedSubmissionStatus(status) }}><option value="" disabled>Set status…</option>{submissionStatuses.map(status => <option key={status}>{status}</option>)}</select><button type="button" className="danger" disabled={busy} onClick={removeSelectedSubmissions}>{busyAction === 'bulk-submissions' ? 'Saving…' : 'Delete selected'}</button></>}</div>}
             {pagedSubmissions.length ? pagedSubmissions.map(sub => {
               const summary = submissionSummary(sub, selected.fields || [])
               const submissionBusy = busyAction === `submission-${sub.id}`
@@ -611,21 +628,11 @@ export function FormBuilderPage({ client = false }) {
               const attachments = Array.isArray(sub.attachments) ? sub.attachments : []
               return <article className={`submissionItem${selectedSubmissionSet.has(sub.id) ? ' selected' : ''}`} key={sub.id}>
                 <label className="submissionSelect" title="Select submission"><input type="checkbox" checked={selectedSubmissionSet.has(sub.id)} onChange={() => toggleSubmissionSelection(sub.id)} /><span className="srOnly">Select submission</span></label>
-                <div><b>{sub.source || 'Submission'}</b><small>{sub.createdAt}</small><span className={deliveryClass(deliveryText)} title={delivery?.error || ''}>Email: {deliveryText}</span>{summary && <small>{summary}</small>}{attachments.length > 0 && <div className="submissionAttachments">{attachments.map(attachment => {
-                  const field = (selected.fields || []).find(item => item.id === attachment.fieldId)
-                  return <a key={attachment.id} href={api.formAttachmentUrl(websiteId, selected.id, sub.id, attachment.id)}><b>{attachment.name}</b><small>{field?.label || 'Attachment'} · {attachment.mimeType || 'file'} · {attachmentSize(attachment.size)}</small></a>
-                })}</div>}</div>
-                <div className="submissionActions">
-                  <select aria-label="Submission status" value={submissionStatuses.includes(sub.status) ? sub.status : 'New'} disabled={!canEdit || busy} onChange={event => updateSubmissionStatus(sub, event.target.value)}>{submissionStatuses.map(status => <option key={status}>{status}</option>)}</select>
-                  {canEdit && <button type="button" disabled={busy} onClick={() => removeSubmission(sub)}>{submissionBusy ? 'Saving…' : 'Delete'}</button>}
-                </div>
+                <div><b>{sub.source || 'Submission'}</b><small>{sub.createdAt}</small><span className={deliveryClass(deliveryText)} title={delivery?.error || ''}>Email: {deliveryText}</span>{summary && <small>{summary}</small>}{attachments.length > 0 && <div className="submissionAttachments">{attachments.map(attachment => { const field = (selected.fields || []).find(item => item.id === attachment.fieldId); return <a key={attachment.id} href={api.formAttachmentUrl(websiteId, selected.id, sub.id, attachment.id)}><b>{attachment.name}</b><small>{field?.label || 'Attachment'} · {attachment.mimeType || 'file'} · {attachmentSize(attachment.size)}</small></a> })}</div>}</div>
+                <div className="submissionActions"><select aria-label="Submission status" value={submissionStatuses.includes(sub.status) ? sub.status : 'New'} disabled={!canEdit || busy} onChange={event => updateSubmissionStatus(sub, event.target.value)}>{submissionStatuses.map(status => <option key={status}>{status}</option>)}</select>{canEdit && <button type="button" disabled={busy} onClick={() => removeSubmission(sub)}>{submissionBusy ? 'Saving…' : 'Delete'}</button>}</div>
               </article>
             }) : <p>{allSubmissions.length ? 'No submissions match these filters.' : 'No submissions yet.'}</p>}
-            {filteredSubmissions.length > 0 && <div className="submissionPagination">
-              <button type="button" disabled={currentSubmissionPage <= 1} onClick={() => setSubmissionPage(page => Math.max(1, page - 1))}>Previous</button>
-              <span>Page {currentSubmissionPage} of {submissionPageCount} · {filteredSubmissions.length} result{filteredSubmissions.length === 1 ? '' : 's'}</span>
-              <button type="button" disabled={currentSubmissionPage >= submissionPageCount} onClick={() => setSubmissionPage(page => Math.min(submissionPageCount, page + 1))}>Next</button>
-            </div>}
+            {filteredSubmissions.length > 0 && <div className="submissionPagination"><button type="button" disabled={currentSubmissionPage <= 1} onClick={() => setSubmissionPage(page => Math.max(1, page - 1))}>Previous</button><span>Page {currentSubmissionPage} of {submissionPageCount} · {filteredSubmissions.length} result{filteredSubmissions.length === 1 ? '' : 's'}</span><button type="button" disabled={currentSubmissionPage >= submissionPageCount} onClick={() => setSubmissionPage(page => Math.min(submissionPageCount, page + 1))}>Next</button></div>}
           </div>
         </aside>
       </section>
