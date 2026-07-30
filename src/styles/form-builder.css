@@ -59,7 +59,10 @@
 .formPreview textarea,
 .formPreview select,
 .submissionActions select,
-.emailTestControls input {
+.emailTestControls input,
+.submissionFilters input,
+.submissionFilters select,
+.submissionBulkBar select {
   padding: 12px;
   border: 1px solid #26354d;
   border-radius: 12px;
@@ -212,11 +215,88 @@
   margin-bottom: 8px;
 }
 
+.submissionManager > .panelHead > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
 .submissionToolbar {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
+}
+
+.submissionStats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.submissionStats span {
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  border: 1px solid #263650;
+  border-radius: 12px;
+  background: #09111d;
+  color: #96a3b8;
+  font-size: 11px;
+}
+
+.submissionStats b {
+  color: #fff;
+  font-size: 18px;
+}
+
+.submissionFilters {
+  display: grid;
+  grid-template-columns: minmax(160px, 1.4fr) repeat(3, minmax(110px, 0.7fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.submissionFilters label {
+  display: grid;
+  gap: 5px;
+  color: #96a3b8;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.submissionFilters input,
+.submissionFilters select {
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.submissionBulkBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  padding: 10px;
+  border: 1px solid #263650;
+  border-radius: 12px;
+  background: #0a121f;
+}
+
+.submissionBulkBar > span {
+  margin-right: auto;
+  color: #96a3b8;
+  font-size: 12px;
+}
+
+.submissionBulkBar select {
+  padding: 8px 10px;
+}
+
+.submissionBulkBar .danger {
+  border-color: #6b2430;
+  background: #2b0d14;
+  color: #ff9cac;
 }
 
 .submissions p {
@@ -229,14 +309,32 @@
 
 .submissionItem {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 14px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
   align-items: start;
   padding: 14px 0;
   border-bottom: 1px solid #1c2638;
 }
 
-.submissionItem > div:first-child {
+.submissionItem.selected {
+  margin-inline: -8px;
+  padding-inline: 8px;
+  border-radius: 12px;
+  background: rgba(21, 123, 255, 0.08);
+}
+
+.submissionSelect {
+  display: flex;
+  align-items: flex-start;
+  padding-top: 3px;
+}
+
+.submissionSelect input {
+  width: 16px;
+  height: 16px;
+}
+
+.submissionItem > div:nth-child(2) {
   display: grid;
   gap: 5px;
   min-width: 0;
@@ -331,20 +429,56 @@
   color: #ff9cac;
 }
 
+.submissionPagination {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 14px;
+}
+
+.submissionPagination span {
+  color: #96a3b8;
+  font-size: 12px;
+  text-align: center;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 @media (max-width: 1250px) {
   .formsGrid,
   .formSettings,
   .emailReadinessGrid {
     grid-template-columns: 1fr;
   }
+
+  .submissionStats {
+    grid-template-columns: repeat(5, minmax(90px, 1fr));
+    overflow-x: auto;
+  }
+
+  .submissionFilters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 600px) {
   .submissionItem {
-    grid-template-columns: 1fr;
+    grid-template-columns: auto minmax(0, 1fr);
   }
 
   .submissionActions {
+    grid-column: 2;
     grid-template-columns: 1fr 1fr;
   }
 
@@ -355,6 +489,34 @@
 
   .submissionToolbar button {
     flex: 1;
+  }
+
+  .submissionFilters {
+    grid-template-columns: 1fr;
+  }
+
+  .submissionBulkBar {
+    align-items: stretch;
+  }
+
+  .submissionBulkBar > span {
+    width: 100%;
+    margin-right: 0;
+  }
+
+  .submissionBulkBar select,
+  .submissionBulkBar button {
+    flex: 1;
+  }
+
+  .submissionPagination {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .submissionPagination span {
+    grid-column: 1 / -1;
+    grid-row: 1;
   }
 
   .emailTestControls {
