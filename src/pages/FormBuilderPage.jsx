@@ -18,6 +18,7 @@ function FieldPreview({ field }) {
 function submissionSummary(submission, fields = []) {
   if (!submission?.values || typeof submission.values !== 'object' || Array.isArray(submission.values)) return ''
   return fields
+    .filter(field => field.type !== 'File')
     .map(field => {
       const value = submission.values[field.id]
       if (value === undefined || value === null || value === '') return ''
@@ -36,6 +37,13 @@ function csvCell(value) {
 
 function deliveryClass(status = '') {
   return `deliveryStatus delivery${String(status).toLowerCase().replace(/[^a-z]+/g, '')}`
+}
+
+function attachmentSize(bytes) {
+  const size = Number(bytes) || 0
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${Math.ceil(size / 1024)} KB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
 export function FormBuilderPage({ client = false }) {
@@ -62,7 +70,7 @@ export function FormBuilderPage({ client = false }) {
   const selected = forms.find(form => form.id === selectedId) || forms[0]
   const busy = Boolean(busyAction)
   const hasFileFields = Boolean((selected?.fields || []).some(field => field.type === 'File'))
-  const publicReady = selected?.status === 'Active' && !hasFileFields
+  const publicReady = selected?.status === 'Active'
 
   useEffect(() => {
     if (isOwner && !selectedWebsiteId && websites[0]?.id) setSelectedWebsiteId(websites[0].id)
@@ -369,13 +377,14 @@ export function FormBuilderPage({ client = false }) {
   function exportSubmissions() {
     if (!selected?.id || !(selected.submissions || []).length) return setNotice('No submissions to export')
     const fields = selected.fields || []
-    const header = ['Submission ID', 'Created At', 'Status', 'Source', 'Email Delivery', ...fields.map(field => field.label || field.id)]
+    const header = ['Submission ID', 'Created At', 'Status', 'Source', 'Email Delivery', 'Attachments', ...fields.map(field => field.label || field.id)]
     const rows = (selected.submissions || []).map(submission => [
       submission.id,
       submission.createdAt,
       submission.status || 'New',
       submission.source || 'Submission',
       deliveryStatuses[submission.id]?.status || (submission.source === 'Public website' ? 'Unknown' : 'Not applicable'),
+      (submission.attachments || []).map(attachment => attachment.name).join(' | '),
       ...fields.map(field => submission.values?.[field.id] ?? ''),
     ])
     const csv = [header, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n')
@@ -437,12 +446,12 @@ export function FormBuilderPage({ client = false }) {
             </div>
             <div className="submissions">
               <h3>Public Submission Readiness</h3>
-              <p><b>Public website integration</b><small>{publicReady ? 'Connected and accepting submissions' : selected.status !== 'Active' ? 'Ready when this form is Active' : 'Blocked by unsupported File fields'}</small></p>
+              <p><b>Public website integration</b><small>{publicReady ? 'Connected and accepting submissions' : 'Ready when this form is Active'}</small></p>
               <p><b>Delivery destination</b><small>{selected.destination || 'No destination configured'}</small></p>
               <p><b>Email transport</b><small>{isOwner ? (emailReadiness?.configured ? 'Configured' : 'Setup required') : 'Managed by KSJ Digital'}</small></p>
               <p><b>Spam protection</b><small>{selected.spamProtection !== false ? 'Enabled for public submissions' : 'Disabled'}</small></p>
               <p><b>Portal preview test</b><small>Available below and stored separately by source label</small></p>
-              {hasFileFields && <p><b>File upload fields</b><small>Require a dedicated public upload pipeline before this form can accept live submissions</small></p>}
+              {hasFileFields && <p><b>Secure file uploads</b><small>Enabled · PDF, PNG, JPG/JPEG and WebP · 5 MB per file · private authenticated downloads</small></p>}
             </div>
             {canEdit && <div className="fieldTypeBar">{fieldTypes.map(type => <button key={type} disabled={busy} onClick={() => addNewField(type)}>{type}</button>)}</div>}
             {(selected.fields || []).map((field, index) => <article className="fieldEditor" key={field.id}>
@@ -465,8 +474,12 @@ export function FormBuilderPage({ client = false }) {
               const submissionBusy = busyAction === `submission-${sub.id}`
               const delivery = deliveryStatuses[sub.id]
               const deliveryText = sub.source === 'Public website' ? (delivery?.status || (deliveryLoading ? 'Checking…' : 'Not queued')) : 'Not applicable'
+              const attachments = Array.isArray(sub.attachments) ? sub.attachments : []
               return <article className="submissionItem" key={sub.id}>
-                <div><b>{sub.source || 'Submission'}</b><small>{sub.createdAt}</small><span className={deliveryClass(deliveryText)} title={delivery?.error || ''}>Email: {deliveryText}</span>{summary && <small>{summary}</small>}</div>
+                <div><b>{sub.source || 'Submission'}</b><small>{sub.createdAt}</small><span className={deliveryClass(deliveryText)} title={delivery?.error || ''}>Email: {deliveryText}</span>{summary && <small>{summary}</small>}{attachments.length > 0 && <div className="submissionAttachments">{attachments.map(attachment => {
+                  const field = (selected.fields || []).find(item => item.id === attachment.fieldId)
+                  return <a key={attachment.id} href={api.formAttachmentUrl(websiteId, selected.id, sub.id, attachment.id)}><b>{attachment.name}</b><small>{field?.label || 'Attachment'} · {attachment.mimeType || 'file'} · {attachmentSize(attachment.size)}</small></a>
+                })}</div>}</div>
                 <div className="submissionActions">
                   <select aria-label="Submission status" value={submissionStatuses.includes(sub.status) ? sub.status : 'New'} disabled={!canEdit || busy} onChange={event => updateSubmissionStatus(sub, event.target.value)}>{submissionStatuses.map(status => <option key={status}>{status}</option>)}</select>
                   {canEdit && <button type="button" disabled={busy} onClick={() => removeSubmission(sub)}>{submissionBusy ? 'Saving…' : 'Delete'}</button>}
