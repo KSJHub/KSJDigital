@@ -56,7 +56,8 @@
 .fieldEditor input,
 .formPreview input,
 .formPreview textarea,
-.formPreview select {
+.formPreview select,
+.submissionActions select {
   padding: 12px;
   border: 1px solid #26354d;
   border-radius: 12px;
@@ -138,6 +139,10 @@
   border-top: 1px solid #1c2638;
 }
 
+.submissions > .panelHead {
+  margin-bottom: 8px;
+}
+
 .submissions p {
   display: grid;
   gap: 4px;
@@ -146,9 +151,55 @@
   border-bottom: 1px solid #1c2638;
 }
 
+.submissionItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  padding: 14px 0;
+  border-bottom: 1px solid #1c2638;
+}
+
+.submissionItem > div:first-child {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.submissionItem small {
+  overflow-wrap: anywhere;
+}
+
+.submissionActions {
+  display: grid;
+  gap: 8px;
+  min-width: 112px;
+}
+
+.submissionActions select {
+  width: 100%;
+  padding: 9px 10px;
+}
+
+.submissionActions button {
+  border-color: #6b2430;
+  background: #2b0d14;
+  color: #ff9cac;
+}
+
 @media (max-width: 1250px) {
   .formsGrid,
   .formSettings {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .submissionItem {
+    grid-template-columns: 1fr;
+  }
+
+  .submissionActions {
+    grid-template-columns: 1fr 1fr;
   }
 }
