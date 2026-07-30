@@ -35,6 +35,21 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PHONE_PATTERN = /^[0-9+() .'\-]{5,40}$/
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 const MAX_PUBLIC_FORM_PAYLOAD_BYTES = 64 * 1024
+const STARTER_PUBLIC_FORMS = [
+  {
+    id: 'contact',
+    name: 'Contact Form',
+    status: 'Active',
+    destination: 'support@ksjdigital.co.uk',
+    spamProtection: true,
+    fields: [
+      { id: 'name', label: 'Name', type: 'Text', required: true, placeholder: 'Your name' },
+      { id: 'email', label: 'Email', type: 'Email', required: true, placeholder: 'you@example.com' },
+      { id: 'message', label: 'Message', type: 'Textarea', required: true, placeholder: 'How can we help?' },
+    ],
+    submissions: [],
+  },
+]
 
 export function assetServingGuard(req, res, next) {
   const extension = path.extname(req.path || '').toLowerCase()
@@ -462,7 +477,7 @@ export function mountPublicRoutes(app) {
     const website = websites.find(site => safeName(site.id) === websiteId)
     if (!website) return res.status(404).json({ error: 'Website not found' })
 
-    const forms = await readJson(paths.forms(websiteId), [])
+    const forms = await readJson(paths.forms(websiteId), STARTER_PUBLIC_FORMS)
     if (!Array.isArray(forms)) return res.status(500).json({ error: 'Stored forms are invalid' })
 
     if (req.method === 'GET' && req.path === '/') {
