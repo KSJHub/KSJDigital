@@ -57,6 +57,8 @@ export const api = {
   getPublicForms: websiteId => request(`/public/forms/${encodeURIComponent(websiteId)}`),
   submitPublicForm: (websiteId, formId, payload) => request(`/public/forms/${encodeURIComponent(websiteId)}/${encodeURIComponent(formId)}/submissions`, { method: 'POST', body: JSON.stringify(payload) }),
   getFormDeliveryStatuses: (websiteId, formId) => request(`/notifications/form-deliveries?websiteId=${encodeURIComponent(websiteId)}&formId=${encodeURIComponent(formId)}`),
+  getEmailReadiness: () => request('/notifications/email-readiness'),
+  sendEmailTest: to => request('/notifications/email-test', { method: 'POST', body: JSON.stringify({ to }) }),
   saveForms: (websiteId, forms) => request(`/forms/${websiteId}`, { method: 'PUT', body: JSON.stringify({ forms }) }),
   createForm: async (websiteId, payload = {}) => {
     const form = await request(`/forms/${websiteId}`, { method: 'POST', body: JSON.stringify(payload) })
