@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import { createServer } from 'node:http'
 import path from 'node:path'
 import express from 'express'
+import multer from 'multer'
 import { createAbuseProtectionRouter } from './abuseProtectionRouter.js'
 import { createApiKeyRouter } from './apiKeyRouter.js'
 import { createAuthenticationAdminRouter, createPasswordResetPublicRouter } from './authenticationAdminRouter.js'
@@ -55,9 +56,26 @@ import { startRetentionScheduler } from './services/retentionComplianceService.j
 import { createRequestMetricsMiddleware, startSystemHealthMonitor } from './services/systemHealthService.js'
 import { startWebSocketEventBridge } from './services/webSocketEventBridgeService.js'
 import { startWebSocketGateway } from './services/webSocketService.js'
-import { paths, readJson, safeName } from './storage.js'
+import { DATA_DIR, paths, readJson, safeName, writeJson } from './storage.js'
 import { createSystemHealthRouter } from './systemHealthRouter.js'
 import { createWebSocketRouter } from './webSocketRouter.js'
+
+const PUBLIC_FORM_FILE_MAX_BYTES = 5 * 1024 * 1024
+const PUBLIC_FORM_MAX_FILES = 5
+const PUBLIC_FORM_TEXT_MAX_BYTES = 64 * 1024
+const PUBLIC_FORM_ALLOWED_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.pdf'])
+const PUBLIC_FORM_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const PUBLIC_FORM_PHONE_PATTERN = /^[0-9+() .'\-]{5,40}$/
+const PUBLIC_FORM_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+const publicFormUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: PUBLIC_FORM_FILE_MAX_BYTES,
+    files: PUBLIC_FORM_MAX_FILES,
+    fields: 50,
+    fieldSize: PUBLIC_FORM_TEXT_MAX_BYTES,
+  },
+})
 
 function loadLocalEnvironment() {
   const file = path.resolve(process.cwd(), '.env.local')
@@ -130,7 +148,171 @@ function publicFormSubmissionRoute(req) {
   if (!match) return null
   return { websiteId: safeName(decodeURIComponent(match[1])), formId: safeName(decodeURIComponent(match[2])) }
 }
-function formSubmissionEmailBody(websiteId, form, result, values = {}) {
+function publicFormAttachmentDirectory(websiteId) {
+  return path.join(DATA_DIR, 'form-attachments', safeName(websiteId))
+}
+function publicFormAttachmentPath(websiteId, attachmentId) {
+  return path.join(publicFormAttachmentDirectory(websiteId), safeName(attachmentId))
+}
+function startsWithBytes(buffer, bytes) {
+  return Buffer.isBuffer(buffer) && buffer.length >= bytes.length && bytes.every((value, index) => buffer[index] === value)
+}
+function detectPublicFormFile(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 4) return null
+  if (startsWithBytes(buffer, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return { extensions: new Set(['.png']), mimeType: 'image/png' }
+  if (startsWithBytes(buffer, [0xff, 0xd8, 0xff])) return { extensions: new Set(['.jpg', '.jpeg']), mimeType: 'image/jpeg' }
+  const header = buffer.subarray(0, 12).toString('ascii')
+  if (header.slice(0, 4) === 'RIFF' && header.slice(8, 12) === 'WEBP') return { extensions: new Set(['.webp']), mimeType: 'image/webp' }
+  if (buffer.subarray(0, 5).toString('ascii') === '%PDF-') return { extensions: new Set(['.pdf']), mimeType: 'application/pdf' }
+  return null
+}
+function safeAttachmentName(value) {
+  return path.basename(String(value || 'attachment')).replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 180) || 'attachment'
+}
+function validPublicFormDate(value) {
+  if (!PUBLIC_FORM_DATE_PATTERN.test(value)) return false
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
+function publicFormTextValue(field, rawValue) {
+  if (field.type === 'Checkbox') {
+    if (rawValue === undefined || rawValue === null) return field.required ? { error: `${field.label || 'Required field'} must be accepted` } : { value: false }
+    if (typeof rawValue !== 'boolean') return { error: `${field.label || 'Checkbox'} must be true or false` }
+    if (field.required && rawValue !== true) return { error: `${field.label || 'Required field'} must be accepted` }
+    return { value: rawValue }
+  }
+  const maximum = field.type === 'Textarea' ? 5000 : field.type === 'Email' ? 320 : field.type === 'Phone' ? 40 : 500
+  const value = String(rawValue ?? '').trim().slice(0, maximum)
+  if (field.required && !value) return { error: `${field.label || 'Required field'} is required` }
+  if (!value) return { value: '' }
+  if (field.type === 'Email' && !PUBLIC_FORM_EMAIL_PATTERN.test(value)) return { error: `${field.label || 'Email'} must be a valid email address` }
+  if (field.type === 'Phone' && !PUBLIC_FORM_PHONE_PATTERN.test(value)) return { error: `${field.label || 'Phone'} must be a valid phone number` }
+  if (field.type === 'Date' && !validPublicFormDate(value)) return { error: `${field.label || 'Date'} must be a valid date` }
+  return { value }
+}
+function parseMultipartValues(req) {
+  let values = req.body?.values
+  if (typeof values === 'string') {
+    try { values = JSON.parse(values) } catch { return { error: 'Form values must be valid JSON' } }
+  }
+  if (!values || typeof values !== 'object' || Array.isArray(values)) return { error: 'Form values must be an object' }
+  if (Buffer.byteLength(JSON.stringify(values), 'utf8') > PUBLIC_FORM_TEXT_MAX_BYTES) return { error: 'Form submission is too large', status: 413 }
+  return { values }
+}
+function validateMultipartFormSubmission(form, req) {
+  if (form.spamProtection !== false) {
+    const honeypot = String(req.body?.website || req.body?.company || '').trim().slice(0, 120)
+    if (honeypot) return { spam: true }
+    const startedAt = Number(req.body?.startedAt)
+    if (Number.isFinite(startedAt) && startedAt > 0 && Date.now() - startedAt < 750) return { spam: true }
+  }
+
+  const parsed = parseMultipartValues(req)
+  if (parsed.error) return parsed
+  const fields = Array.isArray(form.fields) ? form.fields : []
+  const fieldIds = new Set(fields.map(field => String(field.id || '')))
+  const unknownValue = Object.keys(parsed.values).find(key => !fieldIds.has(key))
+  if (unknownValue) return { error: 'Submission contains an unknown form field', status: 422 }
+
+  const fileFields = new Map(fields.filter(field => field.type === 'File').map(field => [String(field.id || ''), field]))
+  const uploaded = new Map()
+  for (const file of Array.isArray(req.files) ? req.files : []) {
+    const field = fileFields.get(String(file.fieldname || ''))
+    if (!field) return { error: 'Submission contains a file for an unknown or non-file field', status: 422 }
+    if (uploaded.has(field.id)) return { error: `${field.label || 'File'} accepts one file only`, status: 422 }
+    const extension = path.extname(file.originalname || '').toLowerCase()
+    if (!PUBLIC_FORM_ALLOWED_EXTENSIONS.has(extension)) return { error: `${field.label || 'File'} must be a PDF, PNG, JPG or WebP file`, status: 415 }
+    if (!Number.isFinite(Number(file.size)) || Number(file.size) <= 0 || Number(file.size) > PUBLIC_FORM_FILE_MAX_BYTES) return { error: `${field.label || 'File'} must be between 1 byte and 5 MB`, status: 413 }
+    const detected = detectPublicFormFile(file.buffer)
+    if (!detected || !detected.extensions.has(extension)) return { error: `${field.label || 'File'} content does not match its file extension`, status: 415 }
+    const suppliedMime = String(file.mimetype || '').toLowerCase()
+    if (suppliedMime && suppliedMime !== detected.mimeType) return { error: `${field.label || 'File'} content does not match its MIME type`, status: 415 }
+    uploaded.set(field.id, { file, detected })
+  }
+
+  const values = {}
+  for (const field of fields) {
+    if (field.type === 'File') {
+      if (field.required && !uploaded.has(field.id)) return { error: `${field.label || 'Required file'} is required`, status: 422 }
+      values[field.id] = uploaded.has(field.id) ? safeAttachmentName(uploaded.get(field.id).file.originalname) : ''
+      continue
+    }
+    const result = publicFormTextValue(field, parsed.values[field.id])
+    if (result.error) return { error: result.error, status: 422 }
+    values[field.id] = result.value
+  }
+  return { values, uploaded }
+}
+async function persistMultipartFormSubmission(route, form, validated) {
+  const submission = {
+    id: `sub-${crypto.randomUUID()}`,
+    createdAt: new Date().toISOString(),
+    status: 'New',
+    source: 'Public website',
+    values: validated.values,
+    attachments: [],
+  }
+  const writtenFiles = []
+  try {
+    if (validated.uploaded?.size) await fs.promises.mkdir(publicFormAttachmentDirectory(route.websiteId), { recursive: true })
+    for (const [fieldId, entry] of validated.uploaded || []) {
+      const attachment = {
+        id: `att-${crypto.randomUUID()}`,
+        fieldId,
+        name: safeAttachmentName(entry.file.originalname),
+        mimeType: entry.detected.mimeType,
+        size: Number(entry.file.size),
+      }
+      const file = publicFormAttachmentPath(route.websiteId, attachment.id)
+      await fs.promises.writeFile(file, entry.file.buffer, { flag: 'wx' })
+      writtenFiles.push(file)
+      submission.attachments.push(attachment)
+    }
+
+    const forms = await readJson(paths.forms(route.websiteId), [])
+    if (!Array.isArray(forms)) throw new Error('Stored forms are invalid')
+    const currentForm = forms.find(item => safeName(item.id) === route.formId && item.status === 'Active')
+    if (!currentForm) throw new Error('Active form not found')
+    const nextForms = forms.map(item => item.id === currentForm.id
+      ? { ...item, submissions: [submission, ...(Array.isArray(item.submissions) ? item.submissions : [])] }
+      : item)
+    await writeJson(paths.forms(route.websiteId), nextForms)
+    return submission
+  } catch (error) {
+    await Promise.all(writtenFiles.map(file => fs.promises.rm(file, { force: true }).catch(() => {})))
+    throw error
+  }
+}
+function publicFormMultipartSubmissionMiddleware(req, res, next) {
+  const route = publicFormSubmissionRoute(req)
+  if (!route || !String(req.headers['content-type'] || '').toLowerCase().startsWith('multipart/form-data;')) return next()
+
+  publicFormUpload.any()(req, res, async error => {
+    if (error) {
+      if (error.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'Each form attachment is limited to 5 MB' })
+      if (error.code === 'LIMIT_FILE_COUNT') return res.status(413).json({ error: `Form submissions are limited to ${PUBLIC_FORM_MAX_FILES} attachments` })
+      return res.status(400).json({ error: 'Form attachment upload could not be processed' })
+    }
+    try {
+      const forms = await readJson(paths.forms(route.websiteId), [])
+      if (!Array.isArray(forms)) return res.status(500).json({ error: 'Stored forms are invalid' })
+      const form = forms.find(item => safeName(item.id) === route.formId && item.status === 'Active')
+      if (!form) return res.status(404).json({ error: 'Active form not found' })
+      if (!(form.fields || []).some(field => field.type === 'File')) return next()
+
+      const validated = validateMultipartFormSubmission(form, req)
+      if (validated.spam) return res.status(202).json({ submitted: true })
+      if (validated.error) return res.status(validated.status || 422).json({ error: validated.error })
+      const submission = await persistMultipartFormSubmission(route, form, validated)
+      return res.status(201).json({ submitted: true, id: submission.id, createdAt: submission.createdAt })
+    } catch (uploadError) {
+      console.error('Public form attachment submission failed', { websiteId: route.websiteId, formId: route.formId, error: uploadError?.message || 'Upload failed' })
+      return res.status(500).json({ error: 'Form submission could not be stored' })
+    }
+  })
+}
+function formSubmissionEmailBody(websiteId, form, result, values = {}, attachments = []) {
   const lines = [
     'A new public form submission has been received.',
     '',
@@ -146,6 +328,11 @@ function formSubmissionEmailBody(websiteId, form, result, values = {}) {
     const value = typeof raw === 'boolean' ? (raw ? 'Yes' : 'No') : String(raw)
     lines.push(`${field.label || field.id}: ${value}`)
   }
+  if (attachments.length) {
+    lines.push('', 'Attachments:')
+    for (const attachment of attachments) lines.push(`- ${attachment.name} (${Math.ceil(Number(attachment.size || 0) / 1024)} KB)`)
+    lines.push('Attachments are available securely from the KSJ Digital Forms portal.')
+  }
   return lines.join('\n')
 }
 async function queuePublicFormSubmissionEmail(route, req, result) {
@@ -154,11 +341,12 @@ async function queuePublicFormSubmissionEmail(route, req, result) {
   const form = forms.find(item => safeName(item.id) === route.formId)
   const destination = String(form?.destination || '').trim().toLowerCase()
   if (!form || !destination) return
+  const submission = (form.submissions || []).find(item => item.id === result.id)
 
   await queueEmailNotification({
     to: destination,
     subject: `New ${form.name || 'form'} submission — ${route.websiteId}`,
-    body: formSubmissionEmailBody(route.websiteId, form, result, req.body?.values || {}),
+    body: formSubmissionEmailBody(route.websiteId, form, result, submission?.values || req.body?.values || {}, submission?.attachments || []),
     category: 'form-submission',
     metadata: { websiteId: route.websiteId, formId: form.id, submissionId: result.id || null },
     deduplicationKey: result.id ? `form-submission:${route.websiteId}:${form.id}:${result.id}` : undefined,
@@ -186,6 +374,34 @@ function formSubmissionNotificationCapture(req, res, next) {
     })
   })
   next()
+}
+async function downloadFormAttachment(req, res) {
+  const websiteId = safeName(req.params.websiteId)
+  const formId = safeName(req.params.formId)
+  const submissionId = String(req.params.submissionId || '')
+  const attachmentId = safeName(req.params.attachmentId)
+  if (req.session?.role !== 'owner') {
+    const assigned = new Set((Array.isArray(req.session?.websiteIds) ? req.session.websiteIds : req.session?.websiteId ? [req.session.websiteId] : []).map(safeName))
+    if (!assigned.has(websiteId)) return res.status(403).json({ error: 'Website access denied' })
+  }
+  const forms = await readJson(paths.forms(websiteId), [])
+  const form = Array.isArray(forms) ? forms.find(item => safeName(item.id) === formId) : null
+  const submission = form?.submissions?.find(item => item.id === submissionId)
+  const attachment = submission?.attachments?.find(item => safeName(item.id) === attachmentId)
+  if (!form || !submission || !attachment) return res.status(404).json({ error: 'Attachment not found' })
+  try {
+    const buffer = await fs.promises.readFile(publicFormAttachmentPath(websiteId, attachment.id))
+    res.setHeader('Cache-Control', 'no-store')
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Content-Type', attachment.mimeType || 'application/octet-stream')
+    res.setHeader('Content-Length', buffer.length)
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(safeAttachmentName(attachment.name))}`)
+    return res.send(buffer)
+  } catch (error) {
+    if (error?.code === 'ENOENT') return res.status(404).json({ error: 'Attachment file not found' })
+    console.error('Could not read form attachment', { websiteId, formId, submissionId, attachmentId, error: error?.message || 'Read failed' })
+    return res.status(500).json({ error: 'Attachment could not be downloaded' })
+  }
 }
 const credentialConfiguration = {
   morgan: 'KSJ_OWNER_PASSWORD',
@@ -266,6 +482,7 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, createAbuseProtectionMiddleware())
     originalUse.call(this, createResponseCacheMiddleware())
     originalUse.call(this, formSubmissionNotificationCapture)
+    originalUse.call(this, publicFormMultipartSubmissionMiddleware)
     originalUse.call(this, createAuthenticationPublicRouter())
     originalUse.call(this, createPasswordResetPublicRouter())
     mountPublicRoutes(this)
@@ -281,6 +498,7 @@ express.application.use = function routeAwareUse(...args) {
     originalUse.call(this, '/api', createRequestMetricsMiddleware())
     originalUse.call(this, '/api', createIntegrationEventCaptureMiddleware())
     mountProtectedRoutes(this)
+    originalGet.call(this, '/api/forms/:websiteId/:formId/submissions/:submissionId/attachments/:attachmentId', downloadFormAttachment)
     originalUse.call(this, '/api/auth', createAuthenticationAdminRouter())
     originalUse.call(this, '/api/field-registry', createFieldRegistryRouter())
     originalUse.call(this, '/api/integrations', createIntegrationRouter())
