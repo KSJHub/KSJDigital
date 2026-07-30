@@ -50,10 +50,12 @@ import { startEventBusWorker } from './services/eventBusService.js'
 import { startIntegrationWorker } from './services/integrationService.js'
 import { startJobQueueWorker } from './services/jobQueueService.js'
 import { requireAssurance } from './services/mfaService.js'
+import { queueEmailNotification } from './services/notificationService.js'
 import { startRetentionScheduler } from './services/retentionComplianceService.js'
 import { createRequestMetricsMiddleware, startSystemHealthMonitor } from './services/systemHealthService.js'
 import { startWebSocketEventBridge } from './services/webSocketEventBridgeService.js'
 import { startWebSocketGateway } from './services/webSocketService.js'
+import { paths, readJson, safeName } from './storage.js'
 import { createSystemHealthRouter } from './systemHealthRouter.js'
 import { createWebSocketRouter } from './webSocketRouter.js'
 
@@ -119,6 +121,70 @@ function basketCheckoutErrorSanitizer(req, res, next) {
     const provider = paypal ? 'PayPal' : 'Stripe'
     return originalJson({ error: completing ? `Unable to complete ${provider} checkout` : `Unable to start ${provider} checkout` })
   }
+  next()
+}
+function publicFormSubmissionRoute(req) {
+  if (req.method !== 'POST') return null
+  const route = String(req.path || req.originalUrl || req.url || '').split('?')[0]
+  const match = route.match(/^\/api\/public\/forms\/([^/]+)\/([^/]+)\/submissions\/?$/)
+  if (!match) return null
+  return { websiteId: safeName(decodeURIComponent(match[1])), formId: safeName(decodeURIComponent(match[2])) }
+}
+function formSubmissionEmailBody(websiteId, form, result, values = {}) {
+  const lines = [
+    'A new public form submission has been received.',
+    '',
+    `Website: ${websiteId}`,
+    `Form: ${form.name || form.id}`,
+    `Submission ID: ${result.id || ''}`,
+    `Received: ${result.createdAt || new Date().toISOString()}`,
+    '',
+  ]
+  for (const field of Array.isArray(form.fields) ? form.fields : []) {
+    const raw = values[field.id]
+    if (raw === undefined || raw === null || raw === '') continue
+    const value = typeof raw === 'boolean' ? (raw ? 'Yes' : 'No') : String(raw)
+    lines.push(`${field.label || field.id}: ${value}`)
+  }
+  return lines.join('\n')
+}
+async function queuePublicFormSubmissionEmail(route, req, result) {
+  const forms = await readJson(paths.forms(route.websiteId), [])
+  if (!Array.isArray(forms)) return
+  const form = forms.find(item => safeName(item.id) === route.formId)
+  const destination = String(form?.destination || '').trim().toLowerCase()
+  if (!form || !destination) return
+
+  await queueEmailNotification({
+    to: destination,
+    subject: `New ${form.name || 'form'} submission — ${route.websiteId}`,
+    body: formSubmissionEmailBody(route.websiteId, form, result, req.body?.values || {}),
+    category: 'form-submission',
+    metadata: { websiteId: route.websiteId, formId: form.id, submissionId: result.id || null },
+    deduplicationKey: result.id ? `form-submission:${route.websiteId}:${form.id}:${result.id}` : undefined,
+  })
+}
+function formSubmissionNotificationCapture(req, res, next) {
+  const route = publicFormSubmissionRoute(req)
+  if (!route) return next()
+
+  const originalJson = res.json.bind(res)
+  let result = null
+  res.json = body => {
+    if (res.statusCode === 201 && body?.submitted === true && body?.id) result = body
+    return originalJson(body)
+  }
+  res.on('finish', () => {
+    if (!result) return
+    queuePublicFormSubmissionEmail(route, req, result).catch(error => {
+      console.error('Could not queue public form submission email', {
+        websiteId: route.websiteId,
+        formId: route.formId,
+        submissionId: result.id,
+        error: error?.message || 'Notification queue failed',
+      })
+    })
+  })
   next()
 }
 const credentialConfiguration = {
@@ -199,6 +265,7 @@ express.application.use = function routeAwareUse(...args) {
     const jsonParserResult = originalUse.apply(this, args)
     originalUse.call(this, createAbuseProtectionMiddleware())
     originalUse.call(this, createResponseCacheMiddleware())
+    originalUse.call(this, formSubmissionNotificationCapture)
     originalUse.call(this, createAuthenticationPublicRouter())
     originalUse.call(this, createPasswordResetPublicRouter())
     mountPublicRoutes(this)
