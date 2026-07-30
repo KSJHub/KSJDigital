@@ -33,7 +33,9 @@
 }
 
 .formList small,
-.submissions small {
+.submissions small,
+.formPreview form small,
+.fieldEditor small {
   color: #96a3b8;
 }
 
@@ -41,6 +43,10 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 14px;
+}
+
+.formSettingsWide {
+  grid-column: 1 / -1;
 }
 
 .formSettings label,
@@ -54,7 +60,10 @@
 
 .formSettings input,
 .formSettings select,
+.formSettings textarea,
 .fieldEditor input,
+.fieldEditor select,
+.fieldEditor textarea,
 .formPreview input,
 .formPreview textarea,
 .formPreview select,
@@ -63,17 +72,47 @@
 .submissionFilters input,
 .submissionFilters select,
 .submissionBulkBar select {
+  box-sizing: border-box;
+  width: 100%;
   padding: 12px;
   border: 1px solid #26354d;
   border-radius: 12px;
   background: #070c14;
   color: #fff;
+  font: inherit;
+}
+
+.formSettings textarea,
+.fieldEditor textarea {
+  min-height: 92px;
+  resize: vertical;
 }
 
 .formCheck {
   display: flex !important;
   align-items: center;
   gap: 10px;
+}
+
+.formCheck input {
+  width: auto;
+}
+
+.formHeaderActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.formHeaderActions button,
+.emailReadinessPanel .panelHead button,
+.emailTestControls button {
+  padding: 10px 14px;
+  border: 1px solid #2b4771;
+  border-radius: 10px;
+  background: #0d1b2e;
+  color: #dbe8ff;
+  font-weight: 800;
 }
 
 .emailReadinessPanel {
@@ -98,16 +137,6 @@
 
 .emailReadinessPanel .panelHead h2 {
   margin: 0;
-}
-
-.emailReadinessPanel .panelHead button,
-.emailTestControls button {
-  padding: 10px 14px;
-  border: 1px solid #2b4771;
-  border-radius: 10px;
-  background: #0d1b2e;
-  color: #dbe8ff;
-  font-weight: 800;
 }
 
 .emailReadinessGrid {
@@ -168,6 +197,8 @@
 }
 
 .fieldEditor {
+  display: grid;
+  gap: 12px;
   margin-top: 14px;
   padding: 16px;
   border: 1px solid #263650;
@@ -177,19 +208,33 @@
 
 .fieldEditor .panelHead div {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.fieldValidationGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 
 .formDanger {
   margin-top: 18px;
 }
 
-.formDanger button {
-  padding: 12px 16px;
-  border: 1px solid #6b2430;
-  border-radius: 12px;
+.formDanger button,
+.submissionActions button,
+.submissionBulkBar .danger {
+  border-color: #6b2430;
   background: #2b0d14;
   color: #ff9cac;
+}
+
+.formDanger button {
+  padding: 12px 16px;
+  border-style: solid;
+  border-width: 1px;
+  border-radius: 12px;
 }
 
 .formPreview form {
@@ -290,13 +335,8 @@
 }
 
 .submissionBulkBar select {
+  width: auto;
   padding: 8px 10px;
-}
-
-.submissionBulkBar .danger {
-  border-color: #6b2430;
-  background: #2b0d14;
-  color: #ff9cac;
 }
 
 .submissions p {
@@ -423,12 +463,6 @@
   padding: 9px 10px;
 }
 
-.submissionActions button {
-  border-color: #6b2430;
-  background: #2b0d14;
-  color: #ff9cac;
-}
-
 .submissionPagination {
   display: flex;
   gap: 10px;
@@ -462,9 +496,12 @@
     grid-template-columns: 1fr;
   }
 
+  .formSettingsWide {
+    grid-column: auto;
+  }
+
   .submissionStats {
-    grid-template-columns: repeat(5, minmax(90px, 1fr));
-    overflow-x: auto;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .submissionFilters {
@@ -473,6 +510,15 @@
 }
 
 @media (max-width: 600px) {
+  .fieldValidationGrid,
+  .submissionFilters {
+    grid-template-columns: 1fr;
+  }
+
+  .submissionStats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .submissionItem {
     grid-template-columns: auto minmax(0, 1fr);
   }
@@ -489,10 +535,6 @@
 
   .submissionToolbar button {
     flex: 1;
-  }
-
-  .submissionFilters {
-    grid-template-columns: 1fr;
   }
 
   .submissionBulkBar {
