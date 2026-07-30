@@ -43,6 +43,10 @@ export function PublishPipelinePage({ client = false }) {
   const account = getAccountFromPath()
   const { websites } = useWebsites()
   const website = findClientWebsite(websites, account)
+  const websiteIds = useMemo(
+    () => new Set(account?.websiteIds || (account?.websiteId ? [account.websiteId] : [])),
+    [account?.websiteId, account?.websiteIds],
+  )
   const canRequestUpdates = account?.role === 'owner' || account?.canRequestUpdates
   const [requests, setRequests] = useState([])
   const [history, setHistory] = useState([])
@@ -50,8 +54,10 @@ export function PublishPipelinePage({ client = false }) {
   const [review, setReview] = useState(null)
   const [reviewLoading, setReviewLoading] = useState(false)
   const [reviewError, setReviewError] = useState('')
+  const [reviewRetry, setReviewRetry] = useState(0)
   const [rejectionReason, setRejectionReason] = useState('')
   const [decisionBusy, setDecisionBusy] = useState(false)
+  const [requestBusy, setRequestBusy] = useState(false)
   const [selectedHistoryId, setSelectedHistoryId] = useState('')
   const [historyReview, setHistoryReview] = useState(null)
   const [historyReviewError, setHistoryReviewError] = useState('')
@@ -59,12 +65,17 @@ export function PublishPipelinePage({ client = false }) {
   const [notice, setNotice] = useState(client && !canRequestUpdates ? 'Request permission required' : 'Ready')
 
   const visibleRequests = useMemo(() => {
-    const scoped = client ? requests.filter(request => account?.websiteIds?.includes(request.websiteId)) : requests
+    const scoped = client ? requests.filter(request => websiteIds.has(request.websiteId)) : requests
     return scoped.filter(request => request.status !== 'Superseded')
-  }, [account?.websiteIds, client, requests])
+  }, [client, requests, websiteIds])
+
+  const visibleHistory = useMemo(
+    () => client ? history.filter(item => websiteIds.has(item.websiteId)) : history,
+    [client, history, websiteIds],
+  )
 
   const selectedRequest = visibleRequests.find(request => request.id === selectedId) || null
-  const selectedHistory = history.find(item => item.id === selectedHistoryId) || null
+  const selectedHistory = visibleHistory.find(item => item.id === selectedHistoryId) || null
 
   async function load(preferredId = '') {
     try {
@@ -80,7 +91,7 @@ export function PublishPipelinePage({ client = false }) {
       }
       setNotice(client && !canRequestUpdates ? 'Read-only access' : 'Connected')
     } catch (error) {
-      setNotice(`API offline: ${error.message}`)
+      setNotice(`API offline: ${error.message || 'Unable to connect'}`)
     }
   }
 
@@ -111,11 +122,14 @@ export function PublishPipelinePage({ client = false }) {
       })
       .finally(() => !cancelled && setReviewLoading(false))
     return () => { cancelled = true }
-  }, [client, selectedId])
+  }, [client, reviewRetry, selectedId])
 
   async function createRequest() {
     if (!canRequestUpdates) return setNotice('Publish request permission required')
     if (!website?.id) return setNotice('No website assigned')
+    if (requestBusy) return
+    setRequestBusy(true)
+    setNotice('Freezing current draft')
     try {
       const request = await api.createPublishRequest({
         websiteId: website.id,
@@ -125,10 +139,15 @@ export function PublishPipelinePage({ client = false }) {
         createdBy: account?.displayName || account?.name,
         contentPath: `server-data/content/${website.id}.json`,
       })
-      setRequests(current => [request, ...current])
+      setRequests(current => {
+        const withoutExisting = current.filter(item => item.id !== request.id)
+        return [request, ...withoutExisting]
+      })
       setNotice(request.duplicate ? 'This exact draft is already waiting for review' : 'Update request created with a frozen draft snapshot')
     } catch (error) {
-      setNotice(error.message)
+      setNotice(error.message || 'Update request could not be created')
+    } finally {
+      setRequestBusy(false)
     }
   }
 
@@ -141,7 +160,7 @@ export function PublishPipelinePage({ client = false }) {
       setReview(null)
       setNotice(`${result.version || 'New version'} published successfully`)
     } catch (error) {
-      setNotice(error.message)
+      setNotice(error.message || 'Publish approval failed')
     } finally {
       setDecisionBusy(false)
     }
@@ -150,6 +169,7 @@ export function PublishPipelinePage({ client = false }) {
   async function reject(id) {
     const reason = rejectionReason.trim()
     if (!reason) return setNotice('Add a rejection reason before returning this update')
+    if (!window.confirm('Return this update to the client with the rejection reason provided?')) return
     setDecisionBusy(true)
     try {
       await api.rejectPublishRequest(id, reason)
@@ -157,7 +177,7 @@ export function PublishPipelinePage({ client = false }) {
       setReview(null)
       setNotice('Request returned to the client')
     } catch (error) {
-      setNotice(error.message)
+      setNotice(error.message || 'Request could not be returned')
     } finally {
       setDecisionBusy(false)
     }
@@ -208,18 +228,18 @@ export function PublishPipelinePage({ client = false }) {
           <h2>{client ? 'Submit and Track Changes' : 'Review Before Publishing'}</h2>
           <p>{client ? 'Submitted updates are frozen for KSJ Digital review. Later edits remain in your next draft.' : 'Compare the currently published website with the exact submitted snapshot before approving it.'}</p>
         </div>
-        <button onClick={client && canRequestUpdates ? createRequest : () => load()}>{notice}</button>
+        <button type="button" disabled aria-live="polite">{notice}</button>
       </section>
 
       {client ? (
         <section className="publishGrid">
           <div className="card publishPanel">
-            <div className="panelHead"><h2>My Requests</h2>{canRequestUpdates && <button onClick={createRequest} disabled={!website?.id}>Submit Current Draft</button>}</div>
-            {visibleRequests.length ? visibleRequests.map(request => <article className="publishRow" key={request.id}><div><b>{request.title || 'Website update'}</b><small>{request.websiteName || request.websiteId} · Submitted {displayDate(request.createdAt)}</small></div><span>{request.status}</span></article>) : <p>No update requests yet.</p>}
+            <div className="panelHead"><h2>My Requests</h2>{canRequestUpdates && <button onClick={createRequest} disabled={!website?.id || requestBusy}>{requestBusy ? 'Submitting…' : 'Submit Current Draft'}</button>}</div>
+            {visibleRequests.length ? visibleRequests.map(request => <article className="publishRow" key={request.id}><div><b>{request.title || 'Website update'}</b><small>{request.websiteName || request.websiteId} · Submitted {displayDate(request.createdAt)}</small></div><span>{request.status}</span></article>) : <p className="emptyState">No update requests yet.</p>}
           </div>
           <aside className="card publishPanel">
-            <div className="panelHead"><h2>Published Updates</h2><span>{history.length}</span></div>
-            {history.length ? history.map(item => <article className="publishHistoryRow" key={item.id}><b>{item.version || item.websiteId}</b><small>{item.title || item.action || item.status}</small><span>{displayDate(item.publishedAt || item.createdAt)}</span></article>) : <p>No published updates yet.</p>}
+            <div className="panelHead"><h2>Published Updates</h2><span>{visibleHistory.length}</span></div>
+            {visibleHistory.length ? visibleHistory.map(item => <article className="publishHistoryRow" key={item.id}><b>{item.version || item.websiteId}</b><small>{item.title || item.action || item.status}</small><span>{displayDate(item.publishedAt || item.createdAt)}</span></article>) : <p className="emptyState">No published updates yet.</p>}
           </aside>
         </section>
       ) : (
@@ -233,14 +253,14 @@ export function PublishPipelinePage({ client = false }) {
                 <strong>{request.title || 'Website update'}</strong>
                 <small>{request.createdBy || 'Client'} · {displayDate(request.createdAt)}</small>
               </button>
-            )) : <p>No publish requests yet.</p>}
+            )) : <p className="emptyState">No publish requests yet.</p>}
           </aside>
 
           <main className="card approvalReview">
             {reviewLoading ? (
               <p className="emptyState">Loading submitted snapshot…</p>
             ) : reviewError ? (
-              <section className="approvalReviewError"><strong>Review could not be loaded</strong><p>{reviewError}</p><button onClick={() => setSelectedId(current => { setTimeout(() => setSelectedId(current), 0); return '' })}>Retry Review</button></section>
+              <section className="approvalReviewError"><strong>Review could not be loaded</strong><p>{reviewError}</p><button onClick={() => setReviewRetry(value => value + 1)}>Retry Review</button></section>
             ) : selectedRequest && review ? (
               <>
                 <div className="approvalReviewHead">
@@ -266,7 +286,7 @@ export function PublishPipelinePage({ client = false }) {
                 {selectedRequest.status === 'Waiting Review' && (
                   <section className="approvalDecision">
                     <label>Reason when returning changes<textarea value={rejectionReason} onChange={event => setRejectionReason(event.target.value)} placeholder="Explain what the client needs to adjust before resubmitting." /></label>
-                    <div><button className="danger" disabled={decisionBusy} onClick={() => reject(selectedRequest.id)}>{decisionBusy ? 'Working…' : 'Return Changes'}</button><button disabled={decisionBusy || !review.changes?.length} onClick={() => approve(selectedRequest.id)}>{decisionBusy ? 'Publishing…' : 'Approve Exact Snapshot'}</button></div>
+                    <div><button className="danger" disabled={decisionBusy || !rejectionReason.trim()} onClick={() => reject(selectedRequest.id)}>{decisionBusy ? 'Working…' : 'Return Changes'}</button><button disabled={decisionBusy || !review.changes?.length} onClick={() => approve(selectedRequest.id)}>{decisionBusy ? 'Publishing…' : 'Approve Exact Snapshot'}</button></div>
                   </section>
                 )}
               </>
@@ -274,15 +294,15 @@ export function PublishPipelinePage({ client = false }) {
           </main>
 
           <aside className="card approvalHistory">
-            <div className="panelHead"><h2>Publish History</h2><span>{history.length}</span></div>
-            {history.length ? history.slice(0, 20).map(item => (
+            <div className="panelHead"><h2>Publish History</h2><span>{visibleHistory.length}</span></div>
+            {visibleHistory.length ? visibleHistory.slice(0, 20).map(item => (
               <button className="historyVersionButton" key={item.id} onClick={() => openHistory(item)}>
                 <b>{item.version || item.websiteName || item.websiteId}</b>
                 <span>{item.title || item.action || item.status || 'Published'}</span>
                 <small>{item.changedFields ?? 0} changes · {displayDate(item.publishedAt || item.createdAt)}</small>
                 <em>{item.rollbackAvailable ? 'Review version' : 'Legacy record'}</em>
               </button>
-            )) : <p>No deployments yet.</p>}
+            )) : <p className="emptyState">No deployments yet.</p>}
           </aside>
         </section>
       )}
