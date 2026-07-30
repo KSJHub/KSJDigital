@@ -176,8 +176,6 @@ registerNotificationProvider({
           from,
           subject: String(message.subject || ''),
           text: String(message.body || ''),
-          data: message.data || {},
-          metadata: { deliveryId: delivery.id, recipientId: recipient.id, ...(recipient.metadata || {}) },
         }),
         signal: AbortSignal.timeout(15_000),
       })
