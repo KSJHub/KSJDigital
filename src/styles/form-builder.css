@@ -212,10 +212,29 @@
   gap: 8px;
 }
 
-.fieldValidationGrid {
+.fieldValidationGrid,
+.fieldConditionRule {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+.fieldConditionEditor {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #2b4771;
+  border-radius: 14px;
+  background: #0a1524;
+}
+
+.fieldConditionEditor > b {
+  color: #dbe8ff;
+  font-size: 13px;
+}
+
+.fieldConditionEditor label {
+  font-size: 12px;
 }
 
 .formDanger {
@@ -511,6 +530,7 @@
 
 @media (max-width: 600px) {
   .fieldValidationGrid,
+  .fieldConditionRule,
   .submissionFilters {
     grid-template-columns: 1fr;
   }
