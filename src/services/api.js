@@ -35,6 +35,7 @@ export const api = {
   storage: ownerId => request(`/storage/${ownerId}`),
   assets: (ownerId, websiteId) => request(`/assets/${ownerId}/${websiteId}`),
   uploadAsset: (ownerId, websiteId, slotId, file) => { const body = new FormData(); body.append('file', file); return request(`/assets/${ownerId}/${websiteId}/${slotId}`, { method: 'POST', body }) },
+  deleteLegacyAsset: (ownerId, websiteId, assetId) => request(`/asset-library/legacy/${encodeURIComponent(ownerId)}/${encodeURIComponent(websiteId)}/${encodeURIComponent(assetId)}`, { method: 'DELETE' }),
   getComponents: () => request('/content/components'),
   getContent: websiteId => request(`/content/${websiteId}`),
   saveContent: (websiteId, content) => request(`/content/${websiteId}`, { method: 'PUT', body: JSON.stringify(content) }),
