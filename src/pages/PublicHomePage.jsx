@@ -26,6 +26,7 @@ function mergePublicFormConfiguration(forms, configuration) {
     return {
       ...form,
       successMessage: configured?.successMessage || '',
+      conditionalLogicEnabled: configured?.conditionalLogicEnabled !== false,
       fields: (form.fields || []).map(field => ({ ...field, ...(fieldsById.get(field.id) || {}) })),
     }
   })
@@ -33,6 +34,30 @@ function mergePublicFormConfiguration(forms, configuration) {
 
 function emptyValues(form) {
   return Object.fromEntries((form?.fields || []).map(field => [field.id, field.type === 'Checkbox' ? false : field.type === 'File' ? null : '']))
+}
+
+function conditionMatches(condition, values = {}) {
+  if (!condition) return true
+  const actual = values[condition.fieldId]
+  if (condition.operator === 'checked') return actual === true
+  if (condition.operator === 'unchecked') return actual !== true
+  const text = actual === undefined || actual === null ? '' : String(actual).trim()
+  if (condition.operator === 'equals') return text === condition.value
+  if (condition.operator === 'notEquals') return text !== condition.value
+  return true
+}
+
+function visibleFields(form, values) {
+  const fields = form?.fields || []
+  if (form?.conditionalLogicEnabled === false) return fields
+  const visibleIds = new Set()
+  return fields.filter(field => {
+    const condition = field.condition
+    const sourceVisible = !condition || visibleIds.has(condition.fieldId)
+    const visible = sourceVisible && conditionMatches(condition, values)
+    if (visible) visibleIds.add(field.id)
+    return visible
+  })
 }
 
 function FieldHelp({ field, fallback = '' }) {
@@ -78,9 +103,8 @@ export function PublicHomePage() {
   const [formNotice, setFormNotice] = useState('')
   const [formAvailable, setFormAvailable] = useState(true)
 
-  const contactForm = useMemo(() => {
-    return forms.find(form => /contact|enquir|project/i.test(form.name || '')) || forms[0] || null
-  }, [forms])
+  const contactForm = useMemo(() => forms.find(form => /contact|enquir|project/i.test(form.name || '')) || forms[0] || null, [forms])
+  const currentVisibleFields = useMemo(() => visibleFields(contactForm, values), [contactForm, values])
 
   useEffect(() => {
     let cancelled = false
@@ -112,7 +136,8 @@ export function PublicHomePage() {
     setSubmitting(true)
     setFormNotice('Sending your enquiry…')
     try {
-      const fileFields = (contactForm.fields || []).filter(field => field.type === 'File')
+      const fields = visibleFields(contactForm, values)
+      const fileFields = fields.filter(field => field.type === 'File')
       for (const field of fileFields) {
         const file = values[field.id]
         if (file && file.size > PUBLIC_FILE_MAX_BYTES) throw new Error(`${field.label || 'Attachment'} must be 5 MB or smaller.`)
@@ -121,7 +146,7 @@ export function PublicHomePage() {
       let payload
       if (fileFields.length) {
         payload = new FormData()
-        const textValues = Object.fromEntries((contactForm.fields || []).filter(field => field.type !== 'File').map(field => [field.id, values[field.id]]))
+        const textValues = Object.fromEntries(fields.filter(field => field.type !== 'File').map(field => [field.id, values[field.id]]))
         payload.append('values', JSON.stringify(textValues))
         payload.append('website', honeypot)
         payload.append('startedAt', String(startedAt))
@@ -130,7 +155,11 @@ export function PublicHomePage() {
           if (file) payload.append(field.id, file, file.name)
         }
       } else {
-        payload = { values, website: honeypot, startedAt }
+        payload = {
+          values: Object.fromEntries(fields.map(field => [field.id, values[field.id]])),
+          website: honeypot,
+          startedAt,
+        }
       }
 
       await api.submitPublicForm(PUBLIC_WEBSITE_ID, contactForm.id, payload)
@@ -150,10 +179,7 @@ export function PublicHomePage() {
       <header className="publicHeader">
         <a className="publicBrand" href="#top" aria-label="KSJ Digital home">
           <img src="/ksj-digital-logo.svg" alt="KSJ Digital" />
-          <span>
-            <strong>KSJ Digital</strong>
-            <small>Technology • Infrastructure • Development</small>
-          </span>
+          <span><strong>KSJ Digital</strong><small>Technology • Infrastructure • Development</small></span>
         </a>
         <nav aria-label="Public navigation">
           <button onClick={() => scrollToSection('services')}>Services</button>
@@ -168,86 +194,36 @@ export function PublicHomePage() {
         <div className="publicHeroCopy">
           <span className="publicEyebrow">Technology • Infrastructure • Development</span>
           <h1>Building digital platforms that scale.</h1>
-          <p>
-            KSJ Digital develops websites, automation systems, community platforms, and software products
-            designed to grow with your business and community.
-          </p>
-          <div className="publicActions">
-            <button onClick={() => scrollToSection('projects')}>Explore Our Projects</button>
-            <button className="secondary" onClick={() => scrollToSection('contact')}>Contact Us</button>
-          </div>
+          <p>KSJ Digital develops websites, automation systems, community platforms, and software products designed to grow with your business and community.</p>
+          <div className="publicActions"><button onClick={() => scrollToSection('projects')}>Explore Our Projects</button><button className="secondary" onClick={() => scrollToSection('contact')}>Contact Us</button></div>
         </div>
 
         <aside className="publicPlatformCard" id="projects">
-          <div className="publicLogoPanel">
-            <img src="/ksj-digital-logo.svg" alt="KSJ Digital platform" />
-          </div>
-          <article>
-            <span>Primary Platform</span>
-            <h2>KSJ Digital</h2>
-            <p>Company website, hosting, infrastructure, automation, and future client systems.</p>
-          </article>
-          <article>
-            <span>Active Ecosystem</span>
-            <div className="ecosystemGrid">
-              <b>KSJ Digital</b>
-              <b>TwoToneTaj</b>
-              <b>Client Systems</b>
-              <b>Future Systems</b>
-            </div>
-          </article>
+          <div className="publicLogoPanel"><img src="/ksj-digital-logo.svg" alt="KSJ Digital platform" /></div>
+          <article><span>Primary Platform</span><h2>KSJ Digital</h2><p>Company website, hosting, infrastructure, automation, and future client systems.</p></article>
+          <article><span>Active Ecosystem</span><div className="ecosystemGrid"><b>KSJ Digital</b><b>TwoToneTaj</b><b>Client Systems</b><b>Future Systems</b></div></article>
         </aside>
       </section>
 
-      <section className="publicPills" id="infrastructure">
-        <span>Primary Platform</span>
-        <span>Hosting & Infrastructure</span>
-        <span>Discord Automation</span>
-        <span>Client Systems</span>
-        <span>Secure Deployments</span>
-        <span>Future Ready</span>
-      </section>
+      <section className="publicPills" id="infrastructure"><span>Primary Platform</span><span>Hosting & Infrastructure</span><span>Discord Automation</span><span>Client Systems</span><span>Secure Deployments</span><span>Future Ready</span></section>
 
       <section className="publicSection" id="services">
-        <span className="publicEyebrow">What We Build</span>
-        <h2>Services</h2>
-        <div className="publicServiceGrid">
-          {services.map(([icon, title, description]) => (
-            <article key={title}>
-              <span className="serviceIcon">{icon}</span>
-              <h3>{title}</h3>
-              <p>{description}</p>
-            </article>
-          ))}
-        </div>
+        <span className="publicEyebrow">What We Build</span><h2>Services</h2>
+        <div className="publicServiceGrid">{services.map(([icon, title, description]) => <article key={title}><span className="serviceIcon">{icon}</span><h3>{title}</h3><p>{description}</p></article>)}</div>
       </section>
 
       <section className="publicContact" id="contact">
-        <div>
-          <span className="publicEyebrow">Start a Project</span>
-          <h2>Build your next platform with KSJ Digital.</h2>
-          <p>For website, infrastructure, automation, and client-platform enquiries.</p>
-          <a className="publicContactEmail" href="mailto:ksj@ksjdigital.co.uk">ksj@ksjdigital.co.uk</a>
-        </div>
+        <div><span className="publicEyebrow">Start a Project</span><h2>Build your next platform with KSJ Digital.</h2><p>For website, infrastructure, automation, and client-platform enquiries.</p><a className="publicContactEmail" href="mailto:ksj@ksjdigital.co.uk">ksj@ksjdigital.co.uk</a></div>
         {contactForm ? <form className="publicContactForm" onSubmit={submitContact}>
           <h3>{contactForm.name || 'Contact Us'}</h3>
-          {(contactForm.fields || []).map(field => <PublicFormField
-            key={field.id}
-            field={field}
-            value={values[field.id]}
-            disabled={submitting}
-            onChange={value => setValues(current => ({ ...current, [field.id]: value }))}
-          />)}
+          {currentVisibleFields.map(field => <PublicFormField key={field.id} field={field} value={values[field.id]} disabled={submitting} onChange={value => setValues(current => ({ ...current, [field.id]: value }))} />)}
           <label className="publicFormTrap" aria-hidden="true">Website<input value={honeypot} tabIndex="-1" autoComplete="off" onChange={event => setHoneypot(event.target.value)} /></label>
           <button type="submit" disabled={submitting}>{submitting ? 'Sending…' : 'Send Enquiry'}</button>
           {formNotice && <p className="publicFormNotice" aria-live="polite">{formNotice}</p>}
         </form> : formAvailable ? <p className="publicFormNotice">No public contact form is currently available.</p> : <a href="mailto:ksj@ksjdigital.co.uk">Email KSJ Digital</a>}
       </section>
 
-      <footer className="publicFooter">
-        <span>© {new Date().getFullYear()} KSJ Digital</span>
-        <a href="/login">Portal Login</a>
-      </footer>
+      <footer className="publicFooter"><span>© {new Date().getFullYear()} KSJ Digital</span><a href="/login">Portal Login</a></footer>
     </main>
   )
 }
