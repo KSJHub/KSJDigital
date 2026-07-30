@@ -1,4 +1,4 @@
-import { setPassword } from '../credentialStore.js'
+import { removeCredential, setPassword } from '../credentialStore.js'
 import { paths, readJson, safeName, writeJson } from '../storage.js'
 import { revokeAccountSessions } from './authPersistenceService.js'
 import { publishDomainEvent } from './realtimeDomainEventService.js'
@@ -79,4 +79,16 @@ export async function updateClientAccount(req, res) {
   await revokeAccountSessions(current.id, password ? 'account-credentials-changed' : 'account-access-changed')
   await publishClientAccountEvent('client-account.updated', accountEventPayload(updatedClient, { passwordChanged: Boolean(password), forcePasswordReset }))
   return res.json(sanitise(updatedClient))
+}
+
+export async function deleteClientAccount(req, res) {
+  if (!requireOwner(req, res)) return
+  const clients = await readJson(paths.clients(), [])
+  const current = clients.find(item => item.id === req.params.id)
+  if (!current) return res.status(404).json({ error: 'Client not found' })
+  await writeJson(paths.clients(), clients.filter(item => item.id !== current.id))
+  await removeCredential(current.id)
+  await revokeAccountSessions(current.id, 'account-deleted')
+  await publishClientAccountEvent('client-account.deleted', accountEventPayload(current))
+  return res.json({ ok: true })
 }
