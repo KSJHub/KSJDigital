@@ -173,8 +173,51 @@
   border-radius: 24px;
   background: linear-gradient(135deg, #0d1e39, #07111f);
 }
+.publicContact > div { flex: 1 1 52%; }
 .publicContact h2 { max-width: 760px; margin-bottom: 0.7rem; }
 .publicContact p { color: #b8c9e4; }
+.publicContactEmail { display: inline-block; margin-top: 0.75rem; }
+.publicContactForm {
+  flex: 1 1 480px;
+  width: min(100%, 540px);
+  display: grid;
+  gap: 0.9rem;
+  padding: 1.25rem;
+  border: 1px solid #28466f;
+  border-radius: 18px;
+  background: rgba(3, 12, 25, 0.72);
+}
+.publicContactForm h3 { margin: 0 0 0.25rem; font-size: 1.25rem; }
+.publicContactForm > label:not(.publicFormCheck):not(.publicFormTrap) { display: grid; gap: 0.4rem; color: #dbe8fb; font-size: 0.83rem; font-weight: 700; }
+.publicContactForm input:not([type='checkbox']),
+.publicContactForm textarea,
+.publicContactForm select {
+  width: 100%;
+  border: 1px solid #2d476d;
+  border-radius: 11px;
+  background: #061224;
+  color: #f6f9ff;
+  padding: 0.8rem 0.9rem;
+  outline: none;
+}
+.publicContactForm textarea { resize: vertical; min-height: 120px; }
+.publicContactForm input:focus,
+.publicContactForm textarea:focus,
+.publicContactForm select:focus { border-color: #5b9cff; box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.14); }
+.publicFormCheck { display: flex; align-items: flex-start; gap: 0.55rem; color: #dbe8fb; font-size: 0.83rem; font-weight: 700; }
+.publicFormCheck input { margin-top: 0.15rem; }
+.publicContactForm button {
+  border: 1px solid #4e8cff;
+  border-radius: 999px;
+  background: #4f8cff;
+  color: white;
+  font-weight: 800;
+  padding: 0.85rem 1.2rem;
+  cursor: pointer;
+}
+.publicContactForm button:disabled { cursor: wait; opacity: 0.68; }
+.publicFormNotice { margin: 0; font-size: 0.86rem; line-height: 1.5; }
+.publicFormTrap { position: absolute !important; width: 1px !important; height: 1px !important; overflow: hidden !important; clip: rect(0 0 0 0) !important; white-space: nowrap !important; }
 .publicFooter { display: flex; justify-content: space-between; gap: 1rem; padding: 1.5rem 2.25rem; border-top: 1px solid #1d2d48; color: #8fa2c1; }
 .publicFooter a { color: #a9c8ff; }
 
@@ -185,7 +228,8 @@
   .publicPills { grid-template-columns: repeat(2, 1fr); padding: 0 1rem 4rem; }
   .publicSection { padding: 2rem 1rem 4rem; }
   .publicServiceGrid { grid-template-columns: 1fr; }
-  .publicContact { margin: 0 1rem 3rem; flex-direction: column; align-items: flex-start; }
+  .publicContact { margin: 0 1rem 3rem; flex-direction: column; align-items: stretch; }
+  .publicContactForm { width: 100%; }
 }
 
 @media (max-width: 600px) {
