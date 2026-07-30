@@ -24,6 +24,7 @@ function groupPresets(entries) {
 export function RegistryBlockLibrary({ capabilities = [], pathname = '/', nextOrder = 10, onAdd, onClose }) {
   const { components, loading, error } = useComponentRegistry(capabilities)
   const [query, setQuery] = useState('')
+  const [addingKey, setAddingKey] = useState('')
   const entries = useMemo(() => presetEntries(components), [components])
   const filtered = useMemo(() => {
     const search = query.trim().toLowerCase()
@@ -40,10 +41,17 @@ export function RegistryBlockLibrary({ capabilities = [], pathname = '/', nextOr
   }, [entries, query])
   const grouped = useMemo(() => groupPresets(filtered), [filtered])
 
-  function addPreset(component, preset) {
-    const presetId = preset.id === 'default' ? undefined : preset.id
-    const block = createComponentBlock(component.type, { order: nextOrder, presetId })
-    onAdd?.(block, component)
+  async function addPreset(component, preset) {
+    if (addingKey) return
+    const key = `${component.type}-${preset.id}`
+    setAddingKey(key)
+    try {
+      const presetId = preset.id === 'default' ? undefined : preset.id
+      const block = createComponentBlock(component.type, { order: nextOrder, presetId })
+      await onAdd?.(block, component)
+    } finally {
+      setAddingKey('')
+    }
   }
 
   return (
@@ -55,23 +63,27 @@ export function RegistryBlockLibrary({ capabilities = [], pathname = '/', nextOr
       <p>Choose a ready-made section preset. Available options match the tools enabled for this website.</p>
       <label className="registryBlockSearch">
         Search sections
-        <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search hero, gallery, contact…" />
+        <input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder="Search hero, gallery, contact…" />
       </label>
-      {loading && <p className="registryBlockState">Loading section library…</p>}
-      {error && <p className="registryBlockState error">{error}</p>}
-      {!loading && !error && !filtered.length && <p className="registryBlockState">No matching section presets.</p>}
+      {loading && <p className="registryBlockState">Refreshing section library…</p>}
+      {error && entries.length > 0 && <p className="registryBlockState">Live registry unavailable. Using the built-in section library.</p>}
+      {error && !entries.length && <p className="registryBlockState error">{error}</p>}
+      {!loading && !filtered.length && <p className="registryBlockState">No matching section presets.</p>}
       {[...grouped.entries()].map(([category, categoryEntries]) => (
         <section className="registryBlockCategory" key={category}>
           <h3>{category}</h3>
           <div className="blockTemplateGrid">
-            {categoryEntries.map(({ component, preset }) => (
-              <button key={`${component.type}-${preset.id}`} onClick={() => addPreset(component, preset)}>
-                <span>{component.icon}</span>
-                <strong>{preset.name}</strong>
-                <small>{preset.description}</small>
-                <em>{component.title}</em>
-              </button>
-            ))}
+            {categoryEntries.map(({ component, preset }) => {
+              const key = `${component.type}-${preset.id}`
+              return (
+                <button key={key} disabled={Boolean(addingKey)} onClick={() => addPreset(component, preset)}>
+                  <span>{component.icon}</span>
+                  <strong>{addingKey === key ? 'Adding…' : preset.name}</strong>
+                  <small>{preset.description}</small>
+                  <em>{component.title}</em>
+                </button>
+              )
+            })}
           </div>
         </section>
       ))}
