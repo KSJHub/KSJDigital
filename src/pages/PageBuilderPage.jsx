@@ -45,6 +45,16 @@ function siteUrl(website, editor = false) {
   return `${url}${url.includes('?') ? '&' : '?'}ksjEditor=1`
 }
 
+function siteOrigin(website) {
+  const url = siteUrl(website, true)
+  if (!url) return ''
+  try {
+    return new URL(url, window.location.href).origin
+  } catch {
+    return ''
+  }
+}
+
 function sameContent(left, right) {
   return JSON.stringify(left) === JSON.stringify(right)
 }
@@ -171,6 +181,7 @@ export function PageBuilderPage({ client = false }) {
   const [selectedWebsiteId, setSelectedWebsiteId] = useState('')
   const website = account?.role === 'owner' ? websites.find(site => site.id === selectedWebsiteId) || websites[0] || null : assignedWebsite
   const websiteId = website?.id
+  const frameOrigin = useMemo(() => siteOrigin(website), [website])
   const frameRef = useRef(null)
   const workspaceRef = useRef(null)
   const bridgeTimerRef = useRef(null)
@@ -228,6 +239,13 @@ export function PageBuilderPage({ client = false }) {
     updateHistoryState()
   }
 
+  function postToFrame(message) {
+    const target = frameRef.current?.contentWindow
+    if (!target || !frameOrigin) return false
+    target.postMessage(message, frameOrigin)
+    return true
+  }
+
   useEffect(() => {
     if (account?.role === 'owner' && !selectedWebsiteId && websites[0]?.id) setSelectedWebsiteId(websites[0].id)
   }, [account?.role, selectedWebsiteId, websites])
@@ -258,7 +276,7 @@ export function PageBuilderPage({ client = false }) {
   }, [websiteId])
 
   function initialiseFrame(nextContent = contentRef.current) {
-    frameRef.current?.contentWindow?.postMessage({ source: 'ksj-portal-editor', type: 'initialise', content: nextContent, role: account?.role }, '*')
+    postToFrame({ source: 'ksj-portal-editor', type: 'initialise', content: nextContent, role: account?.role })
   }
 
   async function save(nextContent, message, { addHistory = true } = {}) {
@@ -316,6 +334,9 @@ export function PageBuilderPage({ client = false }) {
 
   useEffect(() => {
     function receive(event) {
+      const activeFrame = frameRef.current?.contentWindow
+      if (!activeFrame || event.source !== activeFrame) return
+      if (!frameOrigin || event.origin !== frameOrigin) return
       if (!event.data || event.data.source !== 'ksj-site-editor') return
       if (event.data.type === 'ready' || event.data.type === 'page-change') {
         window.clearTimeout(bridgeTimerRef.current)
@@ -372,10 +393,9 @@ export function PageBuilderPage({ client = false }) {
   function frameLoaded() {
     setFrameReady(false)
     setNotice('Connecting editor…')
-    const target = frameRef.current?.contentWindow
-    target?.postMessage({ source: 'ksj-portal-editor', type: 'ping' }, '*')
+    postToFrame({ source: 'ksj-portal-editor', type: 'ping' })
     window.setTimeout(initialiseFrame, 150)
-    window.setTimeout(() => target?.postMessage({ source: 'ksj-portal-editor', type: 'ping' }, '*'), 700)
+    window.setTimeout(() => postToFrame({ source: 'ksj-portal-editor', type: 'ping' }), 700)
     window.clearTimeout(bridgeTimerRef.current)
     bridgeTimerRef.current = window.setTimeout(() => {
       setNotice(localDevelopment()
@@ -391,7 +411,7 @@ export function PageBuilderPage({ client = false }) {
     setSelection(null)
     setShowBlockLibrary(false)
     setNotice('Opening page…')
-    frameRef.current?.contentWindow?.postMessage({ source: 'ksj-portal-editor', type: 'navigate', pathname }, '*')
+    postToFrame({ source: 'ksj-portal-editor', type: 'navigate', pathname })
   }
 
   async function navigateHistory(direction) {
@@ -400,7 +420,7 @@ export function PageBuilderPage({ client = false }) {
     setSelection(null)
     setShowBlockLibrary(false)
     setNotice(direction === 'back' ? 'Going back…' : 'Going forward…')
-    frameRef.current?.contentWindow?.postMessage({ source: 'ksj-portal-editor', type: direction === 'back' ? 'history-back' : 'history-forward' }, '*')
+    postToFrame({ source: 'ksj-portal-editor', type: direction === 'back' ? 'history-back' : 'history-forward' })
   }
 
   async function applyHistory(index, message) {
@@ -428,7 +448,7 @@ export function PageBuilderPage({ client = false }) {
   }
 
   function patchFrame(fieldId, value, nextContent = contentRef.current) {
-    frameRef.current?.contentWindow?.postMessage({ source: 'ksj-portal-editor', type: 'patch-field', fieldId, value, rule: fieldRule(nextContent, fieldId) }, '*')
+    postToFrame({ source: 'ksj-portal-editor', type: 'patch-field', fieldId, value, rule: fieldRule(nextContent, fieldId) })
   }
 
   function updateSelected(value) {
@@ -599,7 +619,7 @@ export function PageBuilderPage({ client = false }) {
             {!focusMode && <button onClick={() => setFocusMode(true)}>Focus Editor</button>}
             <button onClick={openSiteSettings}>Site Settings</button>
             <button onClick={toggleBrowserFullscreen}>{browserFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</button>
-            <button onClick={() => window.open(siteUrl(website), '_blank')}>Preview</button>
+            <button onClick={() => window.open(siteUrl(website), '_blank', 'noopener,noreferrer')}>Preview</button>
             {client && canRequestUpdates && <button className="primary" disabled={submitting || submission?.type === 'success'} onClick={submitForApproval}>{submitting ? 'Submitting…' : submission?.type === 'success' ? 'Submitted' : 'Submit Changes'}</button>}
           </div>
         </header>
