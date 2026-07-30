@@ -2,6 +2,7 @@ import fs from 'node:fs/promises'
 
 const routeFile = new URL('../server/routeExtensions.js', import.meta.url)
 const source = await fs.readFile(routeFile, 'utf8')
+const startSource = await fs.readFile(new URL('../server/start.js', import.meta.url), 'utf8')
 const routeStart = source.indexOf("app.use('/api/public/sites/:websiteId'")
 const routeEnd = source.indexOf("app.use('/api/public/orders'", routeStart)
 
@@ -68,6 +69,18 @@ if (/res\.json\(\{\s*website\s*,/.test(publicRoute)) {
 
 if (/const assets = await readWebsiteAssets\(websiteId\)/.test(publicRoute)) {
   throw new Error('Public website route must not return raw asset manifest entries')
+}
+
+for (const route of [
+  '/api/publish/requests/:id/approve',
+  '/api/publish/requests/:id/reject',
+]) {
+  if (!startSource.includes(`args[0] === '${route}'`)) {
+    throw new Error(`Publication review route is missing step-up interception: ${route}`)
+  }
+}
+if (!startSource.includes('return originalPost.call(this, args[0], requireAssurance(2), ...args.slice(1))')) {
+  throw new Error('Publication approval and rejection must require fresh assurance level 2')
 }
 
 console.log('Published content and public metadata boundary checks passed.')
