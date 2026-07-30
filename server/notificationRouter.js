@@ -8,11 +8,42 @@ import {
 } from './services/notificationService.js'
 import { getJobQueue } from './services/jobQueueService.js'
 import { publishDomainEvent } from './services/realtimeDomainEventService.js'
+import { paths, readJson, safeName } from './storage.js'
 
 function requireOwner(req, res) {
   if (req.session?.role === 'owner') return true
   res.status(403).json({ error: 'Owner permission required' })
   return false
+}
+
+function sessionWebsiteIds(session = {}) {
+  return new Set(
+    (Array.isArray(session.websiteIds) ? session.websiteIds : session.websiteId ? [session.websiteId] : [])
+      .map(safeName)
+      .filter(Boolean),
+  )
+}
+
+function formDeliveryAccessAllowed(req, websiteId) {
+  if (req.session?.role === 'owner') return true
+  return sessionWebsiteIds(req.session).has(safeName(websiteId))
+}
+
+function formDeliveryKey(websiteId, formId, submissionId) {
+  return `form-submission:${safeName(websiteId)}:${safeName(formId)}:${submissionId}`
+}
+
+function formDeliveryStatus(delivery, job) {
+  if (delivery?.status === 'delivered') return 'Delivered'
+  if (job?.status === 'dead-lettered' || job?.status === 'failed') return 'Failed'
+  if (job?.status === 'retrying') return 'Retrying'
+  if (job?.status === 'processing') return 'Sending'
+  if (delivery?.status === 'failed') return 'Failed'
+  if (job?.status === 'completed') return 'Delivered'
+  if (job?.status === 'queued') return 'Queued'
+  if (job?.status === 'cancelled') return 'Cancelled'
+  if (delivery?.status === 'sending') return 'Sending'
+  return 'Not queued'
 }
 
 function sendError(res, error) {
@@ -85,7 +116,58 @@ function rateLimitPatchChanges(existing = {}, input = {}) {
 
 export function createNotificationRouter() {
   const router = express.Router()
-  router.use((req, res, next) => { if (!requireOwner(req, res)) return; next() })
+  router.use((req, res, next) => {
+    if (req.method === 'GET' && req.path === '/form-deliveries') return next()
+    if (!requireOwner(req, res)) return
+    next()
+  })
+
+  router.get('/form-deliveries', async (req, res) => {
+    try {
+      const websiteId = safeName(req.query.websiteId || '')
+      const formId = safeName(req.query.formId || '')
+      if (!websiteId || websiteId === 'file' || !formId || formId === 'file') {
+        return res.status(400).json({ error: 'Website and form are required' })
+      }
+      if (!formDeliveryAccessAllowed(req, websiteId)) {
+        return res.status(403).json({ error: 'Website access denied' })
+      }
+
+      const forms = await readJson(paths.forms(websiteId), [])
+      if (!Array.isArray(forms)) return res.status(500).json({ error: 'Stored forms are invalid' })
+      const form = forms.find(item => safeName(item.id) === formId)
+      if (!form) return res.status(404).json({ error: 'Form not found' })
+
+      const [state, queue] = await Promise.all([
+        getNotificationState({ limit: 1000 }),
+        getJobQueue({ limit: 1000, queue: 'notifications' }),
+      ])
+      const deliveries = Array.isArray(state.deliveries) ? state.deliveries : []
+      const jobs = Array.isArray(queue.jobs) ? queue.jobs : []
+      const statuses = {}
+
+      for (const submission of Array.isArray(form.submissions) ? form.submissions : []) {
+        if (!submission?.id) continue
+        if (submission.source !== 'Public website') {
+          statuses[submission.id] = { status: 'Not applicable', updatedAt: submission.createdAt || null, error: null }
+          continue
+        }
+        const key = formDeliveryKey(websiteId, form.id, submission.id)
+        const delivery = deliveries.find(item => item.deduplicationKey === key)
+        const job = jobs.find(item => String(item.idempotencyKey || '').startsWith(`${key}:`))
+        statuses[submission.id] = {
+          status: formDeliveryStatus(delivery, job),
+          updatedAt: delivery?.deliveredAt || delivery?.failedAt || job?.updatedAt || job?.createdAt || submission.createdAt || null,
+          error: delivery?.error || job?.error || null,
+        }
+      }
+
+      res.setHeader('Cache-Control', 'no-store')
+      res.json({ websiteId, formId: form.id, statuses })
+    } catch (error) {
+      sendError(res, error)
+    }
+  })
 
   router.get('/', async (req, res) => {
     try { res.json(await getNotificationState(req.query)) } catch (error) { sendError(res, error) }
