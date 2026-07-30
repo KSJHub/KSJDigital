@@ -45,7 +45,8 @@
 
 .formSettings label,
 .fieldEditor label,
-.formPreview form label {
+.formPreview form label,
+.emailTestControls label {
   display: grid;
   gap: 8px;
   color: #b9c3d6;
@@ -57,7 +58,8 @@
 .formPreview input,
 .formPreview textarea,
 .formPreview select,
-.submissionActions select {
+.submissionActions select,
+.emailTestControls input {
   padding: 12px;
   border: 1px solid #26354d;
   border-radius: 12px;
@@ -69,6 +71,73 @@
   display: flex !important;
   align-items: center;
   gap: 10px;
+}
+
+.emailReadinessPanel {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 22px 24px;
+}
+
+.emailReadinessPanel .panelHead > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.emailReadinessPanel .panelHead span {
+  color: #7f91ab;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.emailReadinessPanel .panelHead h2 {
+  margin: 0;
+}
+
+.emailReadinessPanel .panelHead button,
+.emailTestControls button {
+  padding: 10px 14px;
+  border: 1px solid #2b4771;
+  border-radius: 10px;
+  background: #0d1b2e;
+  color: #dbe8ff;
+  font-weight: 800;
+}
+
+.emailReadinessGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.emailReadinessGrid p {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid #263650;
+  border-radius: 14px;
+  background: #09111d;
+}
+
+.emailReadinessGrid small {
+  color: #96a3b8;
+  overflow-wrap: anywhere;
+}
+
+.emailTestControls {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.emailTestControls small {
+  grid-column: 1 / -1;
+  color: #96a3b8;
 }
 
 .fieldTypeBar {
@@ -236,7 +305,8 @@
 
 @media (max-width: 1250px) {
   .formsGrid,
-  .formSettings {
+  .formSettings,
+  .emailReadinessGrid {
     grid-template-columns: 1fr;
   }
 }
@@ -257,5 +327,9 @@
 
   .submissionToolbar button {
     flex: 1;
+  }
+
+  .emailTestControls {
+    grid-template-columns: 1fr;
   }
 }
