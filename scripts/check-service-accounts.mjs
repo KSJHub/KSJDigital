@@ -54,6 +54,15 @@ try {
   const routerSource = await fs.readFile(path.join(root, 'server/serviceAccountRouter.js'), 'utf8')
   const startSource = await fs.readFile(path.join(root, 'server/start.js'), 'utf8')
   assert.match(routerSource, /Owner permission required/)
+  assert.match(routerSource, /import \{ requireAssurance \} from '\.\/services\/mfaService\.js'/)
+  assert.match(routerSource, /const requireStepUp = requireAssurance\(2\)/)
+  for (const marker of [
+    "router.put('/accounts/:accountId', requireStepUp",
+    "router.post('/accounts/:accountId/disable', requireStepUp",
+    "router.post('/accounts/:accountId/keys', requireStepUp",
+    "router.post('/keys/:keyId/rotate', requireStepUp",
+    "router.post('/keys/:keyId/revoke', requireStepUp",
+  ]) assert.ok(routerSource.includes(marker), `Missing service-account step-up marker: ${marker}`)
   assert.match(routerSource, /\/keys\/:keyId\/rotate/)
   assert.match(startSource, /createServiceAccountRouter/)
   assert.match(startSource, /\/api\/service-accounts/)
