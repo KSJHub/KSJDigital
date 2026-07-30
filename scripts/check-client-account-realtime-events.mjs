@@ -48,6 +48,16 @@ if (!source.includes("async function publishClientAccountEvent(topic, payload) {
 if (!source.includes('delete cleanInput.password; delete cleanInput.accessCode')) {
   failures.push('Client account updates must strip password and access-code fields before persistence')
 }
+for (const marker of [
+  "if (req.session?.role !== 'owner')",
+  'const assuranceLevel = Number(req.session?.assuranceLevel || 1)',
+  'const assuranceExpiresAt = req.session?.assuranceExpiresAt',
+  'assuranceLevel < 2 || assuranceExpiresAt <= Date.now()',
+  "error: 'Step-up authentication required'",
+  'requiredAssuranceLevel: 2',
+]) {
+  if (!source.includes(marker)) failures.push(`Client account administration assurance marker is missing: ${marker}`)
+}
 
 const createStart = source.indexOf('export async function createClientAccount(')
 const createEnd = source.indexOf('\nexport async function updateClientAccount', createStart)
