@@ -5,7 +5,16 @@ import { publishDomainEvent } from './realtimeDomainEventService.js'
 
 function idFrom(value = 'new-record') { return safeName(value).replace(/[._]+/g, '-') }
 function sanitise(client) { const { password, accessCode, ...safe } = client; return safe }
-function requireOwner(req, res) { if (req.session?.role === 'owner') return true; res.status(403).json({ error: 'Owner access required' }); return false }
+function requireOwner(req, res) {
+  if (req.session?.role !== 'owner') { res.status(403).json({ error: 'Owner access required' }); return false }
+  const assuranceLevel = Number(req.session?.assuranceLevel || 1)
+  const assuranceExpiresAt = req.session?.assuranceExpiresAt ? new Date(req.session.assuranceExpiresAt).getTime() : 0
+  if (assuranceLevel < 2 || assuranceExpiresAt <= Date.now()) {
+    res.status(403).json({ error: 'Step-up authentication required', requiredAssuranceLevel: 2 })
+    return false
+  }
+  return true
+}
 function accountFields(input = {}, existing = {}) {
   return {
     ...existing,
