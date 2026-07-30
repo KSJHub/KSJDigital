@@ -286,6 +286,34 @@
   color: #9aa8bc;
 }
 
+.submissionAttachments {
+  display: grid;
+  gap: 7px;
+  margin-top: 5px;
+}
+
+.submissionAttachments a {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border: 1px solid #294260;
+  border-radius: 10px;
+  background: #0a1422;
+  color: #dbe9ff;
+  text-decoration: none;
+}
+
+.submissionAttachments a:hover,
+.submissionAttachments a:focus-visible {
+  border-color: #157bff;
+  background: #0d1c30;
+}
+
+.submissionAttachments b,
+.submissionAttachments small {
+  overflow-wrap: anywhere;
+}
+
 .submissionActions {
   display: grid;
   gap: 8px;
