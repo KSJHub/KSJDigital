@@ -10,6 +10,7 @@ import {
   rollbackRelease,
   setMaintenanceMode,
 } from './services/releaseService.js'
+import { requireAssurance } from './services/mfaService.js'
 import { publishDomainEvent } from './services/realtimeDomainEventService.js'
 
 function requireOwner(req, res) {
@@ -62,10 +63,11 @@ async function publishReleaseRealtimeEvent(topic, payload) {
 export function createReleaseRouter() {
   const router = express.Router()
   router.use((req, res, next) => { if (requireOwner(req, res)) next() })
+  const requireStepUp = requireAssurance(2)
 
   router.get('/', async (req, res) => { try { res.json(await listReleaseState(req.query)) } catch (error) { sendError(res, error) } })
 
-  router.post('/', async (req, res) => {
+  router.post('/', requireStepUp, async (req, res) => {
     try {
       const release = await createRelease(req.body || {}, null)
       const state = await listReleaseState()
@@ -76,7 +78,7 @@ export function createReleaseRouter() {
 
   router.get('/maintenance/:environment', async (req, res) => { try { res.json(await getMaintenanceMode(req.params.environment)) } catch (error) { sendError(res, error) } })
 
-  router.put('/maintenance/:environment', async (req, res) => {
+  router.put('/maintenance/:environment', requireStepUp, async (req, res) => {
     try {
       const before = await getMaintenanceMode(req.params.environment)
       const enabled = req.body?.enabled === true
@@ -89,7 +91,7 @@ export function createReleaseRouter() {
     } catch (error) { sendError(res, error) }
   })
 
-  router.post('/locks/:environment', async (req, res) => {
+  router.post('/locks/:environment', requireStepUp, async (req, res) => {
     try {
       const lock = await acquireDeploymentLock(req.params.environment, req.body || {}, null)
       const state = await listReleaseState()
@@ -98,7 +100,7 @@ export function createReleaseRouter() {
     } catch (error) { sendError(res, error) }
   })
 
-  router.delete('/locks/:environment', async (req, res) => {
+  router.delete('/locks/:environment', requireStepUp, async (req, res) => {
     try {
       const result = await releaseDeploymentLock(req.params.environment, req.body?.lockToken || req.headers['x-deployment-lock'], null)
       const state = await listReleaseState()
@@ -116,7 +118,7 @@ export function createReleaseRouter() {
     } catch (error) { sendError(res, error) }
   })
 
-  router.post('/:releaseId/promote/:environment', async (req, res) => {
+  router.post('/:releaseId/promote/:environment', requireStepUp, async (req, res) => {
     try {
       const deployment = await promoteRelease(req.params.releaseId, req.params.environment, req.body || {}, null)
       const state = await listReleaseState()
@@ -125,7 +127,7 @@ export function createReleaseRouter() {
     } catch (error) { sendError(res, error) }
   })
 
-  router.post('/rollback/:environment', async (req, res) => {
+  router.post('/rollback/:environment', requireStepUp, async (req, res) => {
     try {
       const rollback = await rollbackRelease(req.params.environment, req.body || {}, null)
       const state = await listReleaseState()
