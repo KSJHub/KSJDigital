@@ -43,7 +43,7 @@ import {
 import { startAutomationWorker } from './services/automationService.js'
 import { startBackupScheduler } from './services/backupService.js'
 import { createResponseCacheMiddleware } from './services/cacheService.js'
-import { createClientAccount, updateClientAccount } from './services/clientAccountService.js'
+import { createClientAccount, deleteClientAccount, updateClientAccount } from './services/clientAccountService.js'
 import { startCollaborationCleanup } from './services/collaborationService.js'
 import { startContentWorkflowScheduler } from './services/contentWorkflowScheduler.js'
 import { startEventBusWorker } from './services/eventBusService.js'
@@ -162,6 +162,7 @@ const originalUse = express.application.use
 const originalGet = express.application.get
 const originalPost = express.application.post
 const originalPatch = express.application.patch
+const originalDelete = express.application.delete
 const originalListen = express.application.listen
 let publicRoutesMounted = false
 let protectedRoutesMounted = false
@@ -181,6 +182,10 @@ express.application.post = function guardedPost(...args) {
 express.application.patch = function guardedPatch(...args) {
   if (args[0] === '/api/clients/:id') return originalPatch.call(this, args[0], updateClientAccount)
   return originalPatch.apply(this, args)
+}
+express.application.delete = function guardedDelete(...args) {
+  if (args[0] === '/api/clients/:id') return originalDelete.call(this, args[0], deleteClientAccount)
+  return originalDelete.apply(this, args)
 }
 express.application.use = function routeAwareUse(...args) {
   const mountPath = typeof args[0] === 'string' ? args[0] : ''
@@ -243,4 +248,5 @@ express.application.use = originalUse
 express.application.get = originalGet
 express.application.post = originalPost
 express.application.patch = originalPatch
+express.application.delete = originalDelete
 express.application.listen = originalListen
