@@ -312,6 +312,23 @@ function publicFormMultipartSubmissionMiddleware(req, res, next) {
     }
   })
 }
+function publicFormFileCapabilityResponse(req, res, next) {
+  const route = String(req.originalUrl || req.url || '').split('?')[0]
+  if (req.method !== 'GET' || !/^\/api\/public\/forms\/[^/]+\/?$/.test(route)) return next()
+  const originalJson = res.json.bind(res)
+  res.json = body => originalJson(Array.isArray(body) ? body.map(form => ({
+    ...form,
+    submissionEnabled: true,
+    ...((form.fields || []).some(field => field.type === 'File') ? {
+      fileUpload: {
+        maxBytes: PUBLIC_FORM_FILE_MAX_BYTES,
+        maxFiles: PUBLIC_FORM_MAX_FILES,
+        extensions: [...PUBLIC_FORM_ALLOWED_EXTENSIONS],
+      },
+    } : {}),
+  })) : body)
+  next()
+}
 function formSubmissionEmailBody(websiteId, form, result, values = {}, attachments = []) {
   const lines = [
     'A new public form submission has been received.',
@@ -403,6 +420,39 @@ async function downloadFormAttachment(req, res) {
     return res.status(500).json({ error: 'Attachment could not be downloaded' })
   }
 }
+function attachmentIds(forms = []) {
+  const ids = new Set()
+  for (const form of Array.isArray(forms) ? forms : []) {
+    for (const submission of Array.isArray(form?.submissions) ? form.submissions : []) {
+      for (const attachment of Array.isArray(submission?.attachments) ? submission.attachments : []) {
+        if (attachment?.id) ids.add(safeName(attachment.id))
+      }
+    }
+  }
+  return ids
+}
+function formAttachmentCleanupCapture(req, res, next) {
+  if (!['PUT', 'DELETE'].includes(req.method)) return next()
+  const route = String(req.originalUrl || req.url || '').split('?')[0]
+  const match = route.match(/^\/api\/forms\/([^/]+)(?:\/([^/]+))?\/?$/)
+  if (!match) return next()
+  const websiteId = safeName(decodeURIComponent(match[1]))
+  const formId = match[2] ? safeName(decodeURIComponent(match[2])) : null
+  readJson(paths.forms(websiteId), []).then(forms => {
+    const beforeForms = formId ? (Array.isArray(forms) ? forms.filter(form => safeName(form.id) === formId) : []) : forms
+    const before = attachmentIds(beforeForms)
+    if (!before.size) return
+    res.on('finish', () => {
+      if (res.statusCode >= 400) return
+      readJson(paths.forms(websiteId), []).then(currentForms => {
+        const retained = attachmentIds(currentForms)
+        const removed = [...before].filter(id => !retained.has(id))
+        return Promise.all(removed.map(id => fs.promises.rm(publicFormAttachmentPath(websiteId, id), { force: true })))
+      }).catch(error => console.error('Could not clean removed form attachments', { websiteId, formId, error: error?.message || 'Cleanup failed' }))
+    })
+  }).catch(error => console.error('Could not prepare form attachment cleanup', { websiteId, formId, error: error?.message || 'Cleanup preparation failed' }))
+  next()
+}
 const credentialConfiguration = {
   morgan: 'KSJ_OWNER_PASSWORD',
   taj: 'TWOTONETAJ_CLIENT_PASSWORD',
@@ -481,6 +531,7 @@ express.application.use = function routeAwareUse(...args) {
     const jsonParserResult = originalUse.apply(this, args)
     originalUse.call(this, createAbuseProtectionMiddleware())
     originalUse.call(this, createResponseCacheMiddleware())
+    originalUse.call(this, publicFormFileCapabilityResponse)
     originalUse.call(this, formSubmissionNotificationCapture)
     originalUse.call(this, publicFormMultipartSubmissionMiddleware)
     originalUse.call(this, createAuthenticationPublicRouter())
@@ -495,6 +546,7 @@ express.application.use = function routeAwareUse(...args) {
   const result = replacingLegacySessionGuard ? originalUse.call(this, '/api', requireAuthenticationSession) : originalUse.apply(this, args)
   if (!protectedRoutesMounted && replacingLegacySessionGuard) {
     protectedRoutesMounted = true
+    originalUse.call(this, '/api', formAttachmentCleanupCapture)
     originalUse.call(this, '/api', createRequestMetricsMiddleware())
     originalUse.call(this, '/api', createIntegrationEventCaptureMiddleware())
     mountProtectedRoutes(this)
