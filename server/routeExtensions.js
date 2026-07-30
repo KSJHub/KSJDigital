@@ -24,7 +24,7 @@ import { createTaxonomyRouter } from './taxonomyRouter.js'
 import { createTeamRouter } from './teamRouter.js'
 import { trustedOriginGuard } from './trustedOriginGuard.js'
 import { createWebsiteRouter } from './websiteRouter.js'
-import { paths, readJson, readWebsiteAssets, safeName } from './storage.js'
+import { paths, readJson, readWebsiteAssets, safeName, writeJson } from './storage.js'
 
 const MAX_ASSET_UPLOAD_BYTES = 15 * 1024 * 1024
 const ALLOWED_ASSET_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.pdf'])
@@ -194,18 +194,64 @@ function validateFieldPatch(patch, res) {
   return true
 }
 
+function validateBulkForms(forms, res) {
+  if (!Array.isArray(forms)) {
+    res.status(400).json({ error: 'Forms payload must contain an array' })
+    return false
+  }
+
+  const formIds = new Set()
+  for (const form of forms) {
+    if (!form || typeof form !== 'object' || Array.isArray(form)) {
+      res.status(422).json({ error: 'Each form must be an object' })
+      return false
+    }
+    const id = formRecordId(form.id)
+    if (!id || formIds.has(id)) {
+      res.status(422).json({ error: 'Form ids must be present and unique' })
+      return false
+    }
+    formIds.add(id)
+    if (!validateFormPatch(sanitiseFormPatch(form), res)) return false
+    if (!Array.isArray(form.fields)) {
+      res.status(422).json({ error: 'Form fields must be an array' })
+      return false
+    }
+    const fieldIds = new Set()
+    for (const field of form.fields) {
+      if (!field || typeof field !== 'object' || Array.isArray(field)) {
+        res.status(422).json({ error: 'Each form field must be an object' })
+        return false
+      }
+      const fieldId = formRecordId(field.id)
+      if (!fieldId || fieldIds.has(fieldId)) {
+        res.status(422).json({ error: 'Field ids must be present and unique within each form' })
+        return false
+      }
+      fieldIds.add(fieldId)
+      if (!validateFieldPatch(sanitiseFieldPatch(field), res)) return false
+    }
+  }
+  return true
+}
+
 function createFormMutationGuard() {
   return async function validateFormMutation(req, res, next) {
     if (req.method === 'GET') return next()
     if (!(req.session?.role === 'owner' || req.session?.canEdit)) return next()
 
-    const parts = String(req.path || '').split('/').filter(Boolean).map(decodeURIComponent)
+    const parts = String(req.path || '').split('/').filter(Boolean)
     const [websiteId, formId, collection, fieldId, action] = parts
     if (!websiteId || !formScopeAllowed(req.session, websiteId)) return next()
 
     const forms = await readJson(paths.forms(websiteId), [])
     if (!Array.isArray(forms)) return res.status(500).json({ error: 'Stored forms are invalid' })
     const form = formId ? forms.find(item => item.id === formId) : null
+
+    if (req.method === 'PUT' && parts.length === 1) {
+      if (!validateBulkForms(req.body?.forms, res)) return
+      return next()
+    }
 
     if (req.method === 'POST' && parts.length === 1) {
       const patch = sanitiseFormPatch(req.body || {})
@@ -230,12 +276,26 @@ function createFormMutationGuard() {
       return next()
     }
 
+    if (collection === 'test-submission' && req.method === 'POST' && parts.length === 3) {
+      const next = forms.map(item => item.id === formId
+        ? {
+            ...item,
+            submissions: [
+              { id: `sub-${Date.now()}`, createdAt: new Date().toISOString(), status: 'New', source: 'Portal preview' },
+              ...(Array.isArray(item.submissions) ? item.submissions : []),
+            ],
+          }
+        : item)
+      await writeJson(paths.forms(websiteId), next)
+      return res.json(next)
+    }
+
     if (collection === 'fields' && req.method === 'POST' && parts.length === 3) {
       const patch = sanitiseFieldPatch(req.body || {})
       if (!('type' in patch)) patch.type = 'Text'
-      if (!('label' in patch)) patch.label = 'New field'
       if (!validateFieldPatch(patch, res)) return
-      const requestedId = formRecordId(req.body?.id || patch.label)
+      const explicitIdSource = req.body?.id || req.body?.label
+      const requestedId = explicitIdSource ? formRecordId(explicitIdSource) : ''
       if (requestedId && (form.fields || []).some(item => formRecordId(item.id) === requestedId)) {
         return res.status(409).json({ error: 'A field with this id already exists in the form' })
       }
