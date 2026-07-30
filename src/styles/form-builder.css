@@ -143,6 +143,13 @@
   margin-bottom: 8px;
 }
 
+.submissionToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .submissions p {
   display: grid;
   gap: 4px;
@@ -168,6 +175,46 @@
 
 .submissionItem small {
   overflow-wrap: anywhere;
+}
+
+.deliveryStatus {
+  width: fit-content;
+  padding: 4px 8px;
+  border: 1px solid #30425f;
+  border-radius: 999px;
+  background: #101927;
+  color: #b7c5db;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.deliverydelivered {
+  border-color: #23754f;
+  background: #0a2419;
+  color: #73e8ad;
+}
+
+.deliveryfailed,
+.deliverycancelled {
+  border-color: #74313b;
+  background: #2b0d14;
+  color: #ff9cac;
+}
+
+.deliveryretrying,
+.deliveryqueued,
+.deliverysending,
+.deliverychecking {
+  border-color: #735f2b;
+  background: #291f09;
+  color: #f4d878;
+}
+
+.deliverynotapplicable,
+.deliverynotqueued {
+  border-color: #344155;
+  background: #101722;
+  color: #9aa8bc;
 }
 
 .submissionActions {
@@ -201,5 +248,14 @@
 
   .submissionActions {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .submissionToolbar {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .submissionToolbar button {
+    flex: 1;
   }
 }
