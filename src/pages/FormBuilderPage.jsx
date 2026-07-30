@@ -14,6 +14,20 @@ function FieldPreview({ field }) {
   return <input type={field.type === 'Email' ? 'email' : field.type === 'Date' ? 'date' : 'text'} placeholder={field.placeholder} disabled />
 }
 
+function submissionSummary(submission, fields = []) {
+  if (!submission?.values || typeof submission.values !== 'object' || Array.isArray(submission.values)) return ''
+  return fields
+    .map(field => {
+      const value = submission.values[field.id]
+      if (value === undefined || value === null || value === '') return ''
+      const display = typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value).slice(0, 100)
+      return `${field.label || field.id}: ${display}`
+    })
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(' · ')
+}
+
 export function FormBuilderPage({ client = false }) {
   const account = getAccountFromPath()
   const { websites } = useWebsites()
@@ -31,6 +45,7 @@ export function FormBuilderPage({ client = false }) {
   const selected = forms.find(form => form.id === selectedId) || forms[0]
   const busy = Boolean(busyAction)
   const hasFileFields = Boolean((selected?.fields || []).some(field => field.type === 'File'))
+  const publicReady = selected?.status === 'Active' && !hasFileFields
 
   useEffect(() => {
     if (account?.role === 'owner' && !selectedWebsiteId && websites[0]?.id) setSelectedWebsiteId(websites[0].id)
@@ -113,7 +128,7 @@ export function FormBuilderPage({ client = false }) {
   async function removeForm() {
     if (!canEdit) return setNotice('Edit permission required')
     if (!websiteId || !selected?.id || busy) return
-    if (!globalThis.confirm(`Delete “${selected.name || 'this form'}”? Its configured fields and stored test submissions will be removed. This action cannot be undone.`)) return
+    if (!globalThis.confirm(`Delete “${selected.name || 'this form'}”? Its configured fields and stored submissions will be removed. This action cannot be undone.`)) return
     const formId = selected.id
     setBusyAction('delete-form')
     setNotice('Deleting form')
@@ -255,9 +270,10 @@ export function FormBuilderPage({ client = false }) {
             </div>
             <div className="submissions">
               <h3>Public Submission Readiness</h3>
-              <p><b>Public website integration</b><small>Not connected yet</small></p>
-              <p><b>Portal preview test</b><small>Available below</small></p>
-              {hasFileFields && <p><b>File upload fields</b><small>Require a dedicated public upload pipeline before launch</small></p>}
+              <p><b>Public website integration</b><small>{publicReady ? 'Connected and accepting submissions' : selected.status !== 'Active' ? 'Ready when this form is Active' : 'Blocked by unsupported File fields'}</small></p>
+              <p><b>Spam protection</b><small>{selected.spamProtection !== false ? 'Enabled for public submissions' : 'Disabled'}</small></p>
+              <p><b>Portal preview test</b><small>Available below and stored separately by source label</small></p>
+              {hasFileFields && <p><b>File upload fields</b><small>Require a dedicated public upload pipeline before this form can accept live submissions</small></p>}
             </div>
             {canEdit && <div className="fieldTypeBar">{fieldTypes.map(type => <button key={type} disabled={busy} onClick={() => addNewField(type)}>{type}</button>)}</div>}
             {(selected.fields || []).map((field, index) => <article className="fieldEditor" key={field.id}>
@@ -273,7 +289,10 @@ export function FormBuilderPage({ client = false }) {
         <aside className="card formPreview">
           <div className="panelHead"><h2>Portal Preview</h2>{canEdit && <button disabled={!websiteId || !selected?.id || busy} onClick={addTestSubmission}>{busyAction === 'test' ? 'Testing…' : 'Add Test Submission'}</button>}</div>
           {selected && <form onSubmit={event => event.preventDefault()}><h3>{selected.name}</h3>{(selected.fields || []).map(field => <label key={field.id}>{field.type !== 'Checkbox' && <span>{field.label}{field.required ? ' *' : ''}</span>}<FieldPreview field={field} /></label>)}<button type="button" disabled>Preview only</button></form>}
-          <div className="submissions"><h3>Portal Test Submissions</h3>{selected?.submissions?.length ? selected.submissions.map(sub => <p key={sub.id}><b>{sub.source}</b><small>{sub.createdAt}</small></p>) : <p>No test submissions yet.</p>}</div>
+          <div className="submissions"><h3>Submissions</h3>{selected?.submissions?.length ? selected.submissions.map(sub => {
+            const summary = submissionSummary(sub, selected.fields || [])
+            return <p key={sub.id}><b>{sub.source || 'Submission'}</b><small>{sub.createdAt}</small>{summary && <small>{summary}</small>}</p>
+          }) : <p>No submissions yet.</p>}</div>
         </aside>
       </section>
     </Layout>
