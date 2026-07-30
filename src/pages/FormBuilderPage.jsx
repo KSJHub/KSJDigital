@@ -34,6 +34,10 @@ function csvCell(value) {
   return `"${text.replaceAll('"', '""')}"`
 }
 
+function deliveryClass(status = '') {
+  return `deliveryStatus delivery${String(status).toLowerCase().replace(/[^a-z]+/g, '')}`
+}
+
 export function FormBuilderPage({ client = false }) {
   const account = getAccountFromPath()
   const { websites } = useWebsites()
@@ -48,6 +52,8 @@ export function FormBuilderPage({ client = false }) {
   const [selectedId, setSelectedId] = useState('')
   const [notice, setNotice] = useState('Loading')
   const [busyAction, setBusyAction] = useState('')
+  const [deliveryStatuses, setDeliveryStatuses] = useState({})
+  const [deliveryLoading, setDeliveryLoading] = useState(false)
   const selected = forms.find(form => form.id === selectedId) || forms[0]
   const busy = Boolean(busyAction)
   const hasFileFields = Boolean((selected?.fields || []).some(field => field.type === 'File'))
@@ -61,6 +67,7 @@ export function FormBuilderPage({ client = false }) {
     if (!websiteId) {
       setForms([])
       setSelectedId('')
+      setDeliveryStatuses({})
       setNotice('Waiting for assigned website')
       return
     }
@@ -72,7 +79,24 @@ export function FormBuilderPage({ client = false }) {
     } catch (error) {
       setForms([])
       setSelectedId('')
+      setDeliveryStatuses({})
       setNotice(error.message || 'Forms unavailable')
+    }
+  }
+
+  async function loadDeliveryStatuses(formId = selected?.id) {
+    if (!websiteId || !formId) {
+      setDeliveryStatuses({})
+      return
+    }
+    setDeliveryLoading(true)
+    try {
+      const result = await api.getFormDeliveryStatuses(websiteId, formId)
+      setDeliveryStatuses(result?.statuses && typeof result.statuses === 'object' ? result.statuses : {})
+    } catch {
+      setDeliveryStatuses({})
+    } finally {
+      setDeliveryLoading(false)
     }
   }
 
@@ -80,6 +104,10 @@ export function FormBuilderPage({ client = false }) {
     setBusyAction('')
     loadForms('', canEdit ? 'Ready' : 'Preview only')
   }, [canEdit, websiteId])
+
+  useEffect(() => {
+    loadDeliveryStatuses(selected?.id)
+  }, [websiteId, selected?.id])
 
   function updateSelectedLocal(changes) {
     if (!selected?.id) return
@@ -142,6 +170,7 @@ export function FormBuilderPage({ client = false }) {
       const next = await api.deleteForm(websiteId, formId)
       setForms(next)
       setSelectedId(next[0]?.id || '')
+      setDeliveryStatuses({})
       setNotice('Form deleted')
     } catch (error) {
       setNotice(error.message || 'Delete failed')
@@ -237,6 +266,7 @@ export function FormBuilderPage({ client = false }) {
       setForms(next)
       setSelectedId(formId)
       setNotice('Portal test submission added')
+      await loadDeliveryStatuses(formId)
     } catch (error) {
       setNotice(error.message || 'Test failed')
     } finally {
@@ -256,6 +286,7 @@ export function FormBuilderPage({ client = false }) {
     try {
       await api.saveForms(websiteId, nextForms)
       await loadForms(formId, message.replace(/ing$/, 'ed'))
+      await loadDeliveryStatuses(formId)
     } catch (error) {
       setNotice(error.message || 'Submission update failed')
       await loadForms(formId, error.message || 'Submission update failed')
@@ -286,12 +317,13 @@ export function FormBuilderPage({ client = false }) {
   function exportSubmissions() {
     if (!selected?.id || !(selected.submissions || []).length) return setNotice('No submissions to export')
     const fields = selected.fields || []
-    const header = ['Submission ID', 'Created At', 'Status', 'Source', ...fields.map(field => field.label || field.id)]
+    const header = ['Submission ID', 'Created At', 'Status', 'Source', 'Email Delivery', ...fields.map(field => field.label || field.id)]
     const rows = (selected.submissions || []).map(submission => [
       submission.id,
       submission.createdAt,
       submission.status || 'New',
       submission.source || 'Submission',
+      deliveryStatuses[submission.id]?.status || (submission.source === 'Public website' ? 'Unknown' : 'Not applicable'),
       ...fields.map(field => submission.values?.[field.id] ?? ''),
     ])
     const csv = [header, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n')
@@ -319,7 +351,7 @@ export function FormBuilderPage({ client = false }) {
       </section>
 
       {account?.role === 'owner' && websites.length > 1 && <section className="card formSettings">
-        <label>Website<select value={websiteId || ''} disabled={busy} onChange={event => { setSelectedWebsiteId(event.target.value); setSelectedId('') }}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
+        <label>Website<select value={websiteId || ''} disabled={busy} onChange={event => { setSelectedWebsiteId(event.target.value); setSelectedId(''); setDeliveryStatuses({}) }}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
       </section>}
 
       <section className="formsGrid">
@@ -360,12 +392,14 @@ export function FormBuilderPage({ client = false }) {
           <div className="panelHead"><h2>Portal Preview</h2>{canEdit && <button disabled={!websiteId || !selected?.id || busy} onClick={addTestSubmission}>{busyAction === 'test' ? 'Testing…' : 'Add Test Submission'}</button>}</div>
           {selected && <form onSubmit={event => event.preventDefault()}><h3>{selected.name}</h3>{(selected.fields || []).map(field => <label key={field.id}>{field.type !== 'Checkbox' && <span>{field.label}{field.required ? ' *' : ''}</span>}<FieldPreview field={field} /></label>)}<button type="button" disabled>Preview only</button></form>}
           <div className="submissions">
-            <div className="panelHead"><h3>Submissions</h3><button type="button" disabled={!selected?.submissions?.length || busy} onClick={exportSubmissions}>Export CSV</button></div>
+            <div className="panelHead"><h3>Submissions</h3><div className="submissionToolbar"><button type="button" disabled={!selected?.id || deliveryLoading} onClick={() => loadDeliveryStatuses(selected?.id)}>{deliveryLoading ? 'Checking…' : 'Refresh delivery'}</button><button type="button" disabled={!selected?.submissions?.length || busy} onClick={exportSubmissions}>Export CSV</button></div></div>
             {selected?.submissions?.length ? selected.submissions.map(sub => {
               const summary = submissionSummary(sub, selected.fields || [])
               const submissionBusy = busyAction === `submission-${sub.id}`
+              const delivery = deliveryStatuses[sub.id]
+              const deliveryText = sub.source === 'Public website' ? (delivery?.status || (deliveryLoading ? 'Checking…' : 'Not queued')) : 'Not applicable'
               return <article className="submissionItem" key={sub.id}>
-                <div><b>{sub.source || 'Submission'}</b><small>{sub.createdAt}</small>{summary && <small>{summary}</small>}</div>
+                <div><b>{sub.source || 'Submission'}</b><small>{sub.createdAt}</small><span className={deliveryClass(deliveryText)} title={delivery?.error || ''}>Email: {deliveryText}</span>{summary && <small>{summary}</small>}</div>
                 <div className="submissionActions">
                   <select aria-label="Submission status" value={submissionStatuses.includes(sub.status) ? sub.status : 'New'} disabled={!canEdit || busy} onChange={event => updateSubmissionStatus(sub, event.target.value)}>{submissionStatuses.map(status => <option key={status}>{status}</option>)}</select>
                   {canEdit && <button type="button" disabled={busy} onClick={() => removeSubmission(sub)}>{submissionBusy ? 'Saving…' : 'Delete'}</button>}
