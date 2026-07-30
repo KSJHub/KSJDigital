@@ -141,6 +141,7 @@ export function CmsPage({ client = false }) {
     : assignedWebsite
   const websiteId = website?.id
   const canEdit = account?.role === 'owner' || account?.canEdit
+  const canWorkflow = account?.role === 'owner' || account?.canEdit || account?.canApprove
   const [articles, setArticles] = useState([])
   const [selectedId, setSelectedId] = useState('')
   const [draft, setDraft] = useState(EMPTY_ARTICLE)
@@ -149,6 +150,7 @@ export function CmsPage({ client = false }) {
   const [statusFilter, setStatusFilter] = useState('All')
   const [newBlockType, setNewBlockType] = useState('richText')
   const [restoringRevisionId, setRestoringRevisionId] = useState('')
+  const [workflowBusy, setWorkflowBusy] = useState('')
 
   const filtered = useMemo(() => articles.filter(article => {
     const matchesStatus = statusFilter === 'All' || article.status === statusFilter
@@ -167,6 +169,9 @@ export function CmsPage({ client = false }) {
     return { checks, complete: checks.filter(([, valid]) => valid).length, total: checks.length }
   }, [draft])
 
+  const workflowTransitions = Array.isArray(draft.workflow?.availableTransitions) ? draft.workflow.availableTransitions : []
+  const busy = Boolean(restoringRevisionId || workflowBusy)
+
   useEffect(() => {
     if (account?.role === 'owner' && !selectedWebsiteId && websites[0]?.id) setSelectedWebsiteId(websites[0].id)
   }, [account?.role, selectedWebsiteId, websites])
@@ -176,12 +181,13 @@ export function CmsPage({ client = false }) {
     let cancelled = false
     setNotice('Loading articles')
     setRestoringRevisionId('')
+    setWorkflowBusy('')
     api.getArticles(websiteId).then(next => {
       if (cancelled) return
       setArticles(next)
       setSelectedId(next[0]?.id || '')
       setDraft(normaliseDraft(next[0]))
-      setNotice(canEdit ? 'Ready' : 'Preview only')
+      setNotice(canEdit ? 'Ready' : canWorkflow ? 'Workflow review' : 'Preview only')
     }).catch(error => {
       if (cancelled) return
       setArticles([])
@@ -190,7 +196,7 @@ export function CmsPage({ client = false }) {
       setNotice(error.message || 'CMS unavailable')
     })
     return () => { cancelled = true }
-  }, [canEdit, websiteId])
+  }, [canEdit, canWorkflow, websiteId])
 
   function selectArticle(article) {
     setRestoringRevisionId('')
@@ -199,7 +205,7 @@ export function CmsPage({ client = false }) {
   }
 
   async function createArticle() {
-    if (!websiteId || !canEdit) return
+    if (!websiteId || !canEdit || busy) return
     setNotice('Creating article')
     try {
       const result = await api.createArticle(websiteId, EMPTY_ARTICLE)
@@ -212,7 +218,7 @@ export function CmsPage({ client = false }) {
   }
 
   async function saveArticle(overrides = {}) {
-    if (!websiteId || !selectedId || !canEdit) return
+    if (!websiteId || !selectedId || !canEdit) return null
     setNotice('Saving article')
     try {
       const payload = { ...draft, ...overrides, seo: { ...draft.seo, ...(overrides.seo || {}) } }
@@ -220,13 +226,62 @@ export function CmsPage({ client = false }) {
       setArticles(result.articles)
       selectArticle(result.article)
       setNotice('Article saved')
+      return result.article
     } catch (error) {
       setNotice(error.message || 'Save failed')
+      return null
+    }
+  }
+
+  async function runWorkflow(transition) {
+    if (!websiteId || !selectedId || !canWorkflow || !transition?.id || busy) return
+    const publishingAction = ['approve', 'schedule', 'publish-scheduled'].includes(transition.id)
+    if (publishingAction && readiness.complete !== readiness.total) {
+      setNotice('Complete publish readiness checks first')
+      return
+    }
+
+    const scheduledAt = draft.scheduledAt
+    if (transition.id === 'schedule') {
+      const scheduledDate = new Date(scheduledAt)
+      if (!scheduledAt || Number.isNaN(scheduledDate.getTime()) || scheduledDate.getTime() <= Date.now()) {
+        setNotice('Choose a future publication time before scheduling')
+        return
+      }
+    }
+
+    const confirmation = transition.id === 'approve'
+      ? 'Approve and publish this article now?'
+      : transition.id === 'archive'
+        ? 'Archive this published article?'
+        : transition.id === 'restore'
+          ? 'Return this article to Draft? It will no longer be published or scheduled.'
+          : transition.id === 'publish-scheduled'
+            ? 'Publish this scheduled article now?'
+            : ''
+    if (confirmation && !globalThis.confirm(confirmation)) return
+
+    setWorkflowBusy(transition.id)
+    setNotice(`${transition.label || 'Updating workflow'}…`)
+    try {
+      if (canEdit) {
+        const saved = await saveArticle()
+        if (!saved) throw new Error('The article could not be saved before changing workflow state.')
+      }
+      const payload = transition.id === 'schedule' ? { scheduledAt } : {}
+      const result = await api.transitionArticle(websiteId, selectedId, transition.id, payload)
+      setArticles(result.articles)
+      selectArticle(result.article)
+      setNotice(`✓ ${transition.label || 'Workflow updated'}`)
+    } catch (error) {
+      setNotice(error.message || 'Workflow update failed')
+    } finally {
+      setWorkflowBusy('')
     }
   }
 
   async function restoreRevision(revision) {
-    if (!websiteId || !selectedId || !canEdit || !revision?.id || restoringRevisionId) return
+    if (!websiteId || !selectedId || !canEdit || !revision?.id || busy) return
     const label = revision.title || 'Untitled revision'
     const message = draft.status === 'Draft'
       ? `Restore “${label}” from ${formatDate(revision.createdAt)}? Its content will replace the current draft.`
@@ -247,7 +302,7 @@ export function CmsPage({ client = false }) {
   }
 
   async function deleteArticle() {
-    if (!websiteId || !selectedId || !canEdit) return
+    if (!websiteId || !selectedId || !canEdit || busy) return
     if (!globalThis.confirm(`Delete “${draft.title || 'this article'}”? This action cannot be undone.`)) return
     setNotice('Deleting article')
     try {
@@ -300,55 +355,65 @@ export function CmsPage({ client = false }) {
       </section>
 
       {account?.role === 'owner' && websites.length > 1 && <section className="card formSettings">
-        <label>Website<select value={websiteId || ''} onChange={event => setSelectedWebsiteId(event.target.value)}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
+        <label>Website<select value={websiteId || ''} disabled={busy} onChange={event => setSelectedWebsiteId(event.target.value)}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
       </section>}
 
       <section className="formsGrid">
         <aside className="card formList">
-          <div className="panelHead"><h2>Articles</h2>{canEdit && <button onClick={createArticle}>Create</button>}</div>
+          <div className="panelHead"><h2>Articles</h2>{canEdit && <button onClick={createArticle} disabled={busy}>Create</button>}</div>
           <label>Search<input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search articles" /></label>
-          <label>Status<select value={statusFilter} onChange={event => setStatusFilter(event.target.value)}><option>All</option><option>Draft</option><option>Scheduled</option><option>Published</option><option>Archived</option></select></label>
-          {filtered.map(article => <button className={article.id === selectedId ? 'active' : ''} key={article.id} onClick={() => selectArticle(article)}><b>{article.title}</b><small>{article.status} · {article.category} · {(article.blocks || []).length} blocks</small></button>)}
+          <label>Status<select value={statusFilter} onChange={event => setStatusFilter(event.target.value)}><option>All</option><option>Draft</option><option>In Review</option><option>Scheduled</option><option>Published</option><option>Archived</option></select></label>
+          {filtered.map(article => <button className={article.id === selectedId ? 'active' : ''} disabled={busy} key={article.id} onClick={() => selectArticle(article)}><b>{article.title}</b><small>{article.status} · {article.category} · {(article.blocks || []).length} blocks</small></button>)}
           {!filtered.length && <p className="emptyState">No matching articles.</p>}
         </aside>
 
         <section className="card formEditor">
-          <div className="panelHead"><h2>{selectedId ? 'Article Editor' : 'No Article Selected'}</h2>{selectedId && canEdit && <button onClick={() => saveArticle()} disabled={!draft.title.trim()}>Save</button>}</div>
+          <div className="panelHead"><h2>{selectedId ? 'Article Editor' : 'No Article Selected'}</h2>{selectedId && canEdit && <button onClick={() => saveArticle()} disabled={!draft.title.trim() || busy}>Save</button>}</div>
           {selectedId && <>
             <div className="formSettings">
-              <label>Title<input value={draft.title} disabled={!canEdit} onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
-              <label>Slug<input value={draft.slug} disabled={!canEdit} onChange={event => setDraft({ ...draft, slug: event.target.value })} placeholder="generated-from-title" /></label>
-              <label>Category<input value={draft.category} disabled={!canEdit} onChange={event => setDraft({ ...draft, category: event.target.value })} /></label>
-              <label>Tags<input value={(draft.tags || []).join(', ')} disabled={!canEdit} onChange={event => setDraft({ ...draft, tags: event.target.value.split(',').map(tag => tag.trim()).filter(Boolean) })} placeholder="news, update" /></label>
-              <label>Author<input value={draft.author} disabled={!canEdit} onChange={event => setDraft({ ...draft, author: event.target.value })} /></label>
-              <label>Locale<input value={draft.locale || 'en-GB'} disabled={!canEdit} onChange={event => setDraft({ ...draft, locale: event.target.value })} /></label>
-              <label>Status<select value={draft.status} disabled={!canEdit} onChange={event => setDraft({ ...draft, status: event.target.value })}><option>Draft</option><option>Scheduled</option><option>Published</option><option>Archived</option></select></label>
-              {draft.status === 'Scheduled' && <label>Publish At<input type="datetime-local" value={draft.scheduledAt ? draft.scheduledAt.slice(0, 16) : ''} disabled={!canEdit} onChange={event => setDraft({ ...draft, scheduledAt: event.target.value ? new Date(event.target.value).toISOString() : '' })} /></label>}
-              <label>Featured Image URL<input value={draft.featuredImage} disabled={!canEdit} onChange={event => setDraft({ ...draft, featuredImage: event.target.value })} /></label>
-              <label>Excerpt<textarea value={draft.excerpt} disabled={!canEdit} onChange={event => setDraft({ ...draft, excerpt: event.target.value })} /></label>
+              <label>Title<input value={draft.title} disabled={!canEdit || busy} onChange={event => setDraft({ ...draft, title: event.target.value })} /></label>
+              <label>Slug<input value={draft.slug} disabled={!canEdit || busy} onChange={event => setDraft({ ...draft, slug: event.target.value })} placeholder="generated-from-title" /></label>
+              <label>Category<input value={draft.category} disabled={!canEdit || busy} onChange={event => setDraft({ ...draft, category: event.target.value })} /></label>
+              <label>Tags<input value={(draft.tags || []).join(', ')} disabled={!canEdit || busy} onChange={event => setDraft({ ...draft, tags: event.target.value.split(',').map(tag => tag.trim()).filter(Boolean) })} placeholder="news, update" /></label>
+              <label>Author<input value={draft.author} disabled={!canEdit || busy} onChange={event => setDraft({ ...draft, author: event.target.value })} /></label>
+              <label>Locale<input value={draft.locale || 'en-GB'} disabled={!canEdit || busy} onChange={event => setDraft({ ...draft, locale: event.target.value })} /></label>
+              <label>Status<input value={draft.status || 'Draft'} disabled /></label>
+              <label>Featured Image URL<input value={draft.featuredImage} disabled={!canEdit || busy} onChange={event => setDraft({ ...draft, featuredImage: event.target.value })} /></label>
+              <label>Excerpt<textarea value={draft.excerpt} disabled={!canEdit || busy} onChange={event => setDraft({ ...draft, excerpt: event.target.value })} /></label>
             </div>
 
-            <div className="panelHead"><h2>Content Blocks</h2>{canEdit && <div><select value={newBlockType} onChange={event => setNewBlockType(event.target.value)}>{BLOCK_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><button onClick={addBlock}>Add Block</button></div>}</div>
+            <div className="panelHead"><h2>Content Blocks</h2>{canEdit && <div><select value={newBlockType} disabled={busy} onChange={event => setNewBlockType(event.target.value)}>{BLOCK_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><button onClick={addBlock} disabled={busy}>Add Block</button></div>}</div>
             {!draft.blocks.length && <p className="emptyState">Add the first reusable content block.</p>}
-            {draft.blocks.map((block, index) => <BlockEditor key={block.id} block={block} disabled={!canEdit} canMoveUp={index > 0} canMoveDown={index < draft.blocks.length - 1} onChange={next => updateBlock(block.id, next)} onMove={direction => moveBlock(index, direction)} onDuplicate={() => duplicateBlock(index)} onDelete={() => deleteBlock(block.id)} />)}
-            {canEdit && <div className="formDanger"><button onClick={deleteArticle}>Delete Article</button></div>}
+            {draft.blocks.map((block, index) => <BlockEditor key={block.id} block={block} disabled={!canEdit || busy} canMoveUp={index > 0} canMoveDown={index < draft.blocks.length - 1} onChange={next => updateBlock(block.id, next)} onMove={direction => moveBlock(index, direction)} onDuplicate={() => duplicateBlock(index)} onDelete={() => deleteBlock(block.id)} />)}
+            {canEdit && <div className="formDanger"><button onClick={deleteArticle} disabled={busy}>Delete Article</button></div>}
           </>}
         </section>
 
         <aside className="card formPreview">
           <div className="panelHead"><h2>SEO & Publishing</h2></div>
           {selectedId && <>
-            <label>SEO Title<input value={draft.seo?.title || ''} disabled={!canEdit} onChange={event => setDraft({ ...draft, seo: { ...draft.seo, title: event.target.value } })} /></label>
-            <label>Meta Description<textarea value={draft.seo?.description || ''} disabled={!canEdit} onChange={event => setDraft({ ...draft, seo: { ...draft.seo, description: event.target.value } })} /></label>
-            <label>Canonical URL<input value={draft.seo?.canonicalUrl || ''} disabled={!canEdit} onChange={event => setDraft({ ...draft, seo: { ...draft.seo, canonicalUrl: event.target.value } })} /></label>
-            <label>Social Image<input value={draft.seo?.socialImage || ''} disabled={!canEdit} onChange={event => setDraft({ ...draft, seo: { ...draft.seo, socialImage: event.target.value } })} /></label>
-            <label>Robots<select value={draft.seo?.robots || 'index,follow'} disabled={!canEdit} onChange={event => setDraft({ ...draft, seo: { ...draft.seo, robots: event.target.value } })}><option>index,follow</option><option>noindex,follow</option><option>noindex,nofollow</option></select></label>
+            <label>SEO Title<input value={draft.seo?.title || ''} disabled={!canEdit || busy} onChange={event => setDraft({ ...draft, seo: { ...draft.seo, title: event.target.value } })} /></label>
+            <label>Meta Description<textarea value={draft.seo?.description || ''} disabled={!canEdit || busy} onChange={event => setDraft({ ...draft, seo: { ...draft.seo, description: event.target.value } })} /></label>
+            <label>Canonical URL<input value={draft.seo?.canonicalUrl || ''} disabled={!canEdit || busy} onChange={event => setDraft({ ...draft, seo: { ...draft.seo, canonicalUrl: event.target.value } })} /></label>
+            <label>Social Image<input value={draft.seo?.socialImage || ''} disabled={!canEdit || busy} onChange={event => setDraft({ ...draft, seo: { ...draft.seo, socialImage: event.target.value } })} /></label>
+            <label>Robots<select value={draft.seo?.robots || 'index,follow'} disabled={!canEdit || busy} onChange={event => setDraft({ ...draft, seo: { ...draft.seo, robots: event.target.value } })}><option>index,follow</option><option>noindex,follow</option><option>noindex,nofollow</option></select></label>
 
             <div className="submissions"><h3>Publish Readiness</h3>{readiness.checks.map(([label, valid]) => <p key={label}><b>{valid ? '✓' : '○'} {label}</b><small>{valid ? 'Ready' : 'Missing'}</small></p>)}<p><b>Score</b><small>{readiness.complete}/{readiness.total}</small></p></div>
-            <div className="submissions"><h3>Publishing Details</h3><p><b>Status</b><small>{draft.status}</small></p><p><b>Published</b><small>{formatDate(draft.publishedAt)}</small></p><p><b>Last Updated</b><small>{formatDate(draft.updatedAt)}</small></p></div>
-            {canEdit && <button onClick={() => saveArticle({ status: draft.status === 'Published' ? 'Draft' : 'Published' })} disabled={draft.status !== 'Published' && readiness.complete !== readiness.total}>{draft.status === 'Published' ? 'Unpublish' : readiness.complete === readiness.total ? 'Publish Now' : 'Complete Readiness Checks'}</button>}
+            <div className="submissions"><h3>Publishing Details</h3><p><b>Status</b><small>{draft.status}</small></p><p><b>Scheduled</b><small>{draft.scheduledAt ? formatDate(draft.scheduledAt) : 'Not scheduled'}</small></p><p><b>Published</b><small>{formatDate(draft.publishedAt)}</small></p><p><b>Last Updated</b><small>{formatDate(draft.updatedAt)}</small></p></div>
 
-            <div className="submissions"><h3>Revision History</h3><small>{draft.revisions?.length ? `${draft.revisions.length} retained revision${draft.revisions.length === 1 ? '' : 's'}` : 'Up to 30 revisions are retained per article.'}</small>{(draft.revisions || []).map(revision => <p key={revision.id}><span><b>{revision.title || 'Untitled'}</b><small>{formatDate(revision.createdAt)} · {revision.status || 'Draft'}</small></span>{canEdit && <button disabled={Boolean(restoringRevisionId)} onClick={() => restoreRevision(revision)}>{restoringRevisionId === revision.id ? 'Restoring…' : 'Restore'}</button>}</p>)}{!draft.revisions?.length && <p className="emptyState">Revisions appear after the first saved change.</p>}</div>
+            <div className="submissions">
+              <h3>Workflow</h3>
+              {workflowTransitions.some(transition => transition.id === 'schedule') && <label>Publish At<input type="datetime-local" value={draft.scheduledAt ? draft.scheduledAt.slice(0, 16) : ''} disabled={busy || !canWorkflow} onChange={event => setDraft({ ...draft, scheduledAt: event.target.value ? new Date(event.target.value).toISOString() : '' })} /></label>}
+              {canWorkflow && workflowTransitions.length
+                ? workflowTransitions.map(transition => {
+                  const publishingAction = ['approve', 'schedule', 'publish-scheduled'].includes(transition.id)
+                  const blockedByReadiness = publishingAction && readiness.complete !== readiness.total
+                  return <button key={transition.id} disabled={busy || blockedByReadiness} onClick={() => runWorkflow(transition)}>{workflowBusy === transition.id ? `${transition.label}…` : blockedByReadiness ? 'Complete Readiness Checks' : transition.label}</button>
+                })
+                : <p className="emptyState">No workflow actions are available for this article and account.</p>}
+            </div>
+
+            <div className="submissions"><h3>Revision History</h3><small>{draft.revisions?.length ? `${draft.revisions.length} retained revision${draft.revisions.length === 1 ? '' : 's'}` : 'Up to 30 revisions are retained per article.'}</small>{(draft.revisions || []).map(revision => <p key={revision.id}><span><b>{revision.title || 'Untitled'}</b><small>{formatDate(revision.createdAt)} · {revision.status || 'Draft'}</small></span>{canEdit && <button disabled={busy} onClick={() => restoreRevision(revision)}>{restoringRevisionId === revision.id ? 'Restoring…' : 'Restore'}</button>}</p>)}{!draft.revisions?.length && <p className="emptyState">Revisions appear after the first saved change.</p>}</div>
           </>}
         </aside>
       </section>
