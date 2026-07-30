@@ -48,8 +48,10 @@ export function MediaLibraryPage({ client = false }) {
   const [folder, setFolder] = useState('All')
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState('')
+  const [deletingAssetId, setDeletingAssetId] = useState('')
   const [notice, setNotice] = useState(canManageMedia ? 'Loading' : 'Media permission required')
   const selected = assets.find(asset => asset.id === selectedId)
+  const deleting = Boolean(deletingAssetId)
 
   useEffect(() => {
     if (account?.role === 'owner' && !selectedWebsiteId && websites[0]?.id) setSelectedWebsiteId(websites[0].id)
@@ -83,12 +85,13 @@ export function MediaLibraryPage({ client = false }) {
   }
 
   useEffect(() => {
+    setDeletingAssetId('')
     loadAssets('Server synced')
   }, [canManageMedia, owner, websiteId])
 
   async function upload(files) {
     if (!canManageMedia) return setNotice('Media permission required')
-    if (!websiteId) return
+    if (!websiteId || deleting) return
 
     const list = Array.from(files || [])
     if (!list.length) return
@@ -107,7 +110,7 @@ export function MediaLibraryPage({ client = false }) {
 
   async function replace(file) {
     if (!canManageMedia) return setNotice('Media permission required')
-    if (!file || !selected || !websiteId) return
+    if (!file || !selected || !websiteId || deleting) return
     setNotice('Replacing asset')
 
     try {
@@ -115,6 +118,23 @@ export function MediaLibraryPage({ client = false }) {
       await loadAssets('Replacement uploaded as new version')
     } catch (error) {
       setNotice(error.message || 'Replace failed')
+    }
+  }
+
+  async function deleteSelectedAsset() {
+    if (!canManageMedia || !selected || !websiteId || deleting) return
+    if (!globalThis.confirm(`Delete “${selected.name || 'this asset'}” permanently? The uploaded file will be removed from storage and this action cannot be undone.`)) return
+
+    setDeletingAssetId(selected.id)
+    setNotice('Deleting asset')
+    try {
+      await api.deleteLegacyAsset(owner, websiteId, selected.id)
+      setSelectedId('')
+      await loadAssets('Asset deleted')
+    } catch (error) {
+      setNotice(error.message || 'Delete failed')
+    } finally {
+      setDeletingAssetId('')
     }
   }
 
@@ -162,7 +182,7 @@ export function MediaLibraryPage({ client = false }) {
       </section>
 
       {account?.role === 'owner' && websites.length > 1 && <section className="card formSettings">
-        <label>Website<select value={websiteId || ''} onChange={event => { setSelectedWebsiteId(event.target.value); setSelectedId(''); setFolder('All'); setSearch('') }}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
+        <label>Website<select value={websiteId || ''} disabled={deleting} onChange={event => { setSelectedWebsiteId(event.target.value); setSelectedId(''); setFolder('All'); setSearch('') }}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
       </section>}
 
       <section className="mediaLibraryGrid">
@@ -174,6 +194,7 @@ export function MediaLibraryPage({ client = false }) {
           {mediaFolders.map(item => (
             <button
               className={folder === item ? 'active' : ''}
+              disabled={deleting}
               key={item}
               onClick={() => { setFolder(item); setSelectedId('') }}
             >
@@ -195,13 +216,14 @@ export function MediaLibraryPage({ client = false }) {
           <div className="mediaToolbar">
             <input
               value={search}
+              disabled={deleting}
               onChange={event => setSearch(event.target.value)}
               placeholder="Search assets or folders"
               aria-label="Search media assets"
             />
             <label>
               Upload
-              <input type="file" multiple onChange={event => upload(event.target.files)} disabled={!websiteId} />
+              <input type="file" multiple onChange={event => upload(event.target.files)} disabled={!websiteId || deleting} />
             </label>
           </div>
           <div
@@ -209,7 +231,7 @@ export function MediaLibraryPage({ client = false }) {
             onDragOver={event => event.preventDefault()}
             onDrop={event => {
               event.preventDefault()
-              upload(event.dataTransfer.files)
+              if (!deleting) upload(event.dataTransfer.files)
             }}
           >
             Drop files here or use Upload
@@ -220,7 +242,7 @@ export function MediaLibraryPage({ client = false }) {
                 <article
                   className={asset.id === selectedId ? 'active' : ''}
                   key={asset.id}
-                  onClick={() => setSelectedId(asset.id)}
+                  onClick={() => { if (!deleting) setSelectedId(asset.id) }}
                 >
                   <div className="mediaPreview">
                     <FilePreview asset={asset} />
@@ -259,9 +281,9 @@ export function MediaLibraryPage({ client = false }) {
               <div className="assetActions">
                 <label>
                   Replace
-                  <input type="file" onChange={event => replace(event.target.files?.[0])} />
+                  <input type="file" disabled={deleting} onChange={event => replace(event.target.files?.[0])} />
                 </label>
-                <button disabled title="Asset deletion is not available for uploaded manifest assets yet">Delete unavailable</button>
+                <button className="danger" disabled={deleting} onClick={deleteSelectedAsset}>{deletingAssetId === selected.id ? 'Deleting…' : 'Delete Asset'}</button>
               </div>
               <div className="versionList">
                 <b>Version</b>
