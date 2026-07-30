@@ -3,23 +3,30 @@ import { completeMfaLogin } from './services/authenticationService.js'
 import { paths, readJson, safeName } from './storage.js'
 
 const PUBLIC_FIELD_TYPES = new Set(['Text', 'Email', 'Textarea', 'Phone', 'Select', 'Checkbox', 'Date', 'File'])
+const PUBLIC_FIELD_LENGTH_CAPS = { Text: 500, Email: 320, Textarea: 5000, Phone: 40 }
 
 function publicFieldConfiguration(field = {}) {
+  const type = PUBLIC_FIELD_TYPES.has(field.type) ? field.type : 'Text'
+  const cap = PUBLIC_FIELD_LENGTH_CAPS[type] || null
   const options = Array.isArray(field.options)
     ? field.options.map(value => String(value || '').trim().slice(0, 120)).filter(Boolean).slice(0, 50)
     : []
-  const minLength = Number(field.minLength)
-  const maxLength = Number(field.maxLength)
+  const requestedMin = Number(field.minLength)
+  const requestedMax = Number(field.maxLength)
+  const maxLength = cap && Number.isInteger(requestedMax) && requestedMax > 0 ? Math.min(requestedMax, cap) : null
+  const minLength = cap && Number.isInteger(requestedMin) && requestedMin > 0
+    ? Math.min(requestedMin, maxLength || cap)
+    : null
   return {
     id: String(field.id || ''),
     label: String(field.label || ''),
-    type: PUBLIC_FIELD_TYPES.has(field.type) ? field.type : 'Text',
+    type,
     required: field.required === true,
     placeholder: String(field.placeholder || ''),
     helpText: String(field.helpText || '').trim().slice(0, 300),
     options,
-    minLength: Number.isInteger(minLength) && minLength > 0 ? Math.min(minLength, 5000) : null,
-    maxLength: Number.isInteger(maxLength) && maxLength > 0 ? Math.min(maxLength, 5000) : null,
+    minLength,
+    maxLength,
   }
 }
 
