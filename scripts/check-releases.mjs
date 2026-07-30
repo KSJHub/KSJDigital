@@ -38,8 +38,17 @@ try {
 
   const routerSource = await fs.readFile(path.resolve(previous, 'server/releaseRouter.js'), 'utf8')
   assert.match(routerSource, /Owner permission required/)
-  assert.match(routerSource, /promote/)
-  assert.match(routerSource, /rollback/)
+  assert.match(routerSource, /import \{ requireAssurance \} from '\.\/services\/mfaService\.js'/)
+  assert.match(routerSource, /const requireStepUp = requireAssurance\(2\)/)
+  for (const marker of [
+    "router.post('/', requireStepUp",
+    "router.put('/maintenance/:environment', requireStepUp",
+    "router.post('/locks/:environment', requireStepUp",
+    "router.delete('/locks/:environment', requireStepUp",
+    "router.post('/:releaseId/promote/:environment', requireStepUp",
+    "router.post('/rollback/:environment', requireStepUp",
+  ]) assert.ok(routerSource.includes(marker), `Release mutation missing step-up enforcement: ${marker}`)
+  assert.match(routerSource, /router\.get\('\/:releaseId\/plan\/:environment'/)
   const startSource = await fs.readFile(path.resolve(previous, 'server/start.js'), 'utf8')
   assert.match(startSource, /createReleaseRouter/)
   assert.match(startSource, /\/api\/releases/)
