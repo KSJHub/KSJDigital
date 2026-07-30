@@ -1,13 +1,16 @@
 import fs from 'node:fs/promises'
 
 const source = await fs.readFile(new URL('../server/services/clientAccountService.js', import.meta.url), 'utf8')
+const start = await fs.readFile(new URL('../server/start.js', import.meta.url), 'utf8')
 const failures = []
 
 for (const token of [
   "import { revokeAccountSessions } from './authPersistenceService.js'",
+  "import { removeCredential, setPassword } from '../credentialStore.js'",
   "import { publishDomainEvent } from './realtimeDomainEventService.js'",
   "publishClientAccountEvent('client-account.created'",
   "publishClientAccountEvent('client-account.updated'",
+  "publishClientAccountEvent('client-account.deleted'",
   'role:',
   'websiteCount:',
   'enabledPermissionCount:',
@@ -62,7 +65,8 @@ if (!createSource.includes("if (!password) return res.status(422)")) {
 }
 
 const updateStart = source.indexOf('export async function updateClientAccount(')
-const updateSource = updateStart >= 0 ? source.slice(updateStart) : ''
+const updateEnd = source.indexOf('\nexport async function deleteClientAccount', updateStart)
+const updateSource = updateStart >= 0 && updateEnd > updateStart ? source.slice(updateStart, updateEnd) : ''
 const updateWriteAt = updateSource.indexOf('await writeJson(paths.clients(), clients.map(')
 const updateRevokeAt = updateSource.indexOf('await revokeAccountSessions(current.id,')
 const updatePublishAt = updateSource.indexOf("await publishClientAccountEvent('client-account.updated'")
@@ -83,6 +87,27 @@ if (!updateSource.includes('if (!password && !profileChanged) return res.json(sa
 }
 if (!updateSource.includes('if (password) await setPassword(')) {
   failures.push('Password-only client account updates must remain valid persisted changes')
+}
+
+const deleteStart = source.indexOf('export async function deleteClientAccount(')
+const deleteSource = deleteStart >= 0 ? source.slice(deleteStart) : ''
+const deleteWriteAt = deleteSource.indexOf('await writeJson(paths.clients(), clients.filter(')
+const deleteCredentialAt = deleteSource.indexOf('await removeCredential(current.id)')
+const deleteRevokeAt = deleteSource.indexOf("await revokeAccountSessions(current.id, 'account-deleted')")
+const deletePublishAt = deleteSource.indexOf("await publishClientAccountEvent('client-account.deleted'")
+if (deleteWriteAt < 0 || deleteCredentialAt < deleteWriteAt || deleteRevokeAt < deleteCredentialAt || deletePublishAt < deleteRevokeAt) {
+  failures.push('Client account deletion must persist deletion, remove credentials, revoke sessions, then publish completion')
+}
+if (!deleteSource.includes("if (!current) return res.status(404).json({ error: 'Client not found' })")) {
+  failures.push('Client account deletion must reject unknown accounts before changing state')
+}
+for (const marker of [
+  "import { createClientAccount, deleteClientAccount, updateClientAccount } from './services/clientAccountService.js'",
+  'const originalDelete = express.application.delete',
+  "if (args[0] === '/api/clients/:id') return originalDelete.call(this, args[0], deleteClientAccount)",
+  'express.application.delete = originalDelete',
+]) {
+  if (!start.includes(marker)) failures.push(`Client account deletion routing marker is missing: ${marker}`)
 }
 
 if (failures.length) {
