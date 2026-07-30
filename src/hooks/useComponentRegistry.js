@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
+import { componentLibrary } from '../../shared/componentRegistry.js'
 import { api } from '../services/api.js'
 
 export function useComponentRegistry(capabilities = []) {
-  const [components, setComponents] = useState([])
+  const [components, setComponents] = useState(() => componentLibrary(capabilities))
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -14,12 +15,13 @@ export function useComponentRegistry(capabilities = []) {
     api.getComponents()
       .then(result => {
         if (cancelled) return
-        setComponents(Array.isArray(result) ? result : [])
+        const records = Array.isArray(result) ? result : []
+        setComponents(records.length ? records : componentLibrary(null))
       })
       .catch(requestError => {
         if (cancelled) return
-        setComponents([])
-        setError(requestError.message || 'Component library could not be loaded')
+        setComponents(componentLibrary(null))
+        setError(requestError.message || 'Live component library could not be loaded; using the built-in registry')
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
