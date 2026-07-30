@@ -54,6 +54,8 @@ export const api = {
   saveCommerceSettings: (websiteId, settings) => request(`/commerce-settings/${websiteId}`, { method: 'PUT', body: JSON.stringify(settings) }),
   createBasketCheckout: (provider, payload) => request(`/checkout/basket/${provider}`, { method: 'POST', body: JSON.stringify(payload) }),
   getForms: refreshForms,
+  getPublicForms: websiteId => request(`/public/forms/${encodeURIComponent(websiteId)}`),
+  submitPublicForm: (websiteId, formId, payload) => request(`/public/forms/${encodeURIComponent(websiteId)}/${encodeURIComponent(formId)}/submissions`, { method: 'POST', body: JSON.stringify(payload) }),
   saveForms: (websiteId, forms) => request(`/forms/${websiteId}`, { method: 'PUT', body: JSON.stringify({ forms }) }),
   createForm: async (websiteId, payload = {}) => {
     const form = await request(`/forms/${websiteId}`, { method: 'POST', body: JSON.stringify(payload) })
