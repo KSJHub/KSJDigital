@@ -177,6 +177,9 @@ express.application.post = function guardedPost(...args) {
   if (args[0] === '/api/login') return originalPost.call(this, args[0], authenticationAudit('login'), loginWithPassword)
   if (args[0] === '/api/logout') return originalPost.call(this, args[0], authenticationAudit('logout'), logoutAuthenticationSession)
   if (args[0] === '/api/clients') return originalPost.call(this, args[0], createClientAccount)
+  if (args[0] === '/api/publish/requests/:id/approve' || args[0] === '/api/publish/requests/:id/reject') {
+    return originalPost.call(this, args[0], requireAssurance(2), ...args.slice(1))
+  }
   return originalPost.apply(this, args)
 }
 express.application.patch = function guardedPatch(...args) {
