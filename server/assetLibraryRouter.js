@@ -1,3 +1,5 @@
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import express from 'express'
 import {
   createAsset,
@@ -8,10 +10,17 @@ import {
   registerAssetVariant,
   updateAsset,
 } from './services/assetLibraryService.js'
+import { ASSET_DIR, paths, readJson, safeName, writeJson } from './storage.js'
 
 function requireEdit(req, res) {
   if (req.session?.role === 'owner' || req.session?.canEdit) return true
   res.status(403).json({ error: 'Edit permission required' })
+  return false
+}
+
+function requireMedia(req, res) {
+  if (req.session?.role === 'owner' || req.session?.canManageMedia) return true
+  res.status(403).json({ error: 'Media permission required' })
   return false
 }
 
@@ -39,8 +48,71 @@ function listOptions(query = {}) {
   }
 }
 
+function normalisedIdentifier(value) {
+  const raw = String(value || '').trim()
+  return raw ? safeName(raw) : ''
+}
+
+function legacyAssetScopeAllowed(session = {}, { ownerId, websiteId } = {}) {
+  if (session.role === 'owner') return true
+
+  const accountId = normalisedIdentifier(session.id)
+  const allowedWebsiteIds = new Set(
+    (Array.isArray(session.websiteIds) ? session.websiteIds : session.websiteId ? [session.websiteId] : [])
+      .map(normalisedIdentifier)
+      .filter(Boolean),
+  )
+  const normalisedWebsiteId = normalisedIdentifier(websiteId)
+  const normalisedOwnerId = normalisedIdentifier(ownerId)
+
+  if (!normalisedWebsiteId || !allowedWebsiteIds.has(normalisedWebsiteId)) return false
+  return Boolean(normalisedOwnerId && (normalisedOwnerId === accountId || allowedWebsiteIds.has(normalisedOwnerId)))
+}
+
+function legacyAssetFile(asset = {}) {
+  const filename = path.basename(String(asset.filename || '').trim())
+  if (!filename) return null
+  const root = path.resolve(ASSET_DIR)
+  const file = path.resolve(root, filename)
+  if (file !== root && !file.startsWith(`${root}${path.sep}`)) return null
+  return file
+}
+
+async function deleteLegacyAsset(ownerId, websiteId, assetId) {
+  const manifestPath = paths.manifest(ownerId)
+  const assets = await readJson(manifestPath, [])
+  const asset = assets.find(item => item.id === assetId && item.websiteId === websiteId)
+  if (!asset) {
+    const error = new Error('Media asset not found')
+    error.status = 404
+    throw error
+  }
+
+  const next = assets.filter(item => item !== asset)
+  const file = legacyAssetFile(asset)
+  if (file) {
+    try {
+      await fs.unlink(file)
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+    }
+  }
+  await writeJson(manifestPath, next)
+  return { deleted: true, id: asset.id, websiteId: asset.websiteId, fileDeleted: Boolean(file) }
+}
+
 export function createAssetLibraryRouter() {
   const router = express.Router()
+
+  router.delete('/legacy/:ownerId/:websiteId/:assetId', async (req, res) => {
+    if (!requireMedia(req, res)) return
+    if (!legacyAssetScopeAllowed(req.session, req.params)) return res.status(403).json({ error: 'Media asset access denied' })
+    try {
+      res.json(await deleteLegacyAsset(req.params.ownerId, req.params.websiteId, req.params.assetId))
+    } catch (error) {
+      sendError(res, error)
+    }
+  })
 
   router.get('/:websiteId', async (req, res) => {
     try {
