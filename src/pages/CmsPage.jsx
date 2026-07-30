@@ -148,6 +148,7 @@ export function CmsPage({ client = false }) {
   const [query, setQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
   const [newBlockType, setNewBlockType] = useState('richText')
+  const [restoringRevisionId, setRestoringRevisionId] = useState('')
 
   const filtered = useMemo(() => articles.filter(article => {
     const matchesStatus = statusFilter === 'All' || article.status === statusFilter
@@ -174,6 +175,7 @@ export function CmsPage({ client = false }) {
     if (!websiteId) return
     let cancelled = false
     setNotice('Loading articles')
+    setRestoringRevisionId('')
     api.getArticles(websiteId).then(next => {
       if (cancelled) return
       setArticles(next)
@@ -191,6 +193,7 @@ export function CmsPage({ client = false }) {
   }, [canEdit, websiteId])
 
   function selectArticle(article) {
+    setRestoringRevisionId('')
     setSelectedId(article.id)
     setDraft(normaliseDraft(structuredClone(article)))
   }
@@ -222,17 +225,24 @@ export function CmsPage({ client = false }) {
     }
   }
 
-  async function restoreRevision(revisionId) {
-    if (!websiteId || !selectedId || !canEdit) return
-    if (!globalThis.confirm('Restore this revision? The restored content will become the current draft.')) return
+  async function restoreRevision(revision) {
+    if (!websiteId || !selectedId || !canEdit || !revision?.id || restoringRevisionId) return
+    const label = revision.title || 'Untitled revision'
+    const message = draft.status === 'Draft'
+      ? `Restore “${label}” from ${formatDate(revision.createdAt)}? Its content will replace the current draft.`
+      : `Restore “${label}” from ${formatDate(revision.createdAt)}? The current ${draft.status} version will be preserved in history and the restored content will become a Draft.`
+    if (!globalThis.confirm(message)) return
+    setRestoringRevisionId(revision.id)
     setNotice('Restoring revision')
     try {
-      const result = await api.restoreArticleRevision(websiteId, selectedId, revisionId)
+      const result = await api.restoreArticleRevision(websiteId, selectedId, revision.id)
       setArticles(result.articles)
       selectArticle(result.article)
       setNotice('Revision restored as draft')
     } catch (error) {
       setNotice(error.message || 'Restore failed')
+    } finally {
+      setRestoringRevisionId('')
     }
   }
 
@@ -338,7 +348,7 @@ export function CmsPage({ client = false }) {
             <div className="submissions"><h3>Publishing Details</h3><p><b>Status</b><small>{draft.status}</small></p><p><b>Published</b><small>{formatDate(draft.publishedAt)}</small></p><p><b>Last Updated</b><small>{formatDate(draft.updatedAt)}</small></p></div>
             {canEdit && <button onClick={() => saveArticle({ status: draft.status === 'Published' ? 'Draft' : 'Published' })} disabled={draft.status !== 'Published' && readiness.complete !== readiness.total}>{draft.status === 'Published' ? 'Unpublish' : readiness.complete === readiness.total ? 'Publish Now' : 'Complete Readiness Checks'}</button>}
 
-            <div className="submissions"><h3>Revision History</h3>{(draft.revisions || []).slice(0, 10).map(revision => <p key={revision.id}><span><b>{revision.title || 'Untitled'}</b><small>{formatDate(revision.createdAt)}</small></span>{canEdit && <button onClick={() => restoreRevision(revision.id)}>Restore</button>}</p>)}{!draft.revisions?.length && <p className="emptyState">Revisions appear after the first save.</p>}</div>
+            <div className="submissions"><h3>Revision History</h3><small>{draft.revisions?.length ? `${draft.revisions.length} retained revision${draft.revisions.length === 1 ? '' : 's'}` : 'Up to 30 revisions are retained per article.'}</small>{(draft.revisions || []).map(revision => <p key={revision.id}><span><b>{revision.title || 'Untitled'}</b><small>{formatDate(revision.createdAt)} · {revision.status || 'Draft'}</small></span>{canEdit && <button disabled={Boolean(restoringRevisionId)} onClick={() => restoreRevision(revision)}>{restoringRevisionId === revision.id ? 'Restoring…' : 'Restore'}</button>}</p>)}{!draft.revisions?.length && <p className="emptyState">Revisions appear after the first saved change.</p>}</div>
           </>}
         </aside>
       </section>
