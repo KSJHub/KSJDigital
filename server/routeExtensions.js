@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import path from 'node:path'
 import express from 'express'
 import { createAssetLibraryRouter } from './assetLibraryRouter.js'
@@ -31,6 +32,9 @@ const ALLOWED_ASSET_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gi
 const FORM_STATUSES = new Set(['Active', 'Draft', 'Archived'])
 const FORM_FIELD_TYPES = new Set(['Text', 'Email', 'Textarea', 'Phone', 'Select', 'Checkbox', 'Date', 'File'])
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const PHONE_PATTERN = /^[0-9+() .'\-]{5,40}$/
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
+const MAX_PUBLIC_FORM_PAYLOAD_BYTES = 64 * 1024
 
 export function assetServingGuard(req, res, next) {
   const extension = path.extname(req.path || '').toLowerCase()
@@ -321,6 +325,92 @@ function createFormMutationGuard() {
   }
 }
 
+function publicFormField(field = {}) {
+  return {
+    id: String(field.id || ''),
+    label: String(field.label || ''),
+    type: FORM_FIELD_TYPES.has(field.type) ? field.type : 'Text',
+    required: field.required === true,
+    placeholder: String(field.placeholder || ''),
+  }
+}
+
+function publicFormMetadata(form = {}) {
+  const fields = Array.isArray(form.fields) ? form.fields.map(publicFormField) : []
+  return {
+    id: String(form.id || ''),
+    name: String(form.name || ''),
+    fields,
+    submissionEnabled: !fields.some(field => field.type === 'File'),
+  }
+}
+
+function plainObject(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
+}
+
+function validDateValue(value) {
+  if (!DATE_PATTERN.test(value)) return false
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+}
+
+function publicFieldValue(field, rawValue) {
+  if (field.type === 'File') return { error: 'File upload fields are not enabled for public submissions' }
+
+  if (field.type === 'Checkbox') {
+    if (rawValue === undefined || rawValue === null) {
+      if (field.required) return { error: `${field.label || 'Required field'} must be accepted` }
+      return { value: false }
+    }
+    if (typeof rawValue !== 'boolean') return { error: `${field.label || 'Checkbox'} must be true or false` }
+    if (field.required && rawValue !== true) return { error: `${field.label || 'Required field'} must be accepted` }
+    return { value: rawValue }
+  }
+
+  const maxLength = field.type === 'Textarea' ? 5000 : field.type === 'Email' ? 320 : field.type === 'Phone' ? 40 : 500
+  const value = rawValue === undefined || rawValue === null ? '' : normalisedText(rawValue, '', maxLength)
+  if (field.required && !value) return { error: `${field.label || 'Required field'} is required` }
+  if (!value) return { value: '' }
+  if (field.type === 'Email' && !EMAIL_PATTERN.test(value)) return { error: `${field.label || 'Email'} must be a valid email address` }
+  if (field.type === 'Phone' && !PHONE_PATTERN.test(value)) return { error: `${field.label || 'Phone'} must be a valid phone number` }
+  if (field.type === 'Date' && !validDateValue(value)) return { error: `${field.label || 'Date'} must be a valid date` }
+  return { value }
+}
+
+function validatePublicSubmission(form, body = {}) {
+  if (!plainObject(body)) return { status: 400, error: 'Submission payload must be an object' }
+  if (Buffer.byteLength(JSON.stringify(body), 'utf8') > MAX_PUBLIC_FORM_PAYLOAD_BYTES) {
+    return { status: 413, error: 'Form submission is too large' }
+  }
+
+  const fields = Array.isArray(form.fields) ? form.fields.map(publicFormField) : []
+  if (fields.some(field => field.type === 'File')) {
+    return { status: 409, error: 'This form requires file uploads, which are not enabled for public submissions yet' }
+  }
+
+  if (form.spamProtection !== false) {
+    const honeypot = normalisedText(body.website || body.company, '', 120)
+    if (honeypot) return { spam: true }
+    const startedAt = Number(body.startedAt)
+    if (Number.isFinite(startedAt) && startedAt > 0 && Date.now() - startedAt < 750) return { spam: true }
+  }
+
+  if (!plainObject(body.values)) return { status: 400, error: 'Form values must be an object' }
+  const fieldIds = new Set(fields.map(field => field.id))
+  const unknown = Object.keys(body.values).find(key => !fieldIds.has(key))
+  if (unknown) return { status: 422, error: 'Submission contains an unknown form field' }
+
+  const values = {}
+  for (const field of fields) {
+    const result = publicFieldValue(field, body.values[field.id])
+    if (result.error) return { status: 422, error: result.error }
+    values[field.id] = result.value
+  }
+  return { values }
+}
+
 function isBasketMiss(error) {
   return ['Checkout basket was not found', 'Stripe basket reference is missing'].includes(error?.message)
 }
@@ -366,6 +456,47 @@ function publicAssetMetadata(asset = {}) {
 }
 
 export function mountPublicRoutes(app) {
+  app.use('/api/public/forms/:websiteId', async (req, res, next) => {
+    const websiteId = safeName(req.params.websiteId)
+    const websites = await readJson(paths.websites(), starterWebsites)
+    const website = websites.find(site => safeName(site.id) === websiteId)
+    if (!website) return res.status(404).json({ error: 'Website not found' })
+
+    const forms = await readJson(paths.forms(websiteId), [])
+    if (!Array.isArray(forms)) return res.status(500).json({ error: 'Stored forms are invalid' })
+
+    if (req.method === 'GET' && req.path === '/') {
+      res.setHeader('Cache-Control', 'no-store')
+      return res.json(forms.filter(form => form.status === 'Active').map(publicFormMetadata))
+    }
+
+    const parts = String(req.path || '').split('/').filter(Boolean)
+    if (req.method === 'POST' && parts.length === 2 && parts[1] === 'submissions') {
+      const requestedFormId = formRecordId(parts[0])
+      const form = forms.find(item => formRecordId(item.id) === requestedFormId && item.status === 'Active')
+      if (!form) return res.status(404).json({ error: 'Active form not found' })
+
+      const validated = validatePublicSubmission(form, req.body || {})
+      if (validated.spam) return res.status(202).json({ submitted: true })
+      if (validated.error) return res.status(validated.status || 422).json({ error: validated.error })
+
+      const submission = {
+        id: `sub-${crypto.randomUUID()}`,
+        createdAt: new Date().toISOString(),
+        status: 'New',
+        source: 'Public website',
+        values: validated.values,
+      }
+      const nextForms = forms.map(item => item.id === form.id
+        ? { ...item, submissions: [submission, ...(Array.isArray(item.submissions) ? item.submissions : [])] }
+        : item)
+      await writeJson(paths.forms(websiteId), nextForms)
+      return res.status(201).json({ submitted: true, id: submission.id, createdAt: submission.createdAt })
+    }
+
+    next()
+  })
+
   app.use('/api/checkout/reservations/:id/release', async (req, res) => {
     try {
       const released = await releasePublicStockReservation(req.params.id)
