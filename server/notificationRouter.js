@@ -1,6 +1,7 @@
 import express from 'express'
 import {
   getNotificationState,
+  queueEmailNotification,
   queueNotification,
   updateNotificationRateLimit,
   upsertNotificationRecipient,
@@ -9,6 +10,8 @@ import {
 import { getJobQueue } from './services/jobQueueService.js'
 import { publishDomainEvent } from './services/realtimeDomainEventService.js'
 import { paths, readJson, safeName } from './storage.js'
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 function requireOwner(req, res) {
   if (req.session?.role === 'owner') return true
@@ -44,6 +47,21 @@ function formDeliveryStatus(delivery, job) {
   if (job?.status === 'cancelled') return 'Cancelled'
   if (delivery?.status === 'sending') return 'Sending'
   return 'Not queued'
+}
+
+function emailReadiness() {
+  const endpointConfigured = Boolean(String(process.env.KSJ_EMAIL_API_URL || '').trim())
+  const from = String(process.env.KSJ_EMAIL_FROM || '').trim()
+  const senderConfigured = Boolean(from)
+  const authenticationConfigured = Boolean(String(process.env.KSJ_EMAIL_API_TOKEN || '').trim())
+  return {
+    provider: 'email-http',
+    configured: endpointConfigured && senderConfigured,
+    endpointConfigured,
+    senderConfigured,
+    authenticationConfigured,
+    from: senderConfigured ? from : null,
+  }
 }
 
 function sendError(res, error) {
@@ -164,6 +182,33 @@ export function createNotificationRouter() {
 
       res.setHeader('Cache-Control', 'no-store')
       res.json({ websiteId, formId: form.id, statuses })
+    } catch (error) {
+      sendError(res, error)
+    }
+  })
+
+  router.get('/email-readiness', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store')
+    res.json(emailReadiness())
+  })
+
+  router.post('/email-test', async (req, res) => {
+    try {
+      const readiness = emailReadiness()
+      if (!readiness.configured) return res.status(503).json({ error: 'Email delivery is not configured', readiness })
+      const to = String(req.body?.to || '').trim().toLowerCase()
+      if (!EMAIL_PATTERN.test(to)) return res.status(422).json({ error: 'A valid test recipient email is required' })
+
+      const queued = await queueEmailNotification({
+        to,
+        subject: 'KSJ Digital email delivery test',
+        body: `This is a KSJ Digital email delivery test queued at ${new Date().toISOString()}.`,
+        category: 'email-test',
+        metadata: { test: true },
+        deduplicationKey: `email-test:${crypto.randomUUID()}`,
+        retry: { maxAttempts: 2, baseDelayMs: 5000, maxDelayMs: 30000, strategy: 'fixed' },
+      }, { role: 'owner', id: req.session?.id || null })
+      res.status(202).json({ queued: true, jobs: queued.jobs?.map(job => ({ id: job.id, status: job.status })) || [], readiness })
     } catch (error) {
       sendError(res, error)
     }
