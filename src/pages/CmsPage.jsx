@@ -66,7 +66,7 @@ function blockLabel(type) {
   return BLOCK_TYPES.find(([value]) => value === type)?.[1] || type
 }
 
-function BlockEditor({ block, disabled, onChange, onMove, onDuplicate, onDelete }) {
+function BlockEditor({ block, disabled, canMoveUp, canMoveDown, onChange, onMove, onDuplicate, onDelete }) {
   function field(name, value) {
     onChange({ ...block, [name]: value })
   }
@@ -88,8 +88,8 @@ function BlockEditor({ block, disabled, onChange, onMove, onDuplicate, onDelete 
       <div className="panelHead">
         <div><strong>{blockLabel(block.type)}</strong><small> · reusable content block</small></div>
         {!disabled && <div>
-          <button onClick={() => onMove(-1)} aria-label="Move block up">↑</button>
-          <button onClick={() => onMove(1)} aria-label="Move block down">↓</button>
+          <button onClick={() => onMove(-1)} aria-label="Move block up" disabled={!canMoveUp}>↑</button>
+          <button onClick={() => onMove(1)} aria-label="Move block down" disabled={!canMoveDown}>↓</button>
           <button onClick={onDuplicate}>Duplicate</button>
           <button onClick={onDelete}>Delete</button>
         </div>}
@@ -224,6 +224,7 @@ export function CmsPage({ client = false }) {
 
   async function restoreRevision(revisionId) {
     if (!websiteId || !selectedId || !canEdit) return
+    if (!globalThis.confirm('Restore this revision? The restored content will become the current draft.')) return
     setNotice('Restoring revision')
     try {
       const result = await api.restoreArticleRevision(websiteId, selectedId, revisionId)
@@ -237,6 +238,7 @@ export function CmsPage({ client = false }) {
 
   async function deleteArticle() {
     if (!websiteId || !selectedId || !canEdit) return
+    if (!globalThis.confirm(`Delete “${draft.title || 'this article'}”? This action cannot be undone.`)) return
     setNotice('Deleting article')
     try {
       const next = await api.deleteArticle(websiteId, selectedId)
@@ -284,7 +286,7 @@ export function CmsPage({ client = false }) {
     <Layout client={client} title="Content">
       <section className="moduleHero card">
         <div><span>CMS</span><h2>{website?.name || 'Assigned Website'} Content</h2><p>Build structured articles from reusable blocks with SEO, scheduling and recoverable revisions.</p></div>
-        <button>{notice}</button>
+        <button type="button" disabled aria-live="polite">{notice}</button>
       </section>
 
       {account?.role === 'owner' && websites.length > 1 && <section className="card formSettings">
@@ -318,7 +320,7 @@ export function CmsPage({ client = false }) {
 
             <div className="panelHead"><h2>Content Blocks</h2>{canEdit && <div><select value={newBlockType} onChange={event => setNewBlockType(event.target.value)}>{BLOCK_TYPES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><button onClick={addBlock}>Add Block</button></div>}</div>
             {!draft.blocks.length && <p className="emptyState">Add the first reusable content block.</p>}
-            {draft.blocks.map((block, index) => <BlockEditor key={block.id} block={block} disabled={!canEdit} onChange={next => updateBlock(block.id, next)} onMove={direction => moveBlock(index, direction)} onDuplicate={() => duplicateBlock(index)} onDelete={() => deleteBlock(block.id)} />)}
+            {draft.blocks.map((block, index) => <BlockEditor key={block.id} block={block} disabled={!canEdit} canMoveUp={index > 0} canMoveDown={index < draft.blocks.length - 1} onChange={next => updateBlock(block.id, next)} onMove={direction => moveBlock(index, direction)} onDuplicate={() => duplicateBlock(index)} onDelete={() => deleteBlock(block.id)} />)}
             {canEdit && <div className="formDanger"><button onClick={deleteArticle}>Delete Article</button></div>}
           </>}
         </section>
@@ -334,7 +336,7 @@ export function CmsPage({ client = false }) {
 
             <div className="submissions"><h3>Publish Readiness</h3>{readiness.checks.map(([label, valid]) => <p key={label}><b>{valid ? '✓' : '○'} {label}</b><small>{valid ? 'Ready' : 'Missing'}</small></p>)}<p><b>Score</b><small>{readiness.complete}/{readiness.total}</small></p></div>
             <div className="submissions"><h3>Publishing Details</h3><p><b>Status</b><small>{draft.status}</small></p><p><b>Published</b><small>{formatDate(draft.publishedAt)}</small></p><p><b>Last Updated</b><small>{formatDate(draft.updatedAt)}</small></p></div>
-            {canEdit && <button onClick={() => saveArticle({ status: draft.status === 'Published' ? 'Draft' : 'Published' })}>{draft.status === 'Published' ? 'Unpublish' : 'Publish Now'}</button>}
+            {canEdit && <button onClick={() => saveArticle({ status: draft.status === 'Published' ? 'Draft' : 'Published' })} disabled={draft.status !== 'Published' && readiness.complete !== readiness.total}>{draft.status === 'Published' ? 'Unpublish' : readiness.complete === readiness.total ? 'Publish Now' : 'Complete Readiness Checks'}</button>}
 
             <div className="submissions"><h3>Revision History</h3>{(draft.revisions || []).slice(0, 10).map(revision => <p key={revision.id}><span><b>{revision.title || 'Untitled'}</b><small>{formatDate(revision.createdAt)}</small></span>{canEdit && <button onClick={() => restoreRevision(revision.id)}>Restore</button>}</p>)}{!draft.revisions?.length && <p className="emptyState">Revisions appear after the first save.</p>}</div>
           </>}
