@@ -14,6 +14,10 @@ async function request(path, options = {}) {
   return data
 }
 
+async function refreshForms(websiteId) {
+  return request(`/forms/${websiteId}`)
+}
+
 export const api = {
   health: () => request('/health'),
   login: payload => request('/login', { method: 'POST', body: JSON.stringify(payload) }),
@@ -49,12 +53,24 @@ export const api = {
   getCommerceReadiness: websiteId => request(`/commerce-settings/${websiteId}/readiness`),
   saveCommerceSettings: (websiteId, settings) => request(`/commerce-settings/${websiteId}`, { method: 'PUT', body: JSON.stringify(settings) }),
   createBasketCheckout: (provider, payload) => request(`/checkout/basket/${provider}`, { method: 'POST', body: JSON.stringify(payload) }),
-  getForms: websiteId => request(`/forms/${websiteId}`),
+  getForms: refreshForms,
   saveForms: (websiteId, forms) => request(`/forms/${websiteId}`, { method: 'PUT', body: JSON.stringify({ forms }) }),
-  createForm: (websiteId, payload = {}) => request(`/forms/${websiteId}`, { method: 'POST', body: JSON.stringify(payload) }),
-  updateForm: (websiteId, formId, payload) => request(`/forms/${websiteId}/${formId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-  deleteForm: (websiteId, formId) => request(`/forms/${websiteId}/${formId}`, { method: 'DELETE' }),
-  addField: (websiteId, formId, payload) => request(`/forms/${websiteId}/${formId}/fields`, { method: 'POST', body: JSON.stringify(payload) }),
+  createForm: async (websiteId, payload = {}) => {
+    const form = await request(`/forms/${websiteId}`, { method: 'POST', body: JSON.stringify(payload) })
+    return { form, forms: await refreshForms(websiteId) }
+  },
+  updateForm: async (websiteId, formId, payload) => {
+    await request(`/forms/${websiteId}/${formId}`, { method: 'PATCH', body: JSON.stringify(payload) })
+    return refreshForms(websiteId)
+  },
+  deleteForm: async (websiteId, formId) => {
+    await request(`/forms/${websiteId}/${formId}`, { method: 'DELETE' })
+    return refreshForms(websiteId)
+  },
+  addField: async (websiteId, formId, payload) => {
+    await request(`/forms/${websiteId}/${formId}/fields`, { method: 'POST', body: JSON.stringify(payload) })
+    return refreshForms(websiteId)
+  },
   updateField: (websiteId, formId, fieldId, payload) => request(`/forms/${websiteId}/${formId}/fields/${fieldId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   deleteField: (websiteId, formId, fieldId) => request(`/forms/${websiteId}/${formId}/fields/${fieldId}`, { method: 'DELETE' }),
   moveField: (websiteId, formId, fieldId, direction) => request(`/forms/${websiteId}/${formId}/fields/${fieldId}/move`, { method: 'POST', body: JSON.stringify({ direction }) }),
