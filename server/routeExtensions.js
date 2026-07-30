@@ -28,6 +28,9 @@ import { paths, readJson, readWebsiteAssets, safeName } from './storage.js'
 
 const MAX_ASSET_UPLOAD_BYTES = 15 * 1024 * 1024
 const ALLOWED_ASSET_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.pdf'])
+const FORM_STATUSES = new Set(['Active', 'Draft', 'Archived'])
+const FORM_FIELD_TYPES = new Set(['Text', 'Email', 'Textarea', 'Phone', 'Select', 'Checkbox', 'Date', 'File'])
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export function assetServingGuard(req, res, next) {
   const extension = path.extname(req.path || '').toLowerCase()
@@ -120,6 +123,142 @@ export function validateUploadedAsset(req, res, next) {
 
   req.file.mimetype = detected.mime
   next()
+}
+
+function formScopeAllowed(session = {}, websiteId) {
+  if (session.role === 'owner') return true
+  const allowed = new Set(
+    (Array.isArray(session.websiteIds) ? session.websiteIds : session.websiteId ? [session.websiteId] : [])
+      .map(normalisedIdentifier)
+      .filter(Boolean),
+  )
+  return allowed.has(normalisedIdentifier(websiteId))
+}
+
+function formRecordId(value) {
+  return safeName(value || '').replace(/[._]+/g, '-')
+}
+
+function normalisedText(value, fallback = '', maxLength = 250) {
+  return String(value ?? fallback).trim().slice(0, maxLength)
+}
+
+function validDestination(value) {
+  const destination = normalisedText(value, '', 320)
+  return !destination || EMAIL_PATTERN.test(destination)
+}
+
+function sanitiseFormPatch(input = {}) {
+  const output = {}
+  if ('name' in input) output.name = normalisedText(input.name, '', 120)
+  if ('destination' in input) output.destination = normalisedText(input.destination, '', 320).toLowerCase()
+  if ('status' in input) output.status = String(input.status || '').trim()
+  if ('spamProtection' in input) output.spamProtection = input.spamProtection === true
+  return output
+}
+
+function sanitiseFieldPatch(input = {}) {
+  const output = {}
+  if ('label' in input) output.label = normalisedText(input.label, '', 120)
+  if ('type' in input) output.type = String(input.type || '').trim()
+  if ('required' in input) output.required = input.required === true
+  if ('placeholder' in input) output.placeholder = normalisedText(input.placeholder, '', 250)
+  return output
+}
+
+function validateFormPatch(patch, res) {
+  if ('name' in patch && !patch.name) {
+    res.status(422).json({ error: 'Form name is required' })
+    return false
+  }
+  if ('destination' in patch && !validDestination(patch.destination)) {
+    res.status(422).json({ error: 'Email destination must be a valid email address' })
+    return false
+  }
+  if ('status' in patch && !FORM_STATUSES.has(patch.status)) {
+    res.status(422).json({ error: 'Form status is invalid' })
+    return false
+  }
+  return true
+}
+
+function validateFieldPatch(patch, res) {
+  if ('label' in patch && !patch.label) {
+    res.status(422).json({ error: 'Field label is required' })
+    return false
+  }
+  if ('type' in patch && !FORM_FIELD_TYPES.has(patch.type)) {
+    res.status(422).json({ error: 'Field type is invalid' })
+    return false
+  }
+  return true
+}
+
+function createFormMutationGuard() {
+  return async function validateFormMutation(req, res, next) {
+    if (req.method === 'GET') return next()
+    if (!(req.session?.role === 'owner' || req.session?.canEdit)) return next()
+
+    const parts = String(req.path || '').split('/').filter(Boolean).map(decodeURIComponent)
+    const [websiteId, formId, collection, fieldId, action] = parts
+    if (!websiteId || !formScopeAllowed(req.session, websiteId)) return next()
+
+    const forms = await readJson(paths.forms(websiteId), [])
+    if (!Array.isArray(forms)) return res.status(500).json({ error: 'Stored forms are invalid' })
+    const form = formId ? forms.find(item => item.id === formId) : null
+
+    if (req.method === 'POST' && parts.length === 1) {
+      const patch = sanitiseFormPatch(req.body || {})
+      if (!('name' in patch)) patch.name = 'New Form'
+      if (!('status' in patch)) patch.status = 'Draft'
+      if (!validateFormPatch(patch, res)) return
+      const requestedId = formRecordId(req.body?.id || patch.name)
+      if (requestedId && forms.some(item => formRecordId(item.id) === requestedId)) {
+        return res.status(409).json({ error: 'A form with this id already exists' })
+      }
+      req.body = { ...patch, ...(req.body?.id ? { id: requestedId } : {}) }
+      return next()
+    }
+
+    if (formId && !form) return res.status(404).json({ error: 'Form not found' })
+
+    if (req.method === 'PATCH' && parts.length === 2) {
+      const patch = sanitiseFormPatch(req.body || {})
+      if (!Object.keys(patch).length) return res.status(400).json({ error: 'No supported form changes were supplied' })
+      if (!validateFormPatch(patch, res)) return
+      req.body = patch
+      return next()
+    }
+
+    if (collection === 'fields' && req.method === 'POST' && parts.length === 3) {
+      const patch = sanitiseFieldPatch(req.body || {})
+      if (!('type' in patch)) patch.type = 'Text'
+      if (!('label' in patch)) patch.label = 'New field'
+      if (!validateFieldPatch(patch, res)) return
+      const requestedId = formRecordId(req.body?.id || patch.label)
+      if (requestedId && (form.fields || []).some(item => formRecordId(item.id) === requestedId)) {
+        return res.status(409).json({ error: 'A field with this id already exists in the form' })
+      }
+      req.body = { ...patch, ...(req.body?.id ? { id: requestedId } : {}) }
+      return next()
+    }
+
+    if (collection === 'fields' && fieldId) {
+      const field = (form.fields || []).find(item => item.id === fieldId)
+      if (!field) return res.status(404).json({ error: 'Form field not found' })
+      if (req.method === 'PATCH' && parts.length === 4) {
+        const patch = sanitiseFieldPatch(req.body || {})
+        if (!Object.keys(patch).length) return res.status(400).json({ error: 'No supported field changes were supplied' })
+        if (!validateFieldPatch(patch, res)) return
+        req.body = patch
+      }
+      if (req.method === 'POST' && action === 'move' && !['up', 'down'].includes(req.body?.direction)) {
+        return res.status(422).json({ error: 'Field move direction must be up or down' })
+      }
+    }
+
+    next()
+  }
 }
 
 function isBasketMiss(error) {
@@ -305,6 +444,7 @@ export function mountProtectedRoutes(app) {
   app.use('/api', trustedOriginGuard)
   app.use('/api', createCapabilityAccessGuard())
   app.use('/api', createAuditCaptureMiddleware())
+  app.use('/api/forms', createFormMutationGuard())
   app.use('/api/audit', createAuditTrailRouter())
   app.use('/api/websites', createWebsiteOrderPrefixGuard())
   app.use('/api/websites', createWebsiteRouter())
