@@ -281,7 +281,7 @@ export function PageBuilderPage({ client = false }) {
 
   async function save(nextContent, message, { addHistory = true } = {}) {
     if (!websiteId) return false
-    if (addHistory) recordHistory(nextContent)
+    const previousContent = contentRef.current
     setSubmission(null)
     setContent(nextContent)
     initialiseFrame(nextContent)
@@ -290,10 +290,13 @@ export function PageBuilderPage({ client = false }) {
       const saved = await api.saveContent(websiteId, nextContent)
       setContent(saved)
       initialiseFrame(saved)
+      if (addHistory) recordHistory(saved)
       setNotice(message)
       return true
     } catch (error) {
-      setNotice(error.message || 'Save failed')
+      setContent(previousContent)
+      initialiseFrame(previousContent)
+      setNotice(`${error.message || 'Save failed'} — changes were not saved`)
       return false
     }
   }
@@ -303,7 +306,9 @@ export function PageBuilderPage({ client = false }) {
     const draft = inlineDraftRef.current
     if (!draft) return true
     inlineDraftRef.current = null
-    return save(draft, message)
+    const saved = await save(draft, message)
+    if (!saved) inlineDraftRef.current = draft
+    return saved
   }
 
   function queueInlineEdit(field) {
@@ -325,7 +330,8 @@ export function PageBuilderPage({ client = false }) {
     const sourceRule = sectionRule(current, sourceSection.sectionId, sourceSection.defaultOrder || 0)
     const targetRule = sectionRule(current, targetSection.sectionId, targetSection.defaultOrder || 0)
     if (account?.role !== 'owner' && (sourceRule.movable === false || targetRule.movable === false)) return
-    await flushInlineDraft('✓ Text saved before moving section')
+    const flushed = await flushInlineDraft('✓ Text saved before moving section')
+    if (!flushed) return
     let next = updateSectionRule(contentRef.current, sourceSection.sectionId, { order: Number(targetRule.order ?? targetSection.order ?? targetSection.defaultOrder ?? 0) })
     next = updateSectionRule(next, targetSection.sectionId, { order: Number(sourceRule.order ?? sourceSection.order ?? sourceSection.defaultOrder ?? 0) })
     setSelection({ type: 'section', ...sourceSection })
@@ -425,7 +431,8 @@ export function PageBuilderPage({ client = false }) {
 
   async function applyHistory(index, message) {
     if (historyBusyRef.current || index < 0 || index >= historyRef.current.length) return
-    await flushInlineDraft()
+    const flushed = await flushInlineDraft()
+    if (!flushed) return
     historyBusyRef.current = true
     const previousIndex = historyIndexRef.current
     const snapshot = structuredClone(historyRef.current[index])
@@ -485,15 +492,16 @@ export function PageBuilderPage({ client = false }) {
     save(updateSectionRule(contentRef.current, selection.sectionId, changes), changes.hidden ? '✓ Section hidden' : '✓ Section settings saved')
   }
 
-  function updateSelectedBlockField(fieldKey, value) {
+  async function updateSelectedBlockField(fieldKey, value) {
     const details = managedBlockDetails(selection, contentRef.current)
-    if (!details || !canManageSection(account, contentRef.current, selection.sectionId)) return
+    if (!details || !canManageSection(account, contentRef.current, selection.sectionId)) return false
     const next = structuredClone(contentRef.current)
     const blocks = [...(next.engine?.pageBlocks?.[details.key] || [])]
     blocks[details.index] = { ...blocks[details.index], [fieldKey]: value }
     next.engine = { ...(next.engine || {}), pageBlocks: { ...(next.engine?.pageBlocks || {}), [details.key]: blocks } }
-    if (fieldKey === 'title') setSelection(current => current ? { ...current, label: value || current.label } : current)
-    save(next, '✓ Section content saved')
+    const saved = await save(next, '✓ Section content saved')
+    if (saved && fieldKey === 'title') setSelection(current => current ? { ...current, label: value || current.label } : current)
+    return saved
   }
 
   async function uploadSelectedBlockImage(fieldKey, file) {
@@ -503,7 +511,7 @@ export function PageBuilderPage({ client = false }) {
     try {
       const slotId = `${selection.sectionId}.${fieldKey}`
       const asset = await api.uploadAsset(website.owner || website.id, websiteId, slotId, file)
-      updateSelectedBlockField(fieldKey, asset.url)
+      await updateSelectedBlockField(fieldKey, asset.url)
     } catch (error) {
       setNotice(error.message || 'Image upload failed')
     }
@@ -518,7 +526,8 @@ export function PageBuilderPage({ client = false }) {
   }
 
   async function addBlock(block, definition) {
-    await flushInlineDraft('✓ Text saved before adding section')
+    const flushed = await flushInlineDraft('✓ Text saved before adding section')
+    if (!flushed) return
     const key = pageKey(currentPath)
     const next = structuredClone(contentRef.current)
     next.engine = { ...(next.engine || {}) }
@@ -528,9 +537,10 @@ export function PageBuilderPage({ client = false }) {
     next.engine.pageBlocks[key] = blocks
     const sectionId = `pageBlocks.${key}.${block.id}`
     const withPolicy = updateSectionRule(next, sectionId, { access: FIELD_ACCESS.EDITABLE, approvalRequired: true, movable: true, deletable: true, order: block.order, reason: '' })
+    const saved = await save(withPolicy, `✓ ${definition?.title || 'Section'} added`)
+    if (!saved) return
     setShowBlockLibrary(false)
     setSelection({ type: 'section', sectionId, label: block.title || definition?.title || 'Section', defaultOrder: block.order })
-    await save(withPolicy, `✓ ${definition?.title || 'Section'} added`)
   }
 
   async function duplicateSelectedBlock() {
@@ -538,7 +548,8 @@ export function PageBuilderPage({ client = false }) {
     if (!details) return
     const rule = sectionRule(contentRef.current, selection.sectionId, selection.defaultOrder || 0)
     if (account?.role !== 'owner' && rule.access !== FIELD_ACCESS.EDITABLE) return
-    await flushInlineDraft('✓ Text saved before duplicating section')
+    const flushed = await flushInlineDraft('✓ Text saved before duplicating section')
+    if (!flushed) return
     const next = structuredClone(contentRef.current)
     const blocks = [...(next.engine?.pageBlocks?.[details.key] || [])]
     const duplicate = { ...structuredClone(details.block), id: makeId(), title: `${details.block.title || 'Section'} Copy`, order: Number(details.block.order || 0) + 5 }
@@ -546,8 +557,8 @@ export function PageBuilderPage({ client = false }) {
     next.engine = { ...(next.engine || {}), pageBlocks: { ...(next.engine?.pageBlocks || {}), [details.key]: blocks } }
     const sectionId = `pageBlocks.${details.key}.${duplicate.id}`
     const withPolicy = updateSectionRule(next, sectionId, { access: FIELD_ACCESS.EDITABLE, approvalRequired: true, movable: true, deletable: true, order: duplicate.order, reason: '' })
-    setSelection({ type: 'section', sectionId, label: duplicate.title, defaultOrder: duplicate.order })
-    await save(withPolicy, '✓ Section duplicated')
+    const saved = await save(withPolicy, '✓ Section duplicated')
+    if (saved) setSelection({ type: 'section', sectionId, label: duplicate.title, defaultOrder: duplicate.order })
   }
 
   async function deleteSelectedBlock() {
@@ -556,14 +567,15 @@ export function PageBuilderPage({ client = false }) {
     const rule = sectionRule(contentRef.current, selection.sectionId, selection.defaultOrder || 0)
     if (account?.role !== 'owner' && rule.deletable !== true) return
     if (!window.confirm(`Delete “${details.block.title || 'this section'}” permanently?`)) return
-    await flushInlineDraft('✓ Text saved before deleting section')
+    const flushed = await flushInlineDraft('✓ Text saved before deleting section')
+    if (!flushed) return
     const next = structuredClone(contentRef.current)
     const blocks = [...(next.engine?.pageBlocks?.[details.key] || [])]
     blocks.splice(details.index, 1)
     next.engine = { ...(next.engine || {}), pageBlocks: { ...(next.engine?.pageBlocks || {}), [details.key]: blocks } }
     if (next.editorPolicy?.sections) delete next.editorPolicy.sections[selection.sectionId]
-    setSelection(null)
-    await save(next, '✓ Section deleted')
+    const saved = await save(next, '✓ Section deleted')
+    if (saved) setSelection(null)
   }
 
   async function submitForApproval() {
@@ -572,7 +584,8 @@ export function PageBuilderPage({ client = false }) {
     setNotice('Submitting…')
     setSubmission(null)
     try {
-      await flushInlineDraft('✓ Draft saved before submission')
+      const saved = await flushInlineDraft('✓ Draft saved before submission')
+      if (!saved) throw new Error('The current draft could not be saved, so it was not submitted for approval.')
       const result = await api.createPublishRequest({ websiteId, websiteName: website.name, repository: website.repository, title: 'Visual website edits', createdBy: account?.displayName || account?.name, contentPath: `server-data/content/${websiteId}.json` })
       setNotice('✓ Submitted for approval')
       setSubmission({
