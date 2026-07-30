@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Layout } from '../layouts/Shell.jsx'
 import { getAccountFromPath } from '../services/auth.js'
 import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
@@ -6,6 +6,7 @@ import { api } from '../services/api.js'
 
 const fieldTypes = ['Text', 'Email', 'Textarea', 'Phone', 'Select', 'Checkbox', 'Date', 'File']
 const submissionStatuses = ['New', 'Read', 'Resolved']
+const submissionPageSizes = [10, 25, 50]
 
 function FieldPreview({ field }) {
   if (field.type === 'Textarea') return <textarea placeholder={field.placeholder} disabled />
@@ -46,6 +47,16 @@ function attachmentSize(bytes) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function submissionSearchText(submission) {
+  const values = submission?.values && typeof submission.values === 'object' ? Object.values(submission.values) : []
+  const attachments = Array.isArray(submission?.attachments) ? submission.attachments.map(item => item.name) : []
+  return [submission?.id, submission?.source, submission?.status, submission?.createdAt, ...values, ...attachments]
+    .filter(value => value !== undefined && value !== null)
+    .map(String)
+    .join(' ')
+    .toLowerCase()
+}
+
 export function FormBuilderPage({ client = false }) {
   const account = getAccountFromPath()
   const { websites } = useWebsites()
@@ -67,10 +78,42 @@ export function FormBuilderPage({ client = false }) {
   const [emailReadinessLoading, setEmailReadinessLoading] = useState(false)
   const [testEmail, setTestEmail] = useState('')
   const [emailTestState, setEmailTestState] = useState('')
+  const [submissionQuery, setSubmissionQuery] = useState('')
+  const [submissionStatusFilter, setSubmissionStatusFilter] = useState('All')
+  const [submissionSourceFilter, setSubmissionSourceFilter] = useState('All')
+  const [submissionPage, setSubmissionPage] = useState(1)
+  const [submissionPageSize, setSubmissionPageSize] = useState(10)
+  const [selectedSubmissionIds, setSelectedSubmissionIds] = useState([])
   const selected = forms.find(form => form.id === selectedId) || forms[0]
   const busy = Boolean(busyAction)
   const hasFileFields = Boolean((selected?.fields || []).some(field => field.type === 'File'))
   const publicReady = selected?.status === 'Active'
+  const allSubmissions = Array.isArray(selected?.submissions) ? selected.submissions : []
+  const submissionSources = useMemo(() => [...new Set(allSubmissions.map(item => item.source || 'Submission'))].sort(), [allSubmissions])
+  const submissionStats = useMemo(() => ({
+    total: allSubmissions.length,
+    new: allSubmissions.filter(item => (item.status || 'New') === 'New').length,
+    read: allSubmissions.filter(item => item.status === 'Read').length,
+    resolved: allSubmissions.filter(item => item.status === 'Resolved').length,
+    public: allSubmissions.filter(item => item.source === 'Public website').length,
+  }), [allSubmissions])
+  const filteredSubmissions = useMemo(() => {
+    const query = submissionQuery.trim().toLowerCase()
+    return allSubmissions.filter(submission => {
+      const status = submissionStatuses.includes(submission.status) ? submission.status : 'New'
+      const source = submission.source || 'Submission'
+      if (submissionStatusFilter !== 'All' && status !== submissionStatusFilter) return false
+      if (submissionSourceFilter !== 'All' && source !== submissionSourceFilter) return false
+      return !query || submissionSearchText(submission).includes(query)
+    })
+  }, [allSubmissions, submissionQuery, submissionStatusFilter, submissionSourceFilter])
+  const submissionPageCount = Math.max(1, Math.ceil(filteredSubmissions.length / submissionPageSize))
+  const currentSubmissionPage = Math.min(submissionPage, submissionPageCount)
+  const pagedSubmissions = filteredSubmissions.slice((currentSubmissionPage - 1) * submissionPageSize, currentSubmissionPage * submissionPageSize)
+  const selectedSubmissionSet = useMemo(() => new Set(selectedSubmissionIds), [selectedSubmissionIds])
+  const selectedSubmissions = allSubmissions.filter(item => selectedSubmissionSet.has(item.id))
+  const visibleSubmissionIds = pagedSubmissions.map(item => item.id).filter(Boolean)
+  const allVisibleSelected = visibleSubmissionIds.length > 0 && visibleSubmissionIds.every(id => selectedSubmissionSet.has(id))
 
   useEffect(() => {
     if (isOwner && !selectedWebsiteId && websites[0]?.id) setSelectedWebsiteId(websites[0].id)
@@ -136,6 +179,11 @@ export function FormBuilderPage({ client = false }) {
 
   useEffect(() => {
     loadDeliveryStatuses(selected?.id)
+    setSubmissionQuery('')
+    setSubmissionStatusFilter('All')
+    setSubmissionSourceFilter('All')
+    setSubmissionPage(1)
+    setSelectedSubmissionIds([])
   }, [websiteId, selected?.id])
 
   useEffect(() => {
@@ -147,6 +195,19 @@ export function FormBuilderPage({ client = false }) {
     setTestEmail(selected?.destination || emailReadiness?.from || '')
     setEmailTestState('')
   }, [isOwner, selected?.id, emailReadiness?.from])
+
+  useEffect(() => {
+    setSubmissionPage(1)
+  }, [submissionQuery, submissionStatusFilter, submissionSourceFilter, submissionPageSize])
+
+  useEffect(() => {
+    if (submissionPage > submissionPageCount) setSubmissionPage(submissionPageCount)
+  }, [submissionPage, submissionPageCount])
+
+  useEffect(() => {
+    const existing = new Set(allSubmissions.map(item => item.id))
+    setSelectedSubmissionIds(current => current.filter(id => existing.has(id)))
+  }, [allSubmissions])
 
   function updateSelectedLocal(changes) {
     if (!selected?.id) return
@@ -355,6 +416,28 @@ export function FormBuilderPage({ client = false }) {
     }
   }
 
+  async function saveBulkSubmissionChanges(updater, message) {
+    if (!canEdit) return setNotice('Edit permission required')
+    if (!websiteId || !selected?.id || !selectedSubmissionIds.length || busy) return
+    const formId = selected.id
+    setBusyAction('bulk-submissions')
+    setNotice(message)
+    const nextForms = forms.map(form => form.id === formId
+      ? { ...form, submissions: updater(Array.isArray(form.submissions) ? form.submissions : []) }
+      : form)
+    try {
+      await api.saveForms(websiteId, nextForms)
+      setSelectedSubmissionIds([])
+      await loadForms(formId, message.replace(/ing$/, 'ed'))
+      await loadDeliveryStatuses(formId)
+    } catch (error) {
+      setNotice(error.message || 'Bulk submission update failed')
+      await loadForms(formId, error.message || 'Bulk submission update failed')
+    } finally {
+      setBusyAction('')
+    }
+  }
+
   async function updateSubmissionStatus(submission, status) {
     if (!submissionStatuses.includes(status) || submission.status === status) return
     await saveSubmissionChanges(
@@ -374,11 +457,44 @@ export function FormBuilderPage({ client = false }) {
     )
   }
 
-  function exportSubmissions() {
-    if (!selected?.id || !(selected.submissions || []).length) return setNotice('No submissions to export')
+  async function updateSelectedSubmissionStatus(status) {
+    if (!submissionStatuses.includes(status) || !selectedSubmissionIds.length) return
+    const ids = new Set(selectedSubmissionIds)
+    await saveBulkSubmissionChanges(
+      submissions => submissions.map(item => ids.has(item.id) ? { ...item, status } : item),
+      `Updating ${ids.size} submissions`,
+    )
+  }
+
+  async function removeSelectedSubmissions() {
+    if (!selectedSubmissionIds.length || busy) return
+    const count = selectedSubmissionIds.length
+    if (!globalThis.confirm(`Delete ${count} selected submission${count === 1 ? '' : 's'} permanently? Stored attachments for deleted submissions will also be removed. This action cannot be undone.`)) return
+    const ids = new Set(selectedSubmissionIds)
+    await saveBulkSubmissionChanges(
+      submissions => submissions.filter(item => !ids.has(item.id)),
+      `Deleting ${count} submissions`,
+    )
+  }
+
+  function toggleSubmissionSelection(id) {
+    setSelectedSubmissionIds(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id])
+  }
+
+  function toggleVisibleSubmissions() {
+    setSelectedSubmissionIds(current => {
+      const currentSet = new Set(current)
+      if (allVisibleSelected) visibleSubmissionIds.forEach(id => currentSet.delete(id))
+      else visibleSubmissionIds.forEach(id => currentSet.add(id))
+      return [...currentSet]
+    })
+  }
+
+  function exportSubmissions(records = filteredSubmissions, label = 'filtered') {
+    if (!selected?.id || !records.length) return setNotice('No submissions to export')
     const fields = selected.fields || []
     const header = ['Submission ID', 'Created At', 'Status', 'Source', 'Email Delivery', 'Attachments', ...fields.map(field => field.label || field.id)]
-    const rows = (selected.submissions || []).map(submission => [
+    const rows = records.map(submission => [
       submission.id,
       submission.createdAt,
       submission.status || 'New',
@@ -392,12 +508,12 @@ export function FormBuilderPage({ client = false }) {
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    anchor.download = `${websiteId}-${selected.id}-submissions.csv`
+    anchor.download = `${websiteId}-${selected.id}-${label}-submissions.csv`
     document.body.appendChild(anchor)
     anchor.click()
     anchor.remove()
     URL.revokeObjectURL(url)
-    setNotice('Submissions exported')
+    setNotice(`${records.length} submission${records.length === 1 ? '' : 's'} exported`)
   }
 
   return (
@@ -467,15 +583,34 @@ export function FormBuilderPage({ client = false }) {
         <aside className="card formPreview">
           <div className="panelHead"><h2>Portal Preview</h2>{canEdit && <button disabled={!websiteId || !selected?.id || busy} onClick={addTestSubmission}>{busyAction === 'test' ? 'Testing…' : 'Add Test Submission'}</button>}</div>
           {selected && <form onSubmit={event => event.preventDefault()}><h3>{selected.name}</h3>{(selected.fields || []).map(field => <label key={field.id}>{field.type !== 'Checkbox' && <span>{field.label}{field.required ? ' *' : ''}</span>}<FieldPreview field={field} /></label>)}<button type="button" disabled>Preview only</button></form>}
-          <div className="submissions">
-            <div className="panelHead"><h3>Submissions</h3><div className="submissionToolbar"><button type="button" disabled={!selected?.id || deliveryLoading} onClick={() => loadDeliveryStatuses(selected?.id)}>{deliveryLoading ? 'Checking…' : 'Refresh delivery'}</button><button type="button" disabled={!selected?.submissions?.length || busy} onClick={exportSubmissions}>Export CSV</button></div></div>
-            {selected?.submissions?.length ? selected.submissions.map(sub => {
+          <div className="submissions submissionManager">
+            <div className="panelHead"><div><h3>Submissions</h3><small>{filteredSubmissions.length === submissionStats.total ? `${submissionStats.total} total` : `${filteredSubmissions.length} of ${submissionStats.total}`}</small></div><div className="submissionToolbar"><button type="button" disabled={!selected?.id || deliveryLoading} onClick={() => loadDeliveryStatuses(selected?.id)}>{deliveryLoading ? 'Checking…' : 'Refresh delivery'}</button><button type="button" disabled={!filteredSubmissions.length || busy} onClick={() => exportSubmissions(filteredSubmissions, 'filtered')}>Export filtered</button>{selectedSubmissions.length > 0 && <button type="button" disabled={busy} onClick={() => exportSubmissions(selectedSubmissions, 'selected')}>Export selected ({selectedSubmissions.length})</button>}</div></div>
+            <div className="submissionStats" aria-label="Submission counts">
+              <span><b>{submissionStats.total}</b>Total</span>
+              <span><b>{submissionStats.new}</b>New</span>
+              <span><b>{submissionStats.read}</b>Read</span>
+              <span><b>{submissionStats.resolved}</b>Resolved</span>
+              <span><b>{submissionStats.public}</b>Public</span>
+            </div>
+            <div className="submissionFilters">
+              <label>Search<input type="search" value={submissionQuery} placeholder="ID, answer, filename…" onChange={event => setSubmissionQuery(event.target.value)} /></label>
+              <label>Status<select value={submissionStatusFilter} onChange={event => setSubmissionStatusFilter(event.target.value)}><option>All</option>{submissionStatuses.map(status => <option key={status}>{status}</option>)}</select></label>
+              <label>Source<select value={submissionSourceFilter} onChange={event => setSubmissionSourceFilter(event.target.value)}><option>All</option>{submissionSources.map(source => <option key={source}>{source}</option>)}</select></label>
+              <label>Per page<select value={submissionPageSize} onChange={event => setSubmissionPageSize(Number(event.target.value))}>{submissionPageSizes.map(size => <option key={size} value={size}>{size}</option>)}</select></label>
+            </div>
+            {filteredSubmissions.length > 0 && <div className="submissionBulkBar">
+              <label className="formCheck"><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisibleSubmissions} /> Select page</label>
+              <span>{selectedSubmissionIds.length ? `${selectedSubmissionIds.length} selected` : 'No selection'}</span>
+              {canEdit && selectedSubmissionIds.length > 0 && <><select aria-label="Set selected submission status" defaultValue="" disabled={busy} onChange={event => { const status = event.target.value; event.target.value = ''; updateSelectedSubmissionStatus(status) }}><option value="" disabled>Set status…</option>{submissionStatuses.map(status => <option key={status}>{status}</option>)}</select><button type="button" className="danger" disabled={busy} onClick={removeSelectedSubmissions}>{busyAction === 'bulk-submissions' ? 'Saving…' : 'Delete selected'}</button></>}
+            </div>}
+            {pagedSubmissions.length ? pagedSubmissions.map(sub => {
               const summary = submissionSummary(sub, selected.fields || [])
               const submissionBusy = busyAction === `submission-${sub.id}`
               const delivery = deliveryStatuses[sub.id]
               const deliveryText = sub.source === 'Public website' ? (delivery?.status || (deliveryLoading ? 'Checking…' : 'Not queued')) : 'Not applicable'
               const attachments = Array.isArray(sub.attachments) ? sub.attachments : []
-              return <article className="submissionItem" key={sub.id}>
+              return <article className={`submissionItem${selectedSubmissionSet.has(sub.id) ? ' selected' : ''}`} key={sub.id}>
+                <label className="submissionSelect" title="Select submission"><input type="checkbox" checked={selectedSubmissionSet.has(sub.id)} onChange={() => toggleSubmissionSelection(sub.id)} /><span className="srOnly">Select submission</span></label>
                 <div><b>{sub.source || 'Submission'}</b><small>{sub.createdAt}</small><span className={deliveryClass(deliveryText)} title={delivery?.error || ''}>Email: {deliveryText}</span>{summary && <small>{summary}</small>}{attachments.length > 0 && <div className="submissionAttachments">{attachments.map(attachment => {
                   const field = (selected.fields || []).find(item => item.id === attachment.fieldId)
                   return <a key={attachment.id} href={api.formAttachmentUrl(websiteId, selected.id, sub.id, attachment.id)}><b>{attachment.name}</b><small>{field?.label || 'Attachment'} · {attachment.mimeType || 'file'} · {attachmentSize(attachment.size)}</small></a>
@@ -485,7 +620,12 @@ export function FormBuilderPage({ client = false }) {
                   {canEdit && <button type="button" disabled={busy} onClick={() => removeSubmission(sub)}>{submissionBusy ? 'Saving…' : 'Delete'}</button>}
                 </div>
               </article>
-            }) : <p>No submissions yet.</p>}
+            }) : <p>{allSubmissions.length ? 'No submissions match these filters.' : 'No submissions yet.'}</p>}
+            {filteredSubmissions.length > 0 && <div className="submissionPagination">
+              <button type="button" disabled={currentSubmissionPage <= 1} onClick={() => setSubmissionPage(page => Math.max(1, page - 1))}>Previous</button>
+              <span>Page {currentSubmissionPage} of {submissionPageCount} · {filteredSubmissions.length} result{filteredSubmissions.length === 1 ? '' : 's'}</span>
+              <button type="button" disabled={currentSubmissionPage >= submissionPageCount} onClick={() => setSubmissionPage(page => Math.min(submissionPageCount, page + 1))}>Next</button>
+            </div>}
           </div>
         </aside>
       </section>
