@@ -154,6 +154,49 @@ registerNotificationProvider({
     return { accepted: true, messageId: delivery.id }
   },
 })
+registerNotificationProvider({
+  id: 'email-http',
+  label: 'HTTP email delivery',
+  async send({ recipient, delivery, message }) {
+    const url = String(process.env.KSJ_EMAIL_API_URL || '').trim()
+    const from = String(process.env.KSJ_EMAIL_FROM || '').trim()
+    if (!url || !from) throw new NotificationError('Email HTTP transport is not configured', 503)
+
+    const headers = { 'Content-Type': 'application/json' }
+    const token = String(process.env.KSJ_EMAIL_API_TOKEN || '').trim()
+    if (token) headers.Authorization = `Bearer ${token}`
+
+    let response
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          to: recipient.address,
+          from,
+          subject: String(message.subject || ''),
+          text: String(message.body || ''),
+          data: message.data || {},
+          metadata: { deliveryId: delivery.id, recipientId: recipient.id, ...(recipient.metadata || {}) },
+        }),
+        signal: AbortSignal.timeout(15_000),
+      })
+    } catch (error) {
+      throw new NotificationError(error?.message || 'Email provider request failed', 503)
+    }
+
+    const payload = await response.json().catch(() => null)
+    if (!response.ok) {
+      const status = response.status >= 500 ? 503 : response.status
+      throw new NotificationError(payload?.error || payload?.message || `Email provider returned HTTP ${response.status}`, status)
+    }
+    return {
+      accepted: true,
+      messageId: payload?.id || payload?.messageId || delivery.id,
+      providerStatus: response.status,
+    }
+  },
+})
 
 export async function getNotificationState(query = {}) {
   const registry = await readRegistry()
@@ -217,6 +260,40 @@ export async function queueNotification(input = {}, actor = null) {
     }, actor))
   }
   return { queued: jobs.length, jobs, deduplicationKey }
+}
+
+export async function queueEmailNotification(input = {}, actor = null) {
+  const to = requiredText(input.to, 'Email recipient', 320).toLowerCase()
+  const subject = String(input.subject || '').trim().slice(0, 500)
+  const body = requiredText(input.body, 'Email body', 20_000)
+  const recipientId = safeName(`email-${to}`)
+  const templateIdValue = 'direct-email'
+
+  await upsertNotificationTemplate({
+    id: templateIdValue,
+    name: 'Direct email',
+    subject: '{{subject}}',
+    body: '{{body}}',
+    data: { category: '{{category}}' },
+    enabled: true,
+  }, actor)
+  await upsertNotificationRecipient({
+    id: recipientId,
+    name: to,
+    provider: 'email-http',
+    address: to,
+    enabled: true,
+    metadata: input.metadata && typeof input.metadata === 'object' && !Array.isArray(input.metadata) ? input.metadata : {},
+  }, actor)
+
+  return queueNotification({
+    templateId: templateIdValue,
+    recipientId,
+    variables: { subject, body, category: String(input.category || 'email') },
+    deduplicationKey: input.deduplicationKey,
+    priority: input.priority,
+    retry: input.retry,
+  }, actor)
 }
 
 export async function deliverNotification(input = {}) {
