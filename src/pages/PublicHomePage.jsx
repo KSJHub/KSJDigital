@@ -18,29 +18,55 @@ function scrollToSection(id) {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
 }
 
+function mergePublicFormConfiguration(forms, configuration) {
+  const configByForm = new Map((Array.isArray(configuration) ? configuration : []).map(form => [form.id, form]))
+  return (Array.isArray(forms) ? forms : []).map(form => {
+    const configured = configByForm.get(form.id)
+    const fieldsById = new Map((configured?.fields || []).map(field => [field.id, field]))
+    return {
+      ...form,
+      successMessage: configured?.successMessage || '',
+      fields: (form.fields || []).map(field => ({ ...field, ...(fieldsById.get(field.id) || {}) })),
+    }
+  })
+}
+
 function emptyValues(form) {
   return Object.fromEntries((form?.fields || []).map(field => [field.id, field.type === 'Checkbox' ? false : field.type === 'File' ? null : '']))
 }
 
+function FieldHelp({ field, fallback = '' }) {
+  const text = field.helpText || fallback
+  return text ? <small>{text}</small> : null
+}
+
 function PublicFormField({ field, value, disabled, onChange }) {
   if (field.type === 'Checkbox') {
-    return <label className="publicFormCheck"><input type="checkbox" checked={value === true} required={field.required} disabled={disabled} onChange={event => onChange(event.target.checked)} /> <span>{field.label}{field.required ? ' *' : ''}</span></label>
+    return <label className="publicFormCheck"><input type="checkbox" checked={value === true} required={field.required} disabled={disabled} onChange={event => onChange(event.target.checked)} /> <span>{field.label}{field.required ? ' *' : ''}</span><FieldHelp field={field} /></label>
   }
   if (field.type === 'File') {
-    return <label><span>{field.label}{field.required ? ' *' : ''}</span><input type="file" accept={PUBLIC_FILE_ACCEPT} required={field.required} disabled={disabled} onChange={event => onChange(event.target.files?.[0] || null)} /><small>PDF, PNG, JPG or WebP · max 5 MB</small></label>
+    return <label><span>{field.label}{field.required ? ' *' : ''}</span><input type="file" accept={PUBLIC_FILE_ACCEPT} required={field.required} disabled={disabled} onChange={event => onChange(event.target.files?.[0] || null)} /><FieldHelp field={field} fallback="PDF, PNG, JPG or WebP · max 5 MB" /></label>
+  }
+  if (field.type === 'Select') {
+    const options = Array.isArray(field.options) ? field.options.filter(Boolean) : []
+    return <label><span>{field.label}{field.required ? ' *' : ''}</span><select value={value || ''} required={field.required} disabled={disabled} onChange={event => onChange(event.target.value)}><option value="">{field.placeholder || 'Choose an option'}</option>{options.map(option => <option key={option} value={option}>{option}</option>)}</select><FieldHelp field={field} /></label>
   }
 
+  const minimum = Number(field.minLength) > 0 ? Number(field.minLength) : undefined
+  const maximum = Number(field.maxLength) > 0 ? Number(field.maxLength) : undefined
   const common = {
     value: value || '',
     required: field.required,
     disabled,
     placeholder: field.placeholder || '',
+    minLength: minimum,
+    maxLength: maximum,
     onChange: event => onChange(event.target.value),
   }
-  if (field.type === 'Textarea') return <label><span>{field.label}{field.required ? ' *' : ''}</span><textarea {...common} rows="5" /></label>
+  if (field.type === 'Textarea') return <label><span>{field.label}{field.required ? ' *' : ''}</span><textarea {...common} rows="5" /><FieldHelp field={field} /></label>
 
   const type = field.type === 'Email' ? 'email' : field.type === 'Phone' ? 'tel' : field.type === 'Date' ? 'date' : 'text'
-  return <label><span>{field.label}{field.required ? ' *' : ''}</span><input type={type} {...common} /></label>
+  return <label><span>{field.label}{field.required ? ' *' : ''}</span><input type={type} {...common} /><FieldHelp field={field} /></label>
 }
 
 export function PublicHomePage() {
@@ -58,10 +84,13 @@ export function PublicHomePage() {
 
   useEffect(() => {
     let cancelled = false
-    api.getPublicForms(PUBLIC_WEBSITE_ID)
-      .then(next => {
+    Promise.all([
+      api.getPublicForms(PUBLIC_WEBSITE_ID),
+      api.getPublicFormConfig(PUBLIC_WEBSITE_ID).catch(() => []),
+    ])
+      .then(([next, configuration]) => {
         if (cancelled) return
-        const records = Array.isArray(next) ? next : []
+        const records = mergePublicFormConfiguration(next, configuration)
         setForms(records)
         setFormAvailable(records.length > 0)
       })
@@ -108,7 +137,7 @@ export function PublicHomePage() {
       setValues(emptyValues(contactForm))
       setHoneypot('')
       setStartedAt(Date.now())
-      setFormNotice('Thanks — your enquiry has been sent.')
+      setFormNotice(contactForm.successMessage || 'Thanks — your enquiry has been sent.')
     } catch (error) {
       setFormNotice(error.message || 'Your enquiry could not be sent. Please try again or email us directly.')
     } finally {
