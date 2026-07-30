@@ -61,17 +61,27 @@ function RepeaterField({ component, field, disabled, onChange }) {
   const items = Array.isArray(component?.[field.key]) ? component[field.key] : []
   const [uploadError, setUploadError] = useState('')
   const [uploadingKey, setUploadingKey] = useState('')
+  const busy = Boolean(uploadingKey)
 
   function updateItems(nextItems) {
+    if (disabled || busy) return
     onChange(field.key, nextItems)
   }
 
   function updateItem(index, key, value) {
+    if (disabled || busy) return
     updateItems(items.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } : item))
   }
 
+  function removeItem(index) {
+    if (disabled || busy) return
+    const label = items[index]?.question || items[index]?.caption || `${field.label} ${index + 1}`
+    if (!window.confirm(`Remove “${label}” from this section?`)) return
+    updateItems(items.filter((_, itemIndex) => itemIndex !== index))
+  }
+
   async function uploadItemImage(index, key, file) {
-    if (!file || disabled) return
+    if (!file || disabled || busy) return
     const requestKey = `${index}-${key}`
     setUploadError('')
     setUploadingKey(requestKey)
@@ -81,7 +91,7 @@ function RepeaterField({ component, field, disabled, onChange }) {
       const slotId = `pageBlocks.${component.id}.${field.key}.${index}.${key}`
       const asset = await api.uploadAsset(website.owner || website.id, website.id, slotId, file)
       if (!asset?.url) throw new Error('The media upload did not return an asset URL.')
-      updateItem(index, key, asset.url)
+      onChange(field.key, items.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: asset.url } : item))
     } catch (error) {
       setUploadError(error.message || 'Image upload failed')
     } finally {
@@ -97,9 +107,9 @@ function RepeaterField({ component, field, disabled, onChange }) {
           <header>
             <strong>{item?.question || item?.caption || `${field.label} ${index + 1}`}</strong>
             <div>
-              <button type="button" disabled={disabled || index === 0} onClick={() => updateItems(moveItem(items, index, 'up'))} aria-label="Move item up">↑</button>
-              <button type="button" disabled={disabled || index === items.length - 1} onClick={() => updateItems(moveItem(items, index, 'down'))} aria-label="Move item down">↓</button>
-              <button type="button" className="danger" disabled={disabled} onClick={() => updateItems(items.filter((_, itemIndex) => itemIndex !== index))}>Remove</button>
+              <button type="button" disabled={disabled || busy || index === 0} onClick={() => updateItems(moveItem(items, index, 'up'))} aria-label="Move item up">↑</button>
+              <button type="button" disabled={disabled || busy || index === items.length - 1} onClick={() => updateItems(moveItem(items, index, 'down'))} aria-label="Move item down">↓</button>
+              <button type="button" className="danger" disabled={disabled || busy} onClick={() => removeItem(index)}>Remove</button>
             </div>
           </header>
           <div className="componentRepeaterFields">
@@ -111,23 +121,23 @@ function RepeaterField({ component, field, disabled, onChange }) {
                     <>
                       <VisualImageControl
                         value={item?.[key] || ''}
-                        disabled={disabled || uploadingKey === `${index}-${key}`}
+                        disabled={disabled || busy}
                         onUpload={file => uploadItemImage(index, key, file)}
                         onUrlChange={value => updateItem(index, key, value)}
                       />
-                      {uploadingKey === `${index}-${key}` && <small>Uploading image…</small>}
+                      {uploadingKey === `${index}-${key}` && <small role="status">Uploading image…</small>}
                     </>
                   )
                   : key === 'answer'
-                    ? <textarea value={item?.[key] || ''} disabled={disabled} onChange={event => updateItem(index, key, event.target.value)} />
-                    : <input value={item?.[key] || ''} disabled={disabled} onChange={event => updateItem(index, key, event.target.value)} />}
+                    ? <textarea value={item?.[key] || ''} disabled={disabled || busy} onChange={event => updateItem(index, key, event.target.value)} />
+                    : <input value={item?.[key] || ''} disabled={disabled || busy} onChange={event => updateItem(index, key, event.target.value)} />}
               </label>
             ))}
           </div>
         </section>
       ))}
       {uploadError && <div className="componentInspectorNotice error" role="alert">{uploadError}</div>}
-      <button type="button" className="componentRepeaterAdd" disabled={disabled} onClick={() => updateItems([...items, emptyRepeaterItem(field)])}>＋ Add Item</button>
+      <button type="button" className="componentRepeaterAdd" disabled={disabled || busy} onClick={() => updateItems([...items, emptyRepeaterItem(field)])}>＋ Add Item</button>
     </div>
   )
 }
