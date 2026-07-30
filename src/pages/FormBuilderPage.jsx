@@ -42,26 +42,31 @@ export function FormBuilderPage({ client = false }) {
   const account = getAccountFromPath()
   const { websites } = useWebsites()
   const assignedWebsite = findClientWebsite(websites, account)
+  const isOwner = account?.role === 'owner'
   const [selectedWebsiteId, setSelectedWebsiteId] = useState('')
-  const website = account?.role === 'owner'
+  const website = isOwner
     ? websites.find(site => site.id === selectedWebsiteId) || websites[0] || null
     : assignedWebsite
   const websiteId = website?.id
-  const canEdit = account?.role === 'owner' || account?.canEdit
+  const canEdit = isOwner || account?.canEdit
   const [forms, setForms] = useState([])
   const [selectedId, setSelectedId] = useState('')
   const [notice, setNotice] = useState('Loading')
   const [busyAction, setBusyAction] = useState('')
   const [deliveryStatuses, setDeliveryStatuses] = useState({})
   const [deliveryLoading, setDeliveryLoading] = useState(false)
+  const [emailReadiness, setEmailReadiness] = useState(null)
+  const [emailReadinessLoading, setEmailReadinessLoading] = useState(false)
+  const [testEmail, setTestEmail] = useState('')
+  const [emailTestState, setEmailTestState] = useState('')
   const selected = forms.find(form => form.id === selectedId) || forms[0]
   const busy = Boolean(busyAction)
   const hasFileFields = Boolean((selected?.fields || []).some(field => field.type === 'File'))
   const publicReady = selected?.status === 'Active' && !hasFileFields
 
   useEffect(() => {
-    if (account?.role === 'owner' && !selectedWebsiteId && websites[0]?.id) setSelectedWebsiteId(websites[0].id)
-  }, [account?.role, selectedWebsiteId, websites])
+    if (isOwner && !selectedWebsiteId && websites[0]?.id) setSelectedWebsiteId(websites[0].id)
+  }, [isOwner, selectedWebsiteId, websites])
 
   async function loadForms(nextId = selectedId, message = canEdit ? 'Ready' : 'Preview only') {
     if (!websiteId) {
@@ -100,6 +105,22 @@ export function FormBuilderPage({ client = false }) {
     }
   }
 
+  async function loadEmailReadiness() {
+    if (!isOwner) {
+      setEmailReadiness(null)
+      return
+    }
+    setEmailReadinessLoading(true)
+    try {
+      const result = await api.getEmailReadiness()
+      setEmailReadiness(result)
+    } catch {
+      setEmailReadiness(null)
+    } finally {
+      setEmailReadinessLoading(false)
+    }
+  }
+
   useEffect(() => {
     setBusyAction('')
     loadForms('', canEdit ? 'Ready' : 'Preview only')
@@ -108,6 +129,16 @@ export function FormBuilderPage({ client = false }) {
   useEffect(() => {
     loadDeliveryStatuses(selected?.id)
   }, [websiteId, selected?.id])
+
+  useEffect(() => {
+    loadEmailReadiness()
+  }, [isOwner])
+
+  useEffect(() => {
+    if (!isOwner) return
+    setTestEmail(selected?.destination || emailReadiness?.from || '')
+    setEmailTestState('')
+  }, [isOwner, selected?.id, emailReadiness?.from])
 
   function updateSelectedLocal(changes) {
     if (!selected?.id) return
@@ -119,6 +150,27 @@ export function FormBuilderPage({ client = false }) {
     setForms(current => current.map(form => form.id === selected.id
       ? { ...form, fields: (form.fields || []).map(field => field.id === fieldId ? { ...field, ...changes } : field) }
       : form))
+  }
+
+  async function sendEmailTest() {
+    if (!isOwner || busy) return
+    const recipient = testEmail.trim()
+    if (!recipient) return setNotice('Enter a test recipient email')
+    if (!emailReadiness?.configured) return setNotice('Email delivery is not configured')
+    setBusyAction('email-test')
+    setEmailTestState('Queuing test email…')
+    setNotice('Queuing email test')
+    try {
+      const result = await api.sendEmailTest(recipient)
+      const status = result?.jobs?.[0]?.status || 'queued'
+      setEmailTestState(`Test ${status}`)
+      setNotice('Email test queued')
+    } catch (error) {
+      setEmailTestState(error.message || 'Email test failed')
+      setNotice(error.message || 'Email test failed')
+    } finally {
+      setBusyAction('')
+    }
   }
 
   async function addForm() {
@@ -350,8 +402,22 @@ export function FormBuilderPage({ client = false }) {
         <button type="button" disabled aria-live="polite">{notice}</button>
       </section>
 
-      {account?.role === 'owner' && websites.length > 1 && <section className="card formSettings">
+      {isOwner && websites.length > 1 && <section className="card formSettings">
         <label>Website<select value={websiteId || ''} disabled={busy} onChange={event => { setSelectedWebsiteId(event.target.value); setSelectedId(''); setDeliveryStatuses({}) }}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
+      </section>}
+
+      {isOwner && <section className="card emailReadinessPanel">
+        <div className="panelHead"><div><span>Email Delivery</span><h2>{emailReadiness?.configured ? 'Ready' : emailReadinessLoading ? 'Checking…' : 'Setup required'}</h2></div><button type="button" disabled={emailReadinessLoading || busy} onClick={loadEmailReadiness}>{emailReadinessLoading ? 'Checking…' : 'Refresh'}</button></div>
+        <div className="emailReadinessGrid">
+          <p><b>HTTP endpoint</b><small>{emailReadiness?.endpointConfigured ? 'Configured' : 'Not configured'}</small></p>
+          <p><b>Sender</b><small>{emailReadiness?.from || 'Not configured'}</small></p>
+          <p><b>Authentication</b><small>{emailReadiness?.authenticationConfigured ? 'Token configured' : 'No token configured'}</small></p>
+        </div>
+        <div className="emailTestControls">
+          <label>Test recipient<input type="email" value={testEmail} disabled={busy} placeholder="you@example.com" onChange={event => { setTestEmail(event.target.value); setEmailTestState('') }} /></label>
+          <button type="button" disabled={busy || !emailReadiness?.configured || !testEmail.trim()} onClick={sendEmailTest}>{busyAction === 'email-test' ? 'Queuing…' : 'Send Test Email'}</button>
+          {emailTestState && <small aria-live="polite">{emailTestState}</small>}
+        </div>
       </section>}
 
       <section className="formsGrid">
@@ -373,6 +439,7 @@ export function FormBuilderPage({ client = false }) {
               <h3>Public Submission Readiness</h3>
               <p><b>Public website integration</b><small>{publicReady ? 'Connected and accepting submissions' : selected.status !== 'Active' ? 'Ready when this form is Active' : 'Blocked by unsupported File fields'}</small></p>
               <p><b>Delivery destination</b><small>{selected.destination || 'No destination configured'}</small></p>
+              <p><b>Email transport</b><small>{isOwner ? (emailReadiness?.configured ? 'Configured' : 'Setup required') : 'Managed by KSJ Digital'}</small></p>
               <p><b>Spam protection</b><small>{selected.spamProtection !== false ? 'Enabled for public submissions' : 'Disabled'}</small></p>
               <p><b>Portal preview test</b><small>Available below and stored separately by source label</small></p>
               {hasFileFields && <p><b>File upload fields</b><small>Require a dedicated public upload pipeline before this form can accept live submissions</small></p>}
