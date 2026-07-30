@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from '../services/api.js'
 
 const PUBLIC_WEBSITE_ID = 'ksjdigital'
+const PUBLIC_FILE_ACCEPT = '.pdf,.png,.jpg,.jpeg,.webp'
+const PUBLIC_FILE_MAX_BYTES = 5 * 1024 * 1024
 
 const services = [
   ['🌐', 'Company Websites', 'Clean, responsive websites for brands, creators, communities, and businesses.'],
@@ -17,12 +19,15 @@ function scrollToSection(id) {
 }
 
 function emptyValues(form) {
-  return Object.fromEntries((form?.fields || []).map(field => [field.id, field.type === 'Checkbox' ? false : '']))
+  return Object.fromEntries((form?.fields || []).map(field => [field.id, field.type === 'Checkbox' ? false : field.type === 'File' ? null : '']))
 }
 
 function PublicFormField({ field, value, disabled, onChange }) {
   if (field.type === 'Checkbox') {
     return <label className="publicFormCheck"><input type="checkbox" checked={value === true} required={field.required} disabled={disabled} onChange={event => onChange(event.target.checked)} /> <span>{field.label}{field.required ? ' *' : ''}</span></label>
+  }
+  if (field.type === 'File') {
+    return <label><span>{field.label}{field.required ? ' *' : ''}</span><input type="file" accept={PUBLIC_FILE_ACCEPT} required={field.required} disabled={disabled} onChange={event => onChange(event.target.files?.[0] || null)} /><small>PDF, PNG, JPG or WebP · max 5 MB</small></label>
   }
 
   const common = {
@@ -48,8 +53,7 @@ export function PublicHomePage() {
   const [formAvailable, setFormAvailable] = useState(true)
 
   const contactForm = useMemo(() => {
-    const available = forms.filter(form => form?.submissionEnabled !== false)
-    return available.find(form => /contact|enquir|project/i.test(form.name || '')) || available[0] || null
+    return forms.find(form => /contact|enquir|project/i.test(form.name || '')) || forms[0] || null
   }, [forms])
 
   useEffect(() => {
@@ -79,7 +83,28 @@ export function PublicHomePage() {
     setSubmitting(true)
     setFormNotice('Sending your enquiry…')
     try {
-      await api.submitPublicForm(PUBLIC_WEBSITE_ID, contactForm.id, { values, website: honeypot, startedAt })
+      const fileFields = (contactForm.fields || []).filter(field => field.type === 'File')
+      for (const field of fileFields) {
+        const file = values[field.id]
+        if (file && file.size > PUBLIC_FILE_MAX_BYTES) throw new Error(`${field.label || 'Attachment'} must be 5 MB or smaller.`)
+      }
+
+      let payload
+      if (fileFields.length) {
+        payload = new FormData()
+        const textValues = Object.fromEntries((contactForm.fields || []).filter(field => field.type !== 'File').map(field => [field.id, values[field.id]]))
+        payload.append('values', JSON.stringify(textValues))
+        payload.append('website', honeypot)
+        payload.append('startedAt', String(startedAt))
+        for (const field of fileFields) {
+          const file = values[field.id]
+          if (file) payload.append(field.id, file, file.name)
+        }
+      } else {
+        payload = { values, website: honeypot, startedAt }
+      }
+
+      await api.submitPublicForm(PUBLIC_WEBSITE_ID, contactForm.id, payload)
       setValues(emptyValues(contactForm))
       setHoneypot('')
       setStartedAt(Date.now())
