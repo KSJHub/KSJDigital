@@ -55,6 +55,7 @@ export const api = {
   createBasketCheckout: (provider, payload) => request(`/checkout/basket/${provider}`, { method: 'POST', body: JSON.stringify(payload) }),
   getForms: refreshForms,
   getPublicForms: websiteId => request(`/public/forms/${encodeURIComponent(websiteId)}`),
+  getPublicFormConfig: websiteId => request(`/public/form-config/${encodeURIComponent(websiteId)}`),
   submitPublicForm: (websiteId, formId, payload) => request(`/public/forms/${encodeURIComponent(websiteId)}/${encodeURIComponent(formId)}/submissions`, { method: 'POST', body: payload instanceof FormData ? payload : JSON.stringify(payload) }),
   getFormDeliveryStatuses: (websiteId, formId) => request(`/notifications/form-deliveries?websiteId=${encodeURIComponent(websiteId)}&formId=${encodeURIComponent(formId)}`),
   formAttachmentUrl: (websiteId, formId, submissionId, attachmentId) => `${API_BASE}/forms/${encodeURIComponent(websiteId)}/${encodeURIComponent(formId)}/submissions/${encodeURIComponent(submissionId)}/attachments/${encodeURIComponent(attachmentId)}`,
