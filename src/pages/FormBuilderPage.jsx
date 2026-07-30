@@ -5,6 +5,7 @@ import { findClientWebsite, useWebsites } from '../hooks/useWebsites.js'
 import { api } from '../services/api.js'
 
 const fieldTypes = ['Text', 'Email', 'Textarea', 'Phone', 'Select', 'Checkbox', 'Date', 'File']
+const submissionStatuses = ['New', 'Read', 'Resolved']
 
 function FieldPreview({ field }) {
   if (field.type === 'Textarea') return <textarea placeholder={field.placeholder} disabled />
@@ -26,6 +27,11 @@ function submissionSummary(submission, fields = []) {
     .filter(Boolean)
     .slice(0, 4)
     .join(' · ')
+}
+
+function csvCell(value) {
+  const text = value === undefined || value === null ? '' : typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)
+  return `"${text.replaceAll('"', '""')}"`
 }
 
 export function FormBuilderPage({ client = false }) {
@@ -238,6 +244,69 @@ export function FormBuilderPage({ client = false }) {
     }
   }
 
+  async function saveSubmissionChanges(submissionId, updater, message) {
+    if (!canEdit) return setNotice('Edit permission required')
+    if (!websiteId || !selected?.id || !submissionId || busy) return
+    const formId = selected.id
+    setBusyAction(`submission-${submissionId}`)
+    setNotice(message)
+    const nextForms = forms.map(form => form.id === formId
+      ? { ...form, submissions: updater(Array.isArray(form.submissions) ? form.submissions : []) }
+      : form)
+    try {
+      await api.saveForms(websiteId, nextForms)
+      await loadForms(formId, message.replace(/ing$/, 'ed'))
+    } catch (error) {
+      setNotice(error.message || 'Submission update failed')
+      await loadForms(formId, error.message || 'Submission update failed')
+    } finally {
+      setBusyAction('')
+    }
+  }
+
+  async function updateSubmissionStatus(submission, status) {
+    if (!submissionStatuses.includes(status) || submission.status === status) return
+    await saveSubmissionChanges(
+      submission.id,
+      submissions => submissions.map(item => item.id === submission.id ? { ...item, status } : item),
+      'Updating submission',
+    )
+  }
+
+  async function removeSubmission(submission) {
+    if (!submission?.id || busy) return
+    if (!globalThis.confirm(`Delete this ${submission.source || 'form'} submission permanently? This action cannot be undone.`)) return
+    await saveSubmissionChanges(
+      submission.id,
+      submissions => submissions.filter(item => item.id !== submission.id),
+      'Deleting submission',
+    )
+  }
+
+  function exportSubmissions() {
+    if (!selected?.id || !(selected.submissions || []).length) return setNotice('No submissions to export')
+    const fields = selected.fields || []
+    const header = ['Submission ID', 'Created At', 'Status', 'Source', ...fields.map(field => field.label || field.id)]
+    const rows = (selected.submissions || []).map(submission => [
+      submission.id,
+      submission.createdAt,
+      submission.status || 'New',
+      submission.source || 'Submission',
+      ...fields.map(field => submission.values?.[field.id] ?? ''),
+    ])
+    const csv = [header, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n')
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `${websiteId}-${selected.id}-submissions.csv`
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+    setNotice('Submissions exported')
+  }
+
   return (
     <Layout client={client} title="Forms">
       <section className="moduleHero card">
@@ -271,6 +340,7 @@ export function FormBuilderPage({ client = false }) {
             <div className="submissions">
               <h3>Public Submission Readiness</h3>
               <p><b>Public website integration</b><small>{publicReady ? 'Connected and accepting submissions' : selected.status !== 'Active' ? 'Ready when this form is Active' : 'Blocked by unsupported File fields'}</small></p>
+              <p><b>Delivery destination</b><small>{selected.destination || 'No destination configured'}</small></p>
               <p><b>Spam protection</b><small>{selected.spamProtection !== false ? 'Enabled for public submissions' : 'Disabled'}</small></p>
               <p><b>Portal preview test</b><small>Available below and stored separately by source label</small></p>
               {hasFileFields && <p><b>File upload fields</b><small>Require a dedicated public upload pipeline before this form can accept live submissions</small></p>}
@@ -289,10 +359,20 @@ export function FormBuilderPage({ client = false }) {
         <aside className="card formPreview">
           <div className="panelHead"><h2>Portal Preview</h2>{canEdit && <button disabled={!websiteId || !selected?.id || busy} onClick={addTestSubmission}>{busyAction === 'test' ? 'Testing…' : 'Add Test Submission'}</button>}</div>
           {selected && <form onSubmit={event => event.preventDefault()}><h3>{selected.name}</h3>{(selected.fields || []).map(field => <label key={field.id}>{field.type !== 'Checkbox' && <span>{field.label}{field.required ? ' *' : ''}</span>}<FieldPreview field={field} /></label>)}<button type="button" disabled>Preview only</button></form>}
-          <div className="submissions"><h3>Submissions</h3>{selected?.submissions?.length ? selected.submissions.map(sub => {
-            const summary = submissionSummary(sub, selected.fields || [])
-            return <p key={sub.id}><b>{sub.source || 'Submission'}</b><small>{sub.createdAt}</small>{summary && <small>{summary}</small>}</p>
-          }) : <p>No submissions yet.</p>}</div>
+          <div className="submissions">
+            <div className="panelHead"><h3>Submissions</h3><button type="button" disabled={!selected?.submissions?.length || busy} onClick={exportSubmissions}>Export CSV</button></div>
+            {selected?.submissions?.length ? selected.submissions.map(sub => {
+              const summary = submissionSummary(sub, selected.fields || [])
+              const submissionBusy = busyAction === `submission-${sub.id}`
+              return <article className="submissionItem" key={sub.id}>
+                <div><b>{sub.source || 'Submission'}</b><small>{sub.createdAt}</small>{summary && <small>{summary}</small>}</div>
+                <div className="submissionActions">
+                  <select aria-label="Submission status" value={submissionStatuses.includes(sub.status) ? sub.status : 'New'} disabled={!canEdit || busy} onChange={event => updateSubmissionStatus(sub, event.target.value)}>{submissionStatuses.map(status => <option key={status}>{status}</option>)}</select>
+                  {canEdit && <button type="button" disabled={busy} onClick={() => removeSubmission(sub)}>{submissionBusy ? 'Saving…' : 'Delete'}</button>}
+                </div>
+              </article>
+            }) : <p>No submissions yet.</p>}
+          </div>
         </aside>
       </section>
     </Layout>
