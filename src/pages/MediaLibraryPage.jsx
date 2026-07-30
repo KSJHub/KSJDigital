@@ -12,6 +12,15 @@ function formatFileSize(bytes = 0) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+function normaliseAsset(asset = {}) {
+  return {
+    ...asset,
+    name: asset.name || asset.originalName || asset.filename || 'Unnamed asset',
+    type: asset.type || asset.mimeType || '',
+    version: Number(asset.version) || 1,
+  }
+}
+
 function FilePreview({ asset }) {
   const url = asset.url?.startsWith('http') ? asset.url : `${import.meta.env.VITE_KSJ_ASSET_URL || 'http://localhost:4174'}${asset.url || ''}`
 
@@ -27,7 +36,11 @@ function ownerId(website, account) {
 export function MediaLibraryPage({ client = false }) {
   const account = getAccountFromPath()
   const { websites } = useWebsites()
-  const website = findClientWebsite(websites, account)
+  const assignedWebsite = findClientWebsite(websites, account)
+  const [selectedWebsiteId, setSelectedWebsiteId] = useState('')
+  const website = account?.role === 'owner'
+    ? websites.find(site => site.id === selectedWebsiteId) || websites[0] || null
+    : assignedWebsite
   const websiteId = website?.id
   const owner = ownerId(website, account)
   const canManageMedia = account?.role === 'owner' || account?.canManageMedia
@@ -38,25 +51,33 @@ export function MediaLibraryPage({ client = false }) {
   const [notice, setNotice] = useState(canManageMedia ? 'Loading' : 'Media permission required')
   const selected = assets.find(asset => asset.id === selectedId)
 
+  useEffect(() => {
+    if (account?.role === 'owner' && !selectedWebsiteId && websites[0]?.id) setSelectedWebsiteId(websites[0].id)
+  }, [account?.role, selectedWebsiteId, websites])
+
   async function loadAssets(message = 'Ready') {
     if (!canManageMedia) {
       setAssets([])
+      setSelectedId('')
       setNotice('Media permission required')
       return
     }
 
     if (!websiteId) {
       setAssets([])
+      setSelectedId('')
       setNotice('Waiting for assigned website')
       return
     }
 
     try {
-      const records = await api.assets(owner, websiteId)
+      const records = (await api.assets(owner, websiteId)).map(normaliseAsset)
       setAssets(records)
+      setSelectedId(current => records.some(asset => asset.id === current) ? current : '')
       setNotice(message)
     } catch (error) {
       setAssets([])
+      setSelectedId('')
       setNotice(error.message || 'Media API unavailable')
     }
   }
@@ -70,14 +91,15 @@ export function MediaLibraryPage({ client = false }) {
     if (!websiteId) return
 
     const list = Array.from(files || [])
+    if (!list.length) return
     const slot = folder === 'All' ? 'website' : folder.toLowerCase()
-    setNotice('Uploading')
+    setNotice(`Uploading ${list.length} file${list.length === 1 ? '' : 's'}`)
 
     try {
       for (const file of list) {
         await api.uploadAsset(owner, websiteId, slot, file)
       }
-      await loadAssets(`${list.length} file(s) uploaded`)
+      await loadAssets(`${list.length} file${list.length === 1 ? '' : 's'} uploaded`)
     } catch (error) {
       setNotice(error.message || 'Upload failed')
     }
@@ -105,7 +127,7 @@ export function MediaLibraryPage({ client = false }) {
           !search ||
           `${asset.name} ${assetFolder}`
             .toLowerCase()
-            .includes(search.toLowerCase())
+            .includes(search.trim().toLowerCase())
         return folderMatch && searchMatch
       }),
     [assets, folder, search],
@@ -122,7 +144,7 @@ export function MediaLibraryPage({ client = false }) {
             <h2>Media access restricted</h2>
             <p>Your account does not currently have permission to manage media for this website.</p>
           </div>
-          <button>{notice}</button>
+          <button type="button" disabled aria-live="polite">{notice}</button>
         </section>
       </Layout>
     )
@@ -136,8 +158,13 @@ export function MediaLibraryPage({ client = false }) {
           <h2>{website?.name || 'Assigned Website'} Assets</h2>
           <p>Upload, organise, replace and track media used across the website.</p>
         </div>
-        <button>{notice}</button>
+        <button type="button" disabled aria-live="polite">{notice}</button>
       </section>
+
+      {account?.role === 'owner' && websites.length > 1 && <section className="card formSettings">
+        <label>Website<select value={websiteId || ''} onChange={event => { setSelectedWebsiteId(event.target.value); setSelectedId(''); setFolder('All'); setSearch('') }}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label>
+      </section>}
+
       <section className="mediaLibraryGrid">
         <aside className="card mediaFolders">
           <div className="panelHead">
@@ -148,7 +175,7 @@ export function MediaLibraryPage({ client = false }) {
             <button
               className={folder === item ? 'active' : ''}
               key={item}
-              onClick={() => setFolder(item)}
+              onClick={() => { setFolder(item); setSelectedId('') }}
             >
               {item} Assets
               <small>
@@ -170,6 +197,7 @@ export function MediaLibraryPage({ client = false }) {
               value={search}
               onChange={event => setSearch(event.target.value)}
               placeholder="Search assets or folders"
+              aria-label="Search media assets"
             />
             <label>
               Upload
@@ -205,7 +233,7 @@ export function MediaLibraryPage({ client = false }) {
                 </article>
               ))
             ) : (
-              <p>No media found.</p>
+              <p className="emptyState">{search || folder !== 'All' ? 'No media matches the current filters.' : 'No media has been uploaded yet.'}</p>
             )}
           </div>
         </section>
@@ -233,7 +261,7 @@ export function MediaLibraryPage({ client = false }) {
                   Replace
                   <input type="file" onChange={event => replace(event.target.files?.[0])} />
                 </label>
-                <button disabled>Delete pending API</button>
+                <button disabled title="Asset deletion is not available for uploaded manifest assets yet">Delete unavailable</button>
               </div>
               <div className="versionList">
                 <b>Version</b>
