@@ -533,7 +533,7 @@ export function FormBuilderPage({ client = false }) {
       await api.saveForms(websiteId, nextForms)
       setEditHistory(current => {
         const latest = current[formId] || { past: [], future: [] }
-        return { ...current, [formId]: { past: [...latest.past, cloneValue(currentSnapshot)].slice(0, editHistoryLimit), future: latest.future.slice(1) } }
+        return { ...current, [formId]: { past: [...latest.past, cloneValue(currentSnapshot)].slice(-editHistoryLimit), future: latest.future.slice(1) } }
       })
       setSavedConfigs(current => ({ ...current, [formId]: cloneValue(target) }))
       setDraftDirty(false)
