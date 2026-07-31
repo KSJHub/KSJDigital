@@ -119,17 +119,24 @@ function cloneValue(value) {
 }
 
 function formConfigSnapshot(form = {}) {
-  const { submissions: _submissions, ...config } = form || {}
+  const { submissions: _submissions, revisions: _revisions, ...config } = form || {}
   return cloneValue(config) || {}
 }
 
 function applyFormConfig(form = {}, snapshot = {}) {
   const submissions = Array.isArray(form.submissions) ? form.submissions : []
-  return { ...form, ...cloneValue(snapshot), id: form.id, submissions }
+  const revisions = Array.isArray(form.revisions) ? form.revisions : []
+  return { ...form, ...cloneValue(snapshot), id: form.id, submissions, revisions }
 }
 
 function sameConfig(left, right) {
   return JSON.stringify(left || {}) === JSON.stringify(right || {})
+}
+
+function revisionTimestamp(value) {
+  if (!value) return 'Unknown time'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString()
 }
 
 function fieldKind(field = {}) {
@@ -326,6 +333,7 @@ export function FormBuilderPage({ client = false }) {
   const previewFields = steppedPreview ? fieldsForSection(previewVisibleFields, previewSection, sections) : previewVisibleFields
   const publicReady = selected?.status === 'Active'
   const allSubmissions = Array.isArray(selected?.submissions) ? selected.submissions : []
+  const persistentRevisions = Array.isArray(selected?.revisions) ? selected.revisions : []
   const selectedHistory = editHistory[selected?.id] || { past: [], future: [] }
   const canUndoEdit = Boolean(selected?.id) && (draftDirty || selectedHistory.past.length > 0)
   const canRedoEdit = Boolean(selected?.id) && !draftDirty && selectedHistory.future.length > 0
@@ -486,12 +494,42 @@ export function FormBuilderPage({ client = false }) {
     } catch (error) { setNotice(error.message || 'Redo failed') } finally { setBusyAction('') }
   }
 
+  async function createRestorePoint() {
+    if (!canEdit || !websiteId || !selected?.id || busy) return
+    if (draftDirty) {
+      const saved = await saveFormsConfiguration(forms, selected.id, 'Saving before restore point')
+      if (!saved) return
+    }
+    setBusyAction('restore-point'); setNotice('Creating restore point')
+    try {
+      const next = await api.createFormRestorePoint(websiteId, selected.id, 'Manual restore point')
+      setForms(next)
+      setSavedConfigs(current => ({ ...current, [selected.id]: formConfigSnapshot(next.find(form => form.id === selected.id) || selected) }))
+      setNotice('Restore point created')
+    } catch (error) { setNotice(error.message || 'Restore point failed') }
+    finally { setBusyAction('') }
+  }
+
+  async function restorePersistentRevision(revision) {
+    if (!canEdit || !websiteId || !selected?.id || !revision?.id || busy) return
+    const when = revisionTimestamp(revision.createdAt)
+    if (!globalThis.confirm(`Restore “${revision.label || 'this revision'}” from ${when}? Your current configuration will be saved as a new revision first. Stored submissions will not be changed.`)) return
+    setBusyAction(`restore-${revision.id}`); setNotice('Restoring saved revision')
+    try {
+      await api.restoreFormRevision(websiteId, selected.id, revision.id)
+      setEditHistory(current => ({ ...current, [selected.id]: { past: [], future: [] } }))
+      setDraftDirty(false)
+      await loadForms(selected.id, 'Saved revision restored')
+    } catch (error) { setNotice(error.message || 'Revision restore failed') }
+    finally { setBusyAction('') }
+  }
+
   async function saveFormsConfiguration(nextForms, nextId, message) {
     if (!canEdit || !websiteId || busy) return false
     const previousSnapshot = savedConfigs[nextId] || null
     setBusyAction('save-configuration'); setNotice(message)
     try {
-      await api.saveForms(websiteId, nextForms)
+      await api.saveForms(websiteId, nextForms, message === 'Autosaving' ? 'Autosaved form changes' : message)
       const savedForm = nextForms.find(form => form.id === nextId)
       if (savedForm) recordConfigChange(nextId, previousSnapshot, savedForm)
       setDraftDirty(false)
@@ -592,7 +630,7 @@ export function FormBuilderPage({ client = false }) {
   async function duplicateForm() {
     if (!canEdit || !selected?.id || busy) return
     const id = uniqueId(`${selected.id || selected.name}-copy`, new Set(forms.map(form => form.id)))
-    const duplicate = { ...selected, id, name: `${selected.name || 'Form'} Copy`, status: 'Draft', sections: sections.map(section => ({ ...section })), fields: fields.map(field => ({ ...field })), submissions: [] }
+    const duplicate = { ...selected, id, name: `${selected.name || 'Form'} Copy`, status: 'Draft', sections: sections.map(section => ({ ...section })), fields: fields.map(field => ({ ...field })), submissions: [], revisions: [] }
     if (await saveFormsConfiguration([...forms, duplicate], id, 'Duplicating form')) setSelectedId(id)
   }
 
@@ -682,7 +720,7 @@ export function FormBuilderPage({ client = false }) {
     try {
       const next = await api.addField(websiteId, selected.id, { type })
       const assigned = next.map(form => form.id === selected.id ? { ...form, fields: (form.fields || []).map((field, index) => index === (form.fields || []).length - 1 ? { ...field, width: field.width || 'full', ...(sections.length > 1 && !field.sectionId ? { sectionId: sections[0].id } : {}) } : field) } : form)
-      await api.saveForms(websiteId, assigned)
+      await api.saveForms(websiteId, assigned, `Added ${type} field layout`)
       const savedForm = assigned.find(form => form.id === selected.id)
       if (savedForm) recordConfigChange(selected.id, previousSnapshot, savedForm)
       setForms(assigned); setSelectedId(selected.id); setDraftDirty(false); setNotice(`${type} field added`)
@@ -732,7 +770,7 @@ export function FormBuilderPage({ client = false }) {
     if (!canEdit || !websiteId || !selected?.id || !submissionId || busy) return
     setBusyAction(`submission-${submissionId}`); setNotice(message)
     const nextForms = forms.map(form => form.id === selected.id ? { ...form, submissions: updater(Array.isArray(form.submissions) ? form.submissions : []) } : form)
-    try { await api.saveForms(websiteId, nextForms); await loadForms(selected.id, message.replace(/ing$/, 'ed')); await loadDeliveryStatuses(selected.id) }
+    try { await api.saveForms(websiteId, nextForms, message); await loadForms(selected.id, message.replace(/ing$/, 'ed')); await loadDeliveryStatuses(selected.id) }
     catch (error) { setNotice(error.message || 'Submission update failed'); await loadForms(selected.id, error.message || 'Submission update failed') }
     finally { setBusyAction('') }
   }
@@ -741,7 +779,7 @@ export function FormBuilderPage({ client = false }) {
     if (!canEdit || !websiteId || !selected?.id || !selectedSubmissionIds.length || busy) return
     setBusyAction('bulk-submissions'); setNotice(message)
     const nextForms = forms.map(form => form.id === selected.id ? { ...form, submissions: updater(Array.isArray(form.submissions) ? form.submissions : []) } : form)
-    try { await api.saveForms(websiteId, nextForms); setSelectedSubmissionIds([]); await loadForms(selected.id, message.replace(/ing$/, 'ed')); await loadDeliveryStatuses(selected.id) }
+    try { await api.saveForms(websiteId, nextForms, message); setSelectedSubmissionIds([]); await loadForms(selected.id, message.replace(/ing$/, 'ed')); await loadDeliveryStatuses(selected.id) }
     catch (error) { setNotice(error.message || 'Bulk submission update failed'); await loadForms(selected.id, error.message || 'Bulk submission update failed') }
     finally { setBusyAction('') }
   }
@@ -820,7 +858,12 @@ export function FormBuilderPage({ client = false }) {
               <label className="formCheck"><input type="checkbox" checked={selected.spamProtection !== false} disabled={!canEdit || busy} onChange={event => saveForm({ spamProtection: event.target.checked })} /> Spam protection</label>
               <label className="formSettingsWide">Success Message<textarea value={selected.successMessage || ''} disabled={!canEdit || busy} placeholder="Thanks — your enquiry has been sent." onChange={event => updateSelectedLocal({ successMessage: event.target.value })} onBlur={event => saveFormConfiguration({ successMessage: event.target.value.trim().slice(0, 500) })} /></label>
             </div>
-            <div className="submissions"><h3>Public Submission Readiness</h3><p><b>Public website integration</b><small>{publicReady ? 'Connected and accepting submissions' : 'Ready when this form is Active'}</small></p><p><b>Delivery destination</b><small>{selected.destination || 'No destination configured'}</small></p><p><b>Draft safety</b><small>{draftDirty ? 'Unsaved changes · autosaving shortly' : `${selectedHistory.past.length} undo revision${selectedHistory.past.length === 1 ? '' : 's'} available this session · autosave enabled`}</small></p><p><b>Conditional logic</b><small>{conditionalEnabled ? 'Available · conditions may reference earlier answer fields only' : 'Unavailable while this form contains File fields'}</small></p><p><b>Form layout</b><small>{sections.length > 1 ? `${sections.length} stepped sections · full / half-width controls available` : 'Single page · full / half-width controls available'}</small></p><p><b>Advanced fields</b><small>{hasFileFields ? 'Unavailable while this form contains File fields' : 'Radio, Number, Heading, Instructions and Divider available'}</small></p><p><b>Success message</b><small>{selected.successMessage || 'Default confirmation message'}</small></p><p><b>Email transport</b><small>{isOwner ? (emailReadiness?.configured ? 'Configured' : 'Setup required') : 'Managed by KSJ Digital'}</small></p><p><b>Spam protection</b><small>{selected.spamProtection !== false ? 'Enabled for public submissions' : 'Disabled'}</small></p>{hasFileFields && <p><b>Secure file uploads</b><small>Enabled · PDF, PNG, JPG/JPEG and WebP · 5 MB per file · private authenticated downloads</small></p>}</div>
+            <div className="submissions"><h3>Public Submission Readiness</h3><p><b>Public website integration</b><small>{publicReady ? 'Connected and accepting submissions' : 'Ready when this form is Active'}</small></p><p><b>Delivery destination</b><small>{selected.destination || 'No destination configured'}</small></p><p><b>Draft safety</b><small>{draftDirty ? 'Unsaved changes · autosaving shortly' : `${selectedHistory.past.length} undo revision${selectedHistory.past.length === 1 ? '' : 's'} available this session · autosave enabled`}</small></p><p><b>Persistent history</b><small>{persistentRevisions.length ? `${persistentRevisions.length} saved revision${persistentRevisions.length === 1 ? '' : 's'} available across sessions` : 'No saved revisions yet'}</small></p><p><b>Conditional logic</b><small>{conditionalEnabled ? 'Available · conditions may reference earlier answer fields only' : 'Unavailable while this form contains File fields'}</small></p><p><b>Form layout</b><small>{sections.length > 1 ? `${sections.length} stepped sections · full / half-width controls available` : 'Single page · full / half-width controls available'}</small></p><p><b>Advanced fields</b><small>{hasFileFields ? 'Unavailable while this form contains File fields' : 'Radio, Number, Heading, Instructions and Divider available'}</small></p><p><b>Success message</b><small>{selected.successMessage || 'Default confirmation message'}</small></p><p><b>Email transport</b><small>{isOwner ? (emailReadiness?.configured ? 'Configured' : 'Setup required') : 'Managed by KSJ Digital'}</small></p><p><b>Spam protection</b><small>{selected.spamProtection !== false ? 'Enabled for public submissions' : 'Disabled'}</small></p>{hasFileFields && <p><b>Secure file uploads</b><small>Enabled · PDF, PNG, JPG/JPEG and WebP · 5 MB per file · private authenticated downloads</small></p>}</div>
+
+            <div className="formSectionsEditor">
+              <div className="panelHead"><div><h3>Revision History</h3><small>Saved configuration history survives refresh and logout. Restoring never replaces stored submissions.</small></div>{canEdit && <button type="button" disabled={busy} onClick={createRestorePoint}>{busyAction === 'restore-point' ? 'Creating…' : 'Create Restore Point'}</button>}</div>
+              {persistentRevisions.length ? <div className="submissions">{persistentRevisions.map((revision, index) => <p key={revision.id || `${revision.createdAt}-${index}`}><b>{revision.label || 'Saved form revision'}</b><small>{revisionTimestamp(revision.createdAt)} · {(Array.isArray(revision.changes) && revision.changes.length ? revision.changes : ['Form configuration']).join(', ')}</small>{canEdit && <button type="button" disabled={busy || !revision.id} onClick={() => restorePersistentRevision(revision)}>{busyAction === `restore-${revision.id}` ? 'Restoring…' : 'Restore'}</button>}</p>)}</div> : <p className="emptyState">No persistent revisions yet. Changes will appear here after saves, or create a manual restore point now.</p>}
+            </div>
 
             <div className="formSectionsEditor">
               <div className="panelHead"><div><h3>Sections / Steps</h3><small>{sections.length > 1 ? 'Public form uses Previous / Next navigation.' : 'Optional — add at least two sections to create a multi-page form.'}</small></div>{canEdit && <button type="button" disabled={busy || sections.length >= 20} onClick={addSection}>Add Section</button>}</div>
