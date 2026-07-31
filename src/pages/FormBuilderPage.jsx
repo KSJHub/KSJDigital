@@ -316,26 +316,32 @@ export function FormBuilderPage({ client = false }) {
   const [selectedSubmissionIds, setSelectedSubmissionIds] = useState([])
   const [previewValues, setPreviewValues] = useState({})
   const [previewStepIndex, setPreviewStepIndex] = useState(0)
+  const [previewMode, setPreviewMode] = useState('draft')
   const [savedConfigs, setSavedConfigs] = useState({})
   const [editHistory, setEditHistory] = useState({})
   const [draftDirty, setDraftDirty] = useState(false)
   const selected = forms.find(form => form.id === selectedId) || forms[0]
+  const publication = selected?.publication || {}
+  const liveConfig = publication.liveConfig && typeof publication.liveConfig === 'object' && !Array.isArray(publication.liveConfig) ? publication.liveConfig : null
+  const isPublished = publication.isPublished === true
+  const isArchived = !isPublished && selected?.status === 'Archived'
+  const hasUnpublishedChanges = publication.hasUnpublishedChanges === true || draftDirty
+  const previewForm = previewMode === 'live' && isPublished && liveConfig ? { ...selected, ...liveConfig, id: selected?.id } : selected
   const fields = selected?.fields || []
   const sections = normaliseSections(selected)
+  const previewFormFields = previewForm?.fields || []
+  const previewFormSections = normaliseSections(previewForm)
   const submissionFields = fields.filter(storesValue)
   const busy = Boolean(busyAction)
   const hasFileFields = fields.some(field => fieldKind(field) === 'File')
   const hasAdvancedFields = fields.some(field => advancedFieldTypes.has(fieldKind(field)))
   const conditionalEnabled = !hasFileFields
-  const previewVisibleFields = visibleFields(fields, previewValues, conditionalEnabled)
-  const steppedPreview = sections.length > 1
-  const safePreviewStepIndex = Math.min(previewStepIndex, Math.max(0, sections.length - 1))
-  const previewSection = steppedPreview ? sections[safePreviewStepIndex] : null
-  const previewFields = steppedPreview ? fieldsForSection(previewVisibleFields, previewSection, sections) : previewVisibleFields
-  const publication = selected?.publication || {}
-  const isPublished = publication.isPublished === true
-  const isArchived = !isPublished && selected?.status === 'Archived'
-  const hasUnpublishedChanges = publication.hasUnpublishedChanges === true || draftDirty
+  const previewConditionalEnabled = !previewFormFields.some(field => fieldKind(field) === 'File')
+  const previewVisibleFields = visibleFields(previewFormFields, previewValues, previewConditionalEnabled)
+  const steppedPreview = previewFormSections.length > 1
+  const safePreviewStepIndex = Math.min(previewStepIndex, Math.max(0, previewFormSections.length - 1))
+  const previewSection = steppedPreview ? previewFormSections[safePreviewStepIndex] : null
+  const previewFields = steppedPreview ? fieldsForSection(previewVisibleFields, previewSection, previewFormSections) : previewVisibleFields
   const publicReady = isPublished
   const publishedAt = publication.publishedAt ? revisionTimestamp(publication.publishedAt) : ''
   const allSubmissions = Array.isArray(selected?.submissions) ? selected.submissions : []
@@ -406,13 +412,16 @@ export function FormBuilderPage({ client = false }) {
   useEffect(() => {
     loadDeliveryStatuses(selected?.id)
     setSubmissionQuery(''); setSubmissionStatusFilter('All'); setSubmissionSourceFilter('All'); setSubmissionPage(1); setSelectedSubmissionIds([])
-    setPreviewValues(emptyPreviewValues(selected?.fields || [])); setPreviewStepIndex(0); setDraftDirty(false)
+    setPreviewMode('draft'); setPreviewValues(emptyPreviewValues(selected?.fields || [])); setPreviewStepIndex(0); setDraftDirty(false)
   }, [websiteId, selected?.id])
+  useEffect(() => {
+    setPreviewValues(emptyPreviewValues(previewFormFields)); setPreviewStepIndex(0)
+  }, [previewMode])
   useEffect(() => { loadEmailReadiness() }, [isOwner])
   useEffect(() => { if (isOwner) { setTestEmail(selected?.destination || emailReadiness?.from || ''); setEmailTestState('') } }, [isOwner, selected?.id, emailReadiness?.from])
   useEffect(() => { setSubmissionPage(1) }, [submissionQuery, submissionStatusFilter, submissionSourceFilter, submissionPageSize])
   useEffect(() => { if (submissionPage > submissionPageCount) setSubmissionPage(submissionPageCount) }, [submissionPage, submissionPageCount])
-  useEffect(() => { if (previewStepIndex >= sections.length && sections.length) setPreviewStepIndex(sections.length - 1) }, [previewStepIndex, sections.length])
+  useEffect(() => { if (previewStepIndex >= previewFormSections.length && previewFormSections.length) setPreviewStepIndex(previewFormSections.length - 1) }, [previewStepIndex, previewFormSections.length])
   useEffect(() => {
     const existing = new Set(allSubmissions.map(item => item.id))
     setSelectedSubmissionIds(current => current.filter(id => existing.has(id)))
@@ -1001,8 +1010,8 @@ export function FormBuilderPage({ client = false }) {
         </section>
 
         <aside className="card formPreview">
-          <div className="panelHead"><h2>Portal Preview</h2>{canEdit && <button disabled={!websiteId || !selected?.id || busy} onClick={addTestSubmission}>{busyAction === 'test' ? 'Testing…' : 'Add Test Submission'}</button>}</div>
-          {selected && <form onSubmit={event => event.preventDefault()}><h3>{selected.name}</h3>{steppedPreview && <div className="previewStepProgress"><span>Step {safePreviewStepIndex + 1} of {sections.length}</span><b>{previewSection?.title}</b>{previewSection?.description && <small>{previewSection.description}</small>}</div>}<div className="previewFieldsGrid">{previewFields.map(field => <FieldPreview key={field.id} field={field} value={previewValues[field.id]} onChange={value => setPreviewValues(current => ({ ...current, [field.id]: value }))} />)}</div>{steppedPreview ? <div className="previewStepActions">{safePreviewStepIndex > 0 && <button type="button" onClick={() => setPreviewStepIndex(index => Math.max(0, index - 1))}>Previous</button>}{safePreviewStepIndex < sections.length - 1 ? <button type="button" onClick={() => setPreviewStepIndex(index => Math.min(sections.length - 1, index + 1))}>Next</button> : <button type="button" disabled>Preview only</button>}</div> : <button type="button" disabled>Preview only</button>}{conditionalEnabled && fields.some(field => field.condition) && <small>Conditional preview is live — change answers above to test rules.</small>}{selected.successMessage && <small>Success: {selected.successMessage}</small>}</form>}
+          <div className="panelHead"><div><h2>Portal Preview</h2><small>{previewMode === 'live' ? 'Live version currently served to visitors' : isPublished && hasUnpublishedChanges ? 'Draft version with unpublished changes' : isPublished ? 'Draft matches the live version' : 'Draft preview · not yet public'}</small></div><div className="formHeaderActions">{isPublished && liveConfig && <><button type="button" disabled={previewMode === 'draft'} onClick={() => setPreviewMode('draft')}>Draft</button><button type="button" disabled={previewMode === 'live'} onClick={() => setPreviewMode('live')}>Live</button></>}{canEdit && <button disabled={!websiteId || !selected?.id || busy} onClick={addTestSubmission}>{busyAction === 'test' ? 'Testing…' : 'Add Test Submission'}</button>}</div></div>
+          {previewForm && <form onSubmit={event => event.preventDefault()}><h3>{previewForm.name}</h3>{steppedPreview && <div className="previewStepProgress"><span>Step {safePreviewStepIndex + 1} of {previewFormSections.length}</span><b>{previewSection?.title}</b>{previewSection?.description && <small>{previewSection.description}</small>}</div>}<div className="previewFieldsGrid">{previewFields.map(field => <FieldPreview key={field.id} field={field} value={previewValues[field.id]} onChange={value => setPreviewValues(current => ({ ...current, [field.id]: value }))} />)}</div>{steppedPreview ? <div className="previewStepActions">{safePreviewStepIndex > 0 && <button type="button" onClick={() => setPreviewStepIndex(index => Math.max(0, index - 1))}>Previous</button>}{safePreviewStepIndex < previewFormSections.length - 1 ? <button type="button" onClick={() => setPreviewStepIndex(index => Math.min(previewFormSections.length - 1, index + 1))}>Next</button> : <button type="button" disabled>Preview only</button>}</div> : <button type="button" disabled>Preview only</button>}{previewConditionalEnabled && previewFormFields.some(field => field.condition) && <small>Conditional preview is live — change answers above to test rules.</small>}{previewForm.successMessage && <small>Success: {previewForm.successMessage}</small>}</form>}
 
           <div className="submissions submissionManager">
             <div className="panelHead"><div><h3>Submissions</h3><small>{filteredSubmissions.length === submissionStats.total ? `${submissionStats.total} total` : `${filteredSubmissions.length} of ${submissionStats.total}`}</small></div><div className="submissionToolbar"><button type="button" disabled={!selected?.id || deliveryLoading} onClick={() => loadDeliveryStatuses(selected?.id)}>{deliveryLoading ? 'Checking…' : 'Refresh delivery'}</button><button type="button" disabled={!filteredSubmissions.length || busy} onClick={() => exportSubmissions(filteredSubmissions, 'filtered')}>Export filtered</button>{selectedSubmissions.length > 0 && <button type="button" disabled={busy} onClick={() => exportSubmissions(selectedSubmissions, 'selected')}>Export selected ({selectedSubmissions.length})</button>}</div></div>
