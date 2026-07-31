@@ -10,6 +10,21 @@ const PUBLIC_PHONE_PATTERN = /^[0-9+() .'\-]{5,40}$/
 const PUBLIC_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 const CONDITIONAL_OPERATORS = new Set(['equals', 'notEquals', 'checked', 'unchecked'])
 
+function publicSections(form = {}) {
+  const source = Array.isArray(form.sections) ? form.sections : []
+  const seen = new Set()
+  return source.map((section, index) => {
+    const id = safeName(section?.id || `step-${index + 1}`)
+    if (!id || seen.has(id)) return null
+    seen.add(id)
+    return {
+      id,
+      title: String(section?.title || `Step ${index + 1}`).trim().slice(0, 120) || `Step ${index + 1}`,
+      description: String(section?.description || '').trim().slice(0, 300),
+    }
+  }).filter(Boolean).slice(0, 20)
+}
+
 function publicCondition(field = {}, earlierFields = []) {
   const condition = field.condition && typeof field.condition === 'object' && !Array.isArray(field.condition) ? field.condition : null
   if (!condition) return null
@@ -26,7 +41,7 @@ function publicCondition(field = {}, earlierFields = []) {
   }
 }
 
-function publicFieldConfiguration(field = {}, earlierFields = []) {
+function publicFieldConfiguration(field = {}, earlierFields = [], sectionIds = new Set()) {
   const type = PUBLIC_FIELD_TYPES.has(field.type) ? field.type : 'Text'
   const cap = PUBLIC_FIELD_LENGTH_CAPS[type] || null
   const options = Array.isArray(field.options)
@@ -38,6 +53,7 @@ function publicFieldConfiguration(field = {}, earlierFields = []) {
   const minLength = cap && Number.isInteger(requestedMin) && requestedMin > 0
     ? Math.min(requestedMin, maxLength || cap)
     : null
+  const requestedSectionId = safeName(field.sectionId || '')
   return {
     id: String(field.id || ''),
     label: String(field.label || ''),
@@ -48,13 +64,15 @@ function publicFieldConfiguration(field = {}, earlierFields = []) {
     options,
     minLength,
     maxLength,
+    sectionId: sectionIds.has(requestedSectionId) ? requestedSectionId : '',
     condition: publicCondition(field, earlierFields),
   }
 }
 
-function publicFields(form = {}) {
+function publicFields(form = {}, sections = publicSections(form)) {
   const result = []
-  for (const field of Array.isArray(form.fields) ? form.fields : []) result.push(publicFieldConfiguration(field, result))
+  const sectionIds = new Set(sections.map(section => section.id))
+  for (const field of Array.isArray(form.fields) ? form.fields : []) result.push(publicFieldConfiguration(field, result, sectionIds))
   return result
 }
 
@@ -129,12 +147,16 @@ export function createAuthenticationPublicRouter() {
       const forms = await readJson(paths.forms(websiteId), [])
       if (!Array.isArray(forms)) return res.status(500).json({ error: 'Stored forms are invalid' })
       res.setHeader('Cache-Control', 'no-store')
-      res.json(forms.filter(form => form.status === 'Active').map(form => ({
-        id: String(form.id || ''),
-        successMessage: String(form.successMessage || '').trim().slice(0, 500),
-        conditionalLogicEnabled: !(form.fields || []).some(field => field.type === 'File'),
-        fields: publicFields(form),
-      })))
+      res.json(forms.filter(form => form.status === 'Active').map(form => {
+        const sections = publicSections(form)
+        return {
+          id: String(form.id || ''),
+          successMessage: String(form.successMessage || '').trim().slice(0, 500),
+          conditionalLogicEnabled: !(form.fields || []).some(field => field.type === 'File'),
+          sections,
+          fields: publicFields(form, sections),
+        }
+      }))
     } catch (error) {
       next(error)
     }
