@@ -4,6 +4,7 @@ import { api } from '../services/api.js'
 const PUBLIC_WEBSITE_ID = 'ksjdigital'
 const PUBLIC_FILE_ACCEPT = '.pdf,.png,.jpg,.jpeg,.webp'
 const PUBLIC_FILE_MAX_BYTES = 5 * 1024 * 1024
+const DISPLAY_ONLY_TYPES = new Set(['Heading', 'Instructions', 'Divider'])
 
 const services = [
   ['🌐', 'Company Websites', 'Clean, responsive websites for brands, creators, communities, and businesses.'],
@@ -34,7 +35,7 @@ function mergePublicFormConfiguration(forms, configuration) {
 }
 
 function emptyValues(form) {
-  return Object.fromEntries((form?.fields || []).map(field => [field.id, field.type === 'Checkbox' ? false : field.type === 'File' ? null : '']))
+  return Object.fromEntries((form?.fields || []).filter(field => !DISPLAY_ONLY_TYPES.has(field.type)).map(field => [field.id, field.type === 'Checkbox' ? false : field.type === 'File' ? null : '']))
 }
 
 function conditionMatches(condition, values = {}) {
@@ -77,22 +78,34 @@ function FieldHelp({ field, fallback = '' }) {
   return text ? <small>{text}</small> : null
 }
 
+function fieldWidthClass(field) {
+  return field.width === 'half' ? ' publicFormHalf' : ' publicFormFull'
+}
+
 function PublicFormField({ field, value, disabled, onChange }) {
+  const widthClass = fieldWidthClass(field)
+  if (field.type === 'Heading') return <div className={`publicFormDisplay publicFormHeading${widthClass}`}><h4>{field.label || 'Section heading'}</h4>{field.content && <p>{field.content}</p>}</div>
+  if (field.type === 'Instructions') return <div className={`publicFormDisplay publicFormInstructions${widthClass}`}>{field.label && <b>{field.label}</b>}<p>{field.content || field.helpText || 'Add guidance for this part of the form.'}</p></div>
+  if (field.type === 'Divider') return <div className={`publicFormDisplay publicFormDivider${widthClass}`} role="separator"><span>{field.label}</span></div>
   if (field.type === 'Checkbox') {
-    return <label className="publicFormCheck"><input type="checkbox" checked={value === true} required={field.required} disabled={disabled} onChange={event => onChange(event.target.checked)} /> <span>{field.label}{field.required ? ' *' : ''}</span><FieldHelp field={field} /></label>
+    return <label className={`publicFormCheck${widthClass}`}><input type="checkbox" checked={value === true} required={field.required} disabled={disabled} onChange={event => onChange(event.target.checked)} /> <span>{field.label}{field.required ? ' *' : ''}</span><FieldHelp field={field} /></label>
   }
   if (field.type === 'File') {
-    return <label><span>{field.label}{field.required ? ' *' : ''}</span><input type="file" accept={PUBLIC_FILE_ACCEPT} required={field.required} disabled={disabled} onChange={event => onChange(event.target.files?.[0] || null)} /><FieldHelp field={field} fallback="PDF, PNG, JPG or WebP · max 5 MB" /></label>
+    return <label className={widthClass.trim()}><span>{field.label}{field.required ? ' *' : ''}</span><input type="file" accept={PUBLIC_FILE_ACCEPT} required={field.required} disabled={disabled} onChange={event => onChange(event.target.files?.[0] || null)} /><FieldHelp field={field} fallback="PDF, PNG, JPG or WebP · max 5 MB" /></label>
   }
   if (field.type === 'Select') {
     const options = Array.isArray(field.options) ? field.options.filter(Boolean) : []
-    return <label><span>{field.label}{field.required ? ' *' : ''}</span><select value={value || ''} required={field.required} disabled={disabled} onChange={event => onChange(event.target.value)}><option value="">{field.placeholder || 'Choose an option'}</option>{options.map(option => <option key={option} value={option}>{option}</option>)}</select><FieldHelp field={field} /></label>
+    return <label className={widthClass.trim()}><span>{field.label}{field.required ? ' *' : ''}</span><select value={value || ''} required={field.required} disabled={disabled} onChange={event => onChange(event.target.value)}><option value="">{field.placeholder || 'Choose an option'}</option>{options.map(option => <option key={option} value={option}>{option}</option>)}</select><FieldHelp field={field} /></label>
+  }
+  if (field.type === 'Radio') {
+    const options = Array.isArray(field.options) ? field.options.filter(Boolean) : []
+    return <fieldset className={`publicFormRadio${widthClass}`}><legend>{field.label}{field.required ? ' *' : ''}</legend><div>{options.map(option => <label key={option}><input type="radio" name={field.id} value={option} checked={value === option} required={field.required} disabled={disabled} onChange={event => onChange(event.target.value)} /><span>{option}</span></label>)}</div><FieldHelp field={field} /></fieldset>
   }
 
   const minimum = Number(field.minLength) > 0 ? Number(field.minLength) : undefined
   const maximum = Number(field.maxLength) > 0 ? Number(field.maxLength) : undefined
   const common = {
-    value: value || '',
+    value: value ?? '',
     required: field.required,
     disabled,
     placeholder: field.placeholder || '',
@@ -100,10 +113,15 @@ function PublicFormField({ field, value, disabled, onChange }) {
     maxLength: maximum,
     onChange: event => onChange(event.target.value),
   }
-  if (field.type === 'Textarea') return <label><span>{field.label}{field.required ? ' *' : ''}</span><textarea {...common} rows="5" /><FieldHelp field={field} /></label>
+  if (field.type === 'Textarea') return <label className={widthClass.trim()}><span>{field.label}{field.required ? ' *' : ''}</span><textarea {...common} rows="5" /><FieldHelp field={field} /></label>
 
-  const type = field.type === 'Email' ? 'email' : field.type === 'Phone' ? 'tel' : field.type === 'Date' ? 'date' : 'text'
-  return <label><span>{field.label}{field.required ? ' *' : ''}</span><input type={type} {...common} /><FieldHelp field={field} /></label>
+  const type = field.type === 'Email' ? 'email' : field.type === 'Phone' ? 'tel' : field.type === 'Date' ? 'date' : field.type === 'Number' ? 'number' : 'text'
+  const numberProps = field.type === 'Number' ? {
+    min: field.min ?? undefined,
+    max: field.max ?? undefined,
+    step: field.step ?? 'any',
+  } : {}
+  return <label className={widthClass.trim()}><span>{field.label}{field.required ? ' *' : ''}</span><input type={type} {...common} {...numberProps} /><FieldHelp field={field} /></label>
 }
 
 export function PublicHomePage() {
@@ -170,7 +188,8 @@ export function PublicHomePage() {
     setFormNotice('Sending your enquiry…')
     try {
       const fields = visibleFields(contactForm, values)
-      const fileFields = fields.filter(field => field.type === 'File')
+      const submissionFields = fields.filter(field => !DISPLAY_ONLY_TYPES.has(field.type))
+      const fileFields = submissionFields.filter(field => field.type === 'File')
       for (const field of fileFields) {
         const file = values[field.id]
         if (file && file.size > PUBLIC_FILE_MAX_BYTES) throw new Error(`${field.label || 'Attachment'} must be 5 MB or smaller.`)
@@ -179,7 +198,7 @@ export function PublicHomePage() {
       let payload
       if (fileFields.length) {
         payload = new FormData()
-        const textValues = Object.fromEntries(fields.filter(field => field.type !== 'File').map(field => [field.id, values[field.id]]))
+        const textValues = Object.fromEntries(submissionFields.filter(field => field.type !== 'File').map(field => [field.id, values[field.id]]))
         payload.append('values', JSON.stringify(textValues))
         payload.append('website', honeypot)
         payload.append('startedAt', String(startedAt))
@@ -189,7 +208,7 @@ export function PublicHomePage() {
         }
       } else {
         payload = {
-          values: Object.fromEntries(fields.map(field => [field.id, values[field.id]])),
+          values: Object.fromEntries(submissionFields.map(field => [field.id, values[field.id]])),
           website: honeypot,
           startedAt,
         }
@@ -251,7 +270,7 @@ export function PublicHomePage() {
         {contactForm ? <form className="publicContactForm" onSubmit={submitContact}>
           <h3>{contactForm.name || 'Contact Us'}</h3>
           {stepped && <div className="publicFormProgress" aria-label={`Step ${safeStepIndex + 1} of ${steps.length}`}><div><span>Step {safeStepIndex + 1} of {steps.length}</span><b>{currentStep.title}</b></div><progress max={steps.length} value={safeStepIndex + 1} />{currentStep.description && <small>{currentStep.description}</small>}</div>}
-          {currentStepFields.map(field => <PublicFormField key={field.id} field={field} value={values[field.id]} disabled={submitting} onChange={value => setValues(current => ({ ...current, [field.id]: value }))} />)}
+          <div className="publicFormFields">{currentStepFields.map(field => <PublicFormField key={field.id} field={field} value={values[field.id]} disabled={submitting} onChange={value => setValues(current => ({ ...current, [field.id]: value }))} />)}</div>
           <label className="publicFormTrap" aria-hidden="true">Website<input value={honeypot} tabIndex="-1" autoComplete="off" onChange={event => setHoneypot(event.target.value)} /></label>
           {stepped ? <div className="publicFormStepActions">{safeStepIndex > 0 && <button type="button" className="secondary" disabled={submitting} onClick={previousStep}>Previous</button>}{!finalStep ? <button type="button" disabled={submitting} onClick={nextStep}>Next</button> : <button type="submit" disabled={submitting}>{submitting ? 'Sending…' : 'Send Enquiry'}</button>}</div> : <button type="submit" disabled={submitting}>{submitting ? 'Sending…' : 'Send Enquiry'}</button>}
           {formNotice && <p className="publicFormNotice" aria-live="polite">{formNotice}</p>}
