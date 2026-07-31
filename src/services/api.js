@@ -17,6 +17,15 @@ async function request(path, options = {}) {
   return data
 }
 
+async function currentActorLabel(fallback = 'Unknown user') {
+  try {
+    const account = await request('/me')
+    return String(account?.displayName || account?.name || account?.id || fallback).trim().slice(0, 120) || fallback
+  } catch {
+    return fallback
+  }
+}
+
 async function refreshStoredForms(websiteId) {
   return request(`/forms/${websiteId}`)
 }
@@ -88,10 +97,18 @@ function editorForm(stored = {}) {
   const live = formRevisionSnapshot(stored)
   const editable = draft ? { ...stored, ...draft, id: stored.id } : { ...stored }
   const editableSnapshot = formRevisionSnapshot(editable)
-  const publishHistory = (Array.isArray(stored.publishHistory) ? stored.publishHistory : []).map(release => ({
-    ...release,
-    comparison: isPublishedForm(stored) && release?.snapshot ? publishReleaseComparison(live, release.snapshot) : [],
-  }))
+  const publishHistory = (Array.isArray(stored.publishHistory) ? stored.publishHistory : []).map(release => {
+    const attribution = release?.publishedBy ? `Published by ${release.publishedBy}` : ''
+    const rollbackSource = release?.rollbackSourcePublishedAt
+      ? `Rollback source: ${release.rollbackSourceLabel || 'Published form'} · ${release.rollbackSourcePublishedAt}`
+      : ''
+    const note = [release?.note, attribution, rollbackSource].filter(Boolean).join(' · ')
+    return {
+      ...release,
+      note,
+      comparison: isPublishedForm(stored) && release?.snapshot ? publishReleaseComparison(live, release.snapshot) : [],
+    }
+  })
   return {
     ...editable,
     submissions: Array.isArray(stored.submissions) ? stored.submissions : [],
@@ -383,21 +400,27 @@ export const api = {
       action ? { formId, action } : {},
     )
   },
-  publishForm: (websiteId, formId, release = {}) => updateEditorForm(
-    websiteId,
-    formId,
-    form => ({ ...form, status: 'Active' }),
-    'Published form changes',
-    {
+  publishForm: async (websiteId, formId, release = {}) => {
+    const publishedBy = String(release?.publishedBy || '').trim().slice(0, 120) || await currentActorLabel()
+    return updateEditorForm(
+      websiteId,
       formId,
-      action: 'publish',
-      releaseLabel: String(release?.label || '').trim().slice(0, 120),
-      releaseNote: String(release?.note || '').trim().slice(0, 500),
-      publishedBy: String(release?.publishedBy || '').trim().slice(0, 120),
-    },
-  ),
+      form => ({ ...form, status: 'Active' }),
+      'Published form changes',
+      {
+        formId,
+        action: 'publish',
+        releaseLabel: String(release?.label || '').trim().slice(0, 120),
+        releaseNote: String(release?.note || '').trim().slice(0, 500),
+        publishedBy,
+      },
+    )
+  },
   updateFormPublishDetails: (websiteId, formId, publishId, details = {}) => updateStoredFormPublishDetails(websiteId, formId, publishId, details),
-  rollbackFormPublish: (websiteId, formId, publishId, details = {}) => rollbackStoredFormPublish(websiteId, formId, publishId, details),
+  rollbackFormPublish: async (websiteId, formId, publishId, details = {}) => {
+    const rolledBackBy = String(details?.rolledBackBy || '').trim().slice(0, 120) || await currentActorLabel()
+    return rollbackStoredFormPublish(websiteId, formId, publishId, { ...details, rolledBackBy })
+  },
   discardFormDraft: (websiteId, formId) => discardStoredFormDraft(websiteId, formId),
   deleteForm: async (websiteId, formId) => {
     await request(`/forms/${websiteId}/${formId}`, { method: 'DELETE' })
