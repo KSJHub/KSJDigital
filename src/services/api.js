@@ -239,6 +239,28 @@ async function discardStoredFormDraft(websiteId, formId) {
   return editorForms(next)
 }
 
+async function updateStoredFormPublishDetails(websiteId, formId, publishId, details = {}) {
+  const storedForms = await refreshStoredForms(websiteId)
+  const stored = storedForms.find(item => item?.id === formId)
+  if (!stored) throw new Error('Form not found')
+  const publishHistory = Array.isArray(stored.publishHistory) ? stored.publishHistory : []
+  const release = publishHistory.find(item => item?.id === publishId)
+  if (!release) throw new Error('Published form version not found')
+  const label = String(details?.label || '').trim().slice(0, 120) || 'Published form'
+  const note = String(details?.note || '').trim().slice(0, 500)
+  if (release.label === label && (release.note || '') === note) return editorForms(storedForms)
+  const next = storedForms.map(item => item?.id === formId
+    ? {
+        ...item,
+        publishHistory: publishHistory.map(entry => entry?.id === publishId
+          ? { ...entry, label, note }
+          : entry),
+      }
+    : item)
+  await request(`/forms/${websiteId}`, { method: 'PUT', body: JSON.stringify({ forms: next }) })
+  return editorForms(next)
+}
+
 async function rollbackStoredFormPublish(websiteId, formId, publishId) {
   const storedForms = await refreshStoredForms(websiteId)
   const stored = storedForms.find(item => item?.id === formId)
@@ -355,6 +377,7 @@ export const api = {
       releaseNote: String(release?.note || '').trim().slice(0, 500),
     },
   ),
+  updateFormPublishDetails: (websiteId, formId, publishId, details = {}) => updateStoredFormPublishDetails(websiteId, formId, publishId, details),
   rollbackFormPublish: (websiteId, formId, publishId) => rollbackStoredFormPublish(websiteId, formId, publishId),
   discardFormDraft: (websiteId, formId) => discardStoredFormDraft(websiteId, formId),
   deleteForm: async (websiteId, formId) => {
