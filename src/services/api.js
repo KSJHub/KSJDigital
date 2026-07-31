@@ -59,6 +59,7 @@ function editorForm(stored = {}) {
       publishedAt: stored.publishedAt || null,
       hasUnpublishedChanges: Boolean(draft && !sameSnapshot(live, editableSnapshot)),
       liveStatus: stored.status || 'Draft',
+      liveConfig: isPublishedForm(stored) ? cloneValue(live) : null,
     },
   }
 }
