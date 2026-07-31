@@ -54,6 +54,30 @@ function publishHistoryRecord(snapshot, label = 'Published form', publishedAt = 
   }
 }
 
+function collectionRollbackChanges(currentItems = [], releaseItems = [], singular = 'item') {
+  const current = new Map((Array.isArray(currentItems) ? currentItems : []).filter(item => item?.id).map(item => [item.id, item]))
+  const release = new Map((Array.isArray(releaseItems) ? releaseItems : []).filter(item => item?.id).map(item => [item.id, item]))
+  const added = [...release.keys()].filter(id => !current.has(id)).length
+  const removed = [...current.keys()].filter(id => !release.has(id)).length
+  const changed = [...release.keys()].filter(id => current.has(id) && !sameSnapshot(current.get(id), release.get(id))).length
+  const changes = []
+  if (added) changes.push(`${added} ${singular}${added === 1 ? '' : 's'} added`)
+  if (removed) changes.push(`${removed} ${singular}${removed === 1 ? '' : 's'} removed`)
+  if (changed) changes.push(`${changed} ${singular}${changed === 1 ? '' : 's'} changed`)
+  return changes
+}
+
+function publishReleaseComparison(current = {}, release = {}) {
+  const changes = []
+  if (current.name !== release.name) changes.push('Name changed')
+  if (current.destination !== release.destination) changes.push('Email destination changed')
+  if (current.spamProtection !== release.spamProtection) changes.push('Spam protection changed')
+  if (current.successMessage !== release.successMessage) changes.push('Success message changed')
+  changes.push(...collectionRollbackChanges(current.sections, release.sections, 'section'))
+  changes.push(...collectionRollbackChanges(current.fields, release.fields, 'field'))
+  return changes
+}
+
 function editorForm(stored = {}) {
   const draft = stored?.draftConfig && typeof stored.draftConfig === 'object' && !Array.isArray(stored.draftConfig)
     ? cloneValue(stored.draftConfig)
@@ -61,11 +85,15 @@ function editorForm(stored = {}) {
   const live = formRevisionSnapshot(stored)
   const editable = draft ? { ...stored, ...draft, id: stored.id } : { ...stored }
   const editableSnapshot = formRevisionSnapshot(editable)
+  const publishHistory = (Array.isArray(stored.publishHistory) ? stored.publishHistory : []).map(release => ({
+    ...release,
+    comparison: isPublishedForm(stored) && release?.snapshot ? publishReleaseComparison(live, release.snapshot) : [],
+  }))
   return {
     ...editable,
     submissions: Array.isArray(stored.submissions) ? stored.submissions : [],
     revisions: Array.isArray(stored.revisions) ? stored.revisions : [],
-    publishHistory: Array.isArray(stored.publishHistory) ? stored.publishHistory : [],
+    publishHistory,
     publication: {
       isPublished: isPublishedForm(stored),
       publishedAt: stored.publishedAt || null,
