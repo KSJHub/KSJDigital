@@ -27,6 +27,7 @@ function mergePublicFormConfiguration(forms, configuration) {
       ...form,
       successMessage: configured?.successMessage || '',
       conditionalLogicEnabled: configured?.conditionalLogicEnabled !== false,
+      sections: Array.isArray(configured?.sections) ? configured.sections : [],
       fields: (form.fields || []).map(field => ({ ...field, ...(fieldsById.get(field.id) || {}) })),
     }
   })
@@ -58,6 +59,17 @@ function visibleFields(form, values) {
     if (visible) visibleIds.add(field.id)
     return visible
   })
+}
+
+function formSteps(form) {
+  const sections = Array.isArray(form?.sections) ? form.sections.filter(section => section?.id) : []
+  return sections.length > 1 ? sections : [{ id: '', title: '', description: '' }]
+}
+
+function fieldsForStep(form, fields, step, steps) {
+  if (steps.length === 1) return fields
+  const firstId = steps[0]?.id || ''
+  return fields.filter(field => (field.sectionId || firstId) === step.id)
 }
 
 function FieldHelp({ field, fallback = '' }) {
@@ -102,9 +114,16 @@ export function PublicHomePage() {
   const [submitting, setSubmitting] = useState(false)
   const [formNotice, setFormNotice] = useState('')
   const [formAvailable, setFormAvailable] = useState(true)
+  const [currentStepIndex, setCurrentStepIndex] = useState(0)
 
   const contactForm = useMemo(() => forms.find(form => /contact|enquir|project/i.test(form.name || '')) || forms[0] || null, [forms])
   const currentVisibleFields = useMemo(() => visibleFields(contactForm, values), [contactForm, values])
+  const steps = useMemo(() => formSteps(contactForm), [contactForm])
+  const safeStepIndex = Math.min(currentStepIndex, Math.max(0, steps.length - 1))
+  const currentStep = steps[safeStepIndex]
+  const currentStepFields = useMemo(() => fieldsForStep(contactForm, currentVisibleFields, currentStep, steps), [contactForm, currentVisibleFields, currentStep, steps])
+  const stepped = steps.length > 1
+  const finalStep = safeStepIndex === steps.length - 1
 
   useEffect(() => {
     let cancelled = false
@@ -128,7 +147,21 @@ export function PublicHomePage() {
     if (!contactForm) return
     setValues(emptyValues(contactForm))
     setStartedAt(Date.now())
+    setCurrentStepIndex(0)
+    setFormNotice('')
   }, [contactForm?.id])
+
+  function nextStep(event) {
+    const form = event.currentTarget.form
+    if (form && !form.reportValidity()) return
+    setFormNotice('')
+    setCurrentStepIndex(index => Math.min(steps.length - 1, index + 1))
+  }
+
+  function previousStep() {
+    setFormNotice('')
+    setCurrentStepIndex(index => Math.max(0, index - 1))
+  }
 
   async function submitContact(event) {
     event.preventDefault()
@@ -166,6 +199,7 @@ export function PublicHomePage() {
       setValues(emptyValues(contactForm))
       setHoneypot('')
       setStartedAt(Date.now())
+      setCurrentStepIndex(0)
       setFormNotice(contactForm.successMessage || 'Thanks — your enquiry has been sent.')
     } catch (error) {
       setFormNotice(error.message || 'Your enquiry could not be sent. Please try again or email us directly.')
@@ -216,9 +250,10 @@ export function PublicHomePage() {
         <div><span className="publicEyebrow">Start a Project</span><h2>Build your next platform with KSJ Digital.</h2><p>For website, infrastructure, automation, and client-platform enquiries.</p><a className="publicContactEmail" href="mailto:ksj@ksjdigital.co.uk">ksj@ksjdigital.co.uk</a></div>
         {contactForm ? <form className="publicContactForm" onSubmit={submitContact}>
           <h3>{contactForm.name || 'Contact Us'}</h3>
-          {currentVisibleFields.map(field => <PublicFormField key={field.id} field={field} value={values[field.id]} disabled={submitting} onChange={value => setValues(current => ({ ...current, [field.id]: value }))} />)}
+          {stepped && <div className="publicFormProgress" aria-label={`Step ${safeStepIndex + 1} of ${steps.length}`}><div><span>Step {safeStepIndex + 1} of {steps.length}</span><b>{currentStep.title}</b></div><progress max={steps.length} value={safeStepIndex + 1} />{currentStep.description && <small>{currentStep.description}</small>}</div>}
+          {currentStepFields.map(field => <PublicFormField key={field.id} field={field} value={values[field.id]} disabled={submitting} onChange={value => setValues(current => ({ ...current, [field.id]: value }))} />)}
           <label className="publicFormTrap" aria-hidden="true">Website<input value={honeypot} tabIndex="-1" autoComplete="off" onChange={event => setHoneypot(event.target.value)} /></label>
-          <button type="submit" disabled={submitting}>{submitting ? 'Sending…' : 'Send Enquiry'}</button>
+          {stepped ? <div className="publicFormStepActions">{safeStepIndex > 0 && <button type="button" className="secondary" disabled={submitting} onClick={previousStep}>Previous</button>}{!finalStep ? <button type="button" disabled={submitting} onClick={nextStep}>Next</button> : <button type="submit" disabled={submitting}>{submitting ? 'Sending…' : 'Send Enquiry'}</button>}</div> : <button type="submit" disabled={submitting}>{submitting ? 'Sending…' : 'Send Enquiry'}</button>}
           {formNotice && <p className="publicFormNotice" aria-live="polite">{formNotice}</p>}
         </form> : formAvailable ? <p className="publicFormNotice">No public contact form is currently available.</p> : <a href="mailto:ksj@ksjdigital.co.uk">Email KSJ Digital</a>}
       </section>
