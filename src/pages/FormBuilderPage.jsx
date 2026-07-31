@@ -119,15 +119,16 @@ function cloneValue(value) {
 }
 
 function formConfigSnapshot(form = {}) {
-  const { submissions: _submissions, revisions: _revisions, publication: _publication, ...config } = form || {}
+  const { submissions: _submissions, revisions: _revisions, publishHistory: _publishHistory, publication: _publication, ...config } = form || {}
   return cloneValue(config) || {}
 }
 
 function applyFormConfig(form = {}, snapshot = {}) {
   const submissions = Array.isArray(form.submissions) ? form.submissions : []
   const revisions = Array.isArray(form.revisions) ? form.revisions : []
+  const publishHistory = Array.isArray(form.publishHistory) ? form.publishHistory : []
   const publication = form.publication && typeof form.publication === 'object' ? form.publication : undefined
-  return { ...form, ...cloneValue(snapshot), id: form.id, submissions, revisions, ...(publication ? { publication } : {}) }
+  return { ...form, ...cloneValue(snapshot), id: form.id, submissions, revisions, publishHistory, ...(publication ? { publication } : {}) }
 }
 
 function sameConfig(left, right) {
@@ -372,6 +373,7 @@ export function FormBuilderPage({ client = false }) {
   const draftLiveChanges = isPublished && liveConfig ? draftVsLiveSummary(liveConfig, selected || {}) : []
   const allSubmissions = Array.isArray(selected?.submissions) ? selected.submissions : []
   const persistentRevisions = Array.isArray(selected?.revisions) ? selected.revisions : []
+  const publishHistory = Array.isArray(selected?.publishHistory) ? selected.publishHistory : []
   const selectedHistory = editHistory[selected?.id] || { past: [], future: [] }
   const canUndoEdit = Boolean(selected?.id) && (draftDirty || selectedHistory.past.length > 0)
   const canRedoEdit = Boolean(selected?.id) && !draftDirty && selectedHistory.future.length > 0
@@ -669,7 +671,7 @@ export function FormBuilderPage({ client = false }) {
   async function duplicateForm() {
     if (!canEdit || !selected?.id || busy) return
     const id = uniqueId(`${selected.id || selected.name}-copy`, new Set(forms.map(form => form.id)))
-    const duplicate = { ...selected, id, name: `${selected.name || 'Form'} Copy`, status: 'Draft', sections: sections.map(section => ({ ...section })), fields: fields.map(field => ({ ...field })), submissions: [], revisions: [], publication: undefined }
+    const duplicate = { ...selected, id, name: `${selected.name || 'Form'} Copy`, status: 'Draft', sections: sections.map(section => ({ ...section })), fields: fields.map(field => ({ ...field })), submissions: [], revisions: [], publishHistory: [], publication: undefined }
     if (await saveFormsConfiguration([...forms, duplicate], id, 'Duplicating form')) setSelectedId(id)
   }
 
@@ -792,6 +794,28 @@ export function FormBuilderPage({ client = false }) {
     } catch (error) {
       setNotice(error.message || 'Discard draft failed')
       await loadForms(formId, error.message || 'Discard draft failed')
+    } finally { setBusyAction('') }
+  }
+
+  async function rollbackPublishedVersion(release) {
+    if (!canEdit || !websiteId || !selected?.id || !isPublished || !release?.id || busy) return
+    const releaseTime = revisionTimestamp(release.publishedAt)
+    const draftNote = hasUnpublishedChanges ? '\n\nYour current unpublished Draft will be preserved.' : ''
+    if (!globalThis.confirm(`Roll the Live version of “${selected.name || 'this form'}” back to the release from ${releaseTime}? Visitors will receive that version immediately after confirmation. Stored submissions and Revision History will not be changed.${draftNote}`)) return
+    setBusyAction(`rollback-publish-${release.id}`); setNotice('Rolling back live form')
+    try {
+      const next = await api.rollbackFormPublish(websiteId, selected.id, release.id)
+      setForms(next)
+      setSelectedId(selected.id)
+      setPreviewVersion('live')
+      setDraftDirty(false)
+      setEditHistory(current => ({ ...current, [selected.id]: { past: [], future: [] } }))
+      const updated = next.find(form => form.id === selected.id)
+      if (updated) setSavedConfigs(current => ({ ...current, [selected.id]: formConfigSnapshot(updated) }))
+      setNotice('Live version rolled back')
+    } catch (error) {
+      setNotice(error.message || 'Publish rollback failed')
+      await loadForms(selected.id, error.message || 'Publish rollback failed')
     } finally { setBusyAction('') }
   }
 
@@ -985,11 +1009,21 @@ export function FormBuilderPage({ client = false }) {
               <div className="panelHead"><div><h3>Form Lifecycle</h3><small>{isPublished ? 'Archive removes this form from the public website but preserves submissions and revision history.' : isArchived ? 'Restore returns this form to Draft. Publishing remains a separate explicit action.' : 'Draft forms can be archived for storage or published through the Publishing panel.'}</small></div>{canEdit && <button type="button" disabled={busy} onClick={() => changeLifecycle(isArchived ? 'Draft' : 'Archived')}>{busyAction === 'lifecycle' ? (isArchived ? 'Restoring…' : 'Archiving…') : isArchived ? 'Restore to Draft' : 'Archive Form'}</button>}</div>
             </div>
 
-            <div className="submissions"><h3>Public Submission Readiness</h3><p><b>Public website integration</b><small>{publicReady ? (hasUnpublishedChanges ? 'Live · draft changes are not public yet' : 'Connected and accepting submissions') : isArchived ? 'Archived · restore to Draft before publishing' : 'Ready after this form is published'}</small></p><p><b>Delivery destination</b><small>{selected.destination || 'No destination configured'}</small></p><p><b>Draft safety</b><small>{draftDirty ? 'Unsaved changes · autosaving shortly' : publication.hasUnpublishedChanges ? 'Saved draft changes · live version protected' : `${selectedHistory.past.length} undo revision${selectedHistory.past.length === 1 ? '' : 's'} available this session · autosave enabled`}</small></p><p><b>Persistent history</b><small>{persistentRevisions.length ? `${persistentRevisions.length} saved revision${persistentRevisions.length === 1 ? '' : 's'} available across sessions` : 'No saved revisions yet'}</small></p><p><b>Conditional logic</b><small>{conditionalEnabled ? 'Available · conditions may reference earlier answer fields only' : 'Unavailable while this form contains File fields'}</small></p><p><b>Form layout</b><small>{sections.length > 1 ? `${sections.length} stepped sections · full / half-width controls available` : 'Single page · full / half-width controls available'}</small></p><p><b>Advanced fields</b><small>{hasFileFields ? 'Unavailable while this form contains File fields' : 'Radio, Number, Heading, Instructions and Divider available'}</small></p><p><b>Success message</b><small>{selected.successMessage || 'Default confirmation message'}</small></p><p><b>Email transport</b><small>{isOwner ? (emailReadiness?.configured ? 'Configured' : 'Setup required') : 'Managed by KSJ Digital'}</small></p><p><b>Spam protection</b><small>{selected.spamProtection !== false ? 'Enabled for public submissions' : 'Disabled'}</small></p>{hasFileFields && <p><b>Secure file uploads</b><small>Enabled · PDF, PNG, JPG/JPEG and WebP · 5 MB per file · private authenticated downloads</small></p>}</div>
+            <div className="submissions"><h3>Public Submission Readiness</h3><p><b>Public website integration</b><small>{publicReady ? (hasUnpublishedChanges ? 'Live · draft changes are not public yet' : 'Connected and accepting submissions') : isArchived ? 'Archived · restore to Draft before publishing' : 'Ready after this form is published'}</small></p><p><b>Delivery destination</b><small>{selected.destination || 'No destination configured'}</small></p><p><b>Draft safety</b><small>{draftDirty ? 'Unsaved changes · autosaving shortly' : publication.hasUnpublishedChanges ? 'Saved draft changes · live version protected' : `${selectedHistory.past.length} undo revision${selectedHistory.past.length === 1 ? '' : 's'} available this session · autosave enabled`}</small></p><p><b>Persistent history</b><small>{persistentRevisions.length ? `${persistentRevisions.length} saved revision${persistentRevisions.length === 1 ? '' : 's'} available across sessions` : 'No saved revisions yet'}</small></p><p><b>Publish history</b><small>{publishHistory.length ? `${publishHistory.length} live release${publishHistory.length === 1 ? '' : 's'} retained for rollback` : 'No published releases recorded yet'}</small></p><p><b>Conditional logic</b><small>{conditionalEnabled ? 'Available · conditions may reference earlier answer fields only' : 'Unavailable while this form contains File fields'}</small></p><p><b>Form layout</b><small>{sections.length > 1 ? `${sections.length} stepped sections · full / half-width controls available` : 'Single page · full / half-width controls available'}</small></p><p><b>Advanced fields</b><small>{hasFileFields ? 'Unavailable while this form contains File fields' : 'Radio, Number, Heading, Instructions and Divider available'}</small></p><p><b>Success message</b><small>{selected.successMessage || 'Default confirmation message'}</small></p><p><b>Email transport</b><small>{isOwner ? (emailReadiness?.configured ? 'Configured' : 'Setup required') : 'Managed by KSJ Digital'}</small></p><p><b>Spam protection</b><small>{selected.spamProtection !== false ? 'Enabled for public submissions' : 'Disabled'}</small></p>{hasFileFields && <p><b>Secure file uploads</b><small>Enabled · PDF, PNG, JPG/JPEG and WebP · 5 MB per file · private authenticated downloads</small></p>}</div>
 
             <div className="formSectionsEditor">
               <div className="panelHead"><div><h3>Revision History</h3><small>Saved configuration history survives refresh and logout. Restoring never replaces stored submissions.</small></div>{canEdit && <button type="button" disabled={busy} onClick={createRestorePoint}>{busyAction === 'restore-point' ? 'Creating…' : 'Create Restore Point'}</button>}</div>
               {persistentRevisions.length ? <div className="submissions">{persistentRevisions.map((revision, index) => <p key={revision.id || `${revision.createdAt}-${index}`}><b>{revision.label || 'Saved form revision'}</b><small>{revisionTimestamp(revision.createdAt)} · {(Array.isArray(revision.changes) && revision.changes.length ? revision.changes : ['Form configuration']).join(', ')}</small>{canEdit && <button type="button" disabled={busy || !revision.id} onClick={() => restorePersistentRevision(revision)}>{busyAction === `restore-${revision.id}` ? 'Restoring…' : 'Restore'}</button>}</p>)}</div> : <p className="emptyState">No persistent revisions yet. Changes will appear here after saves, or create a manual restore point now.</p>}
+            </div>
+
+            <div className="formSectionsEditor">
+              <div className="panelHead"><div><h3>Publish History</h3><small>Each Live release is retained separately from editor revisions. Rollback changes the public version only and preserves submissions and any newer Draft.</small></div></div>
+              {publishHistory.length ? <div className="submissions">{publishHistory.map((release, index) => {
+                const releaseFields = Array.isArray(release.snapshot?.fields) ? release.snapshot.fields.length : 0
+                const releaseSections = normaliseSections(release.snapshot || {}).length
+                const currentRelease = index === 0 && isPublished && release.publishedAt === publication.publishedAt
+                return <p key={release.id || `${release.publishedAt}-${index}`}><b>{release.label || 'Published form'}</b><small>{revisionTimestamp(release.publishedAt)} · {releaseFields} field{releaseFields === 1 ? '' : 's'} · {releaseSections > 1 ? `${releaseSections} steps` : 'single page'}{currentRelease ? ' · Current Live' : ''}</small>{canEdit && isPublished && !currentRelease && <button type="button" disabled={busy || !release.id} onClick={() => rollbackPublishedVersion(release)}>{busyAction === `rollback-publish-${release.id}` ? 'Rolling back…' : 'Rollback Live Version'}</button>}</p>
+              })}</div> : <p className="emptyState">No publish history yet. The first release will appear here after this form is published.</p>}
             </div>
 
             <div className="formSectionsEditor">
