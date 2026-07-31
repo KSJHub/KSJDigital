@@ -259,6 +259,11 @@
   font-weight: 800;
 }
 
+.fieldTypeBar button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
 .fieldEditor {
   display: grid;
   gap: 12px;
@@ -279,6 +284,12 @@
 .fieldConditionRule {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.fieldNumberGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -355,6 +366,78 @@
 
 .previewStepProgress small {
   line-height: 1.4;
+}
+
+.previewFieldsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.previewFieldFull { grid-column: 1 / -1; }
+.previewFieldHalf { grid-column: span 1; }
+
+.previewRadio {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: #b9c3d6;
+}
+
+.previewRadio legend {
+  margin-bottom: 8px;
+  color: #b9c3d6;
+}
+
+.previewRadio label {
+  display: flex !important;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.previewRadio input { width: auto; }
+
+.previewDisplayBlock {
+  min-width: 0;
+}
+
+.previewHeading {
+  padding-bottom: 8px;
+  border-bottom: 1px solid #2b4771;
+}
+
+.previewHeading h4 { margin: 0 0 5px; color: #fff; }
+.previewHeading p,
+.previewInstructions p { margin: 0; color: #96a3b8; line-height: 1.5; }
+
+.previewInstructions {
+  padding: 12px;
+  border: 1px solid #2b4771;
+  border-radius: 12px;
+  background: #0a1524;
+}
+
+.previewInstructions b { display: block; margin-bottom: 5px; }
+
+.previewDivider {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: #7f91ab;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.previewDivider::before,
+.previewDivider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #2b4771;
 }
 
 .previewStepActions {
@@ -638,6 +721,7 @@
 @media (max-width: 600px) {
   .fieldValidationGrid,
   .fieldConditionRule,
+  .fieldNumberGrid,
   .submissionFilters {
     grid-template-columns: 1fr;
   }
@@ -656,6 +740,15 @@
   .previewStepActions {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
+  }
+
+  .previewFieldsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .previewFieldFull,
+  .previewFieldHalf {
+    grid-column: 1;
   }
 
   .submissionStats {
