@@ -818,9 +818,8 @@ export function FormBuilderPage({ client = false }) {
     if (!canEdit || !websiteId || !selected?.id || !isPublished || !release?.id || busy) return
     const releaseTime = revisionTimestamp(release.publishedAt)
     const rollbackChanges = liveConfig && release.snapshot ? draftVsLiveSummary(liveConfig, release.snapshot) : []
-    const impactSummary = rollbackChanges.length
-      ? `\n\nChanges to Current Live:\n• ${rollbackChanges.join('\n• ')}`
-      : '\n\nChanges to Current Live:\n• No configuration differences'
+    if (!rollbackChanges.length) return setNotice('Selected published version already matches Current Live')
+    const impactSummary = `\n\nChanges to Current Live:\n• ${rollbackChanges.join('\n• ')}`
     const draftNote = hasUnpublishedChanges ? '\n\nYour current unpublished Draft will be preserved.' : ''
     if (!globalThis.confirm(`Roll the Live version of “${selected.name || 'this form'}” back to the release from ${releaseTime}?${impactSummary}\n\nVisitors will receive that version immediately after confirmation. Stored submissions and Revision History will not be changed.${draftNote}`)) return
     setBusyAction(`rollback-publish-${release.id}`); setNotice('Rolling back live form')
@@ -1046,7 +1045,7 @@ export function FormBuilderPage({ client = false }) {
                 const currentRelease = index === 0 && isPublished && release.publishedAt === publication.publishedAt
                 const previewingRelease = previewingHistorical && historicalPreviewId === release.id
                 const releaseVsLive = isPublished && liveConfig && release.snapshot ? draftVsLiveSummary(liveConfig, release.snapshot) : []
-                return <p key={release.id || `${release.publishedAt}-${index}`}><b>{release.label || 'Published form'}</b><small>{revisionTimestamp(release.publishedAt)} · {releaseFields} field{releaseFields === 1 ? '' : 's'} · {releaseSections > 1 ? `${releaseSections} steps` : 'single page'}{currentRelease ? ' · Current Live' : ''}{previewingRelease ? ' · Previewing' : ''}</small>{!currentRelease && isPublished && <small>Rollback impact: {releaseVsLive.length ? releaseVsLive.join(' · ') : 'No configuration differences from Current Live'}</small>}<span className="formHeaderActions"><button type="button" disabled={busy || !release.id || previewingRelease} onClick={() => previewPublishedVersion(release)}>{previewingRelease ? 'Previewing' : 'Preview Release'}</button>{canEdit && isPublished && !currentRelease && <button type="button" disabled={busy || !release.id} onClick={() => rollbackPublishedVersion(release)}>{busyAction === `rollback-publish-${release.id}` ? 'Rolling back…' : 'Rollback Live Version'}</button>}</span></p>
+                return <p key={release.id || `${release.publishedAt}-${index}`}><b>{release.label || 'Published form'}</b><small>{revisionTimestamp(release.publishedAt)} · {releaseFields} field{releaseFields === 1 ? '' : 's'} · {releaseSections > 1 ? `${releaseSections} steps` : 'single page'}{currentRelease ? ' · Current Live' : ''}{previewingRelease ? ' · Previewing' : ''}</small>{!currentRelease && isPublished && <small>Rollback impact: {releaseVsLive.length ? releaseVsLive.join(' · ') : 'No configuration differences from Current Live'}</small>}<span className="formHeaderActions"><button type="button" disabled={busy || !release.id || previewingRelease} onClick={() => previewPublishedVersion(release)}>{previewingRelease ? 'Previewing' : 'Preview Release'}</button>{canEdit && isPublished && !currentRelease && <button type="button" disabled={busy || !release.id || !releaseVsLive.length} onClick={() => rollbackPublishedVersion(release)}>{busyAction === `rollback-publish-${release.id}` ? 'Rolling back…' : releaseVsLive.length ? 'Rollback Live Version' : 'Matches Live'}</button>}</span></p>
               })}</div> : <p className="emptyState">No publish history yet. The first release will appear here after this form is published.</p>}
             </div>
 
