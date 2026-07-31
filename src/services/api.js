@@ -1,4 +1,5 @@
 const API_BASE = import.meta.env.VITE_KSJ_API_URL || 'http://localhost:4174/api'
+const FORM_REVISION_LIMIT = 30
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -16,6 +17,67 @@ async function request(path, options = {}) {
 
 async function refreshForms(websiteId) {
   return request(`/forms/${websiteId}`)
+}
+
+function cloneValue(value) {
+  return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
+}
+
+function formRevisionSnapshot(form = {}) {
+  const { submissions: _submissions, revisions: _revisions, ...config } = form || {}
+  return cloneValue(config) || {}
+}
+
+function sameSnapshot(left, right) {
+  return JSON.stringify(left || {}) === JSON.stringify(right || {})
+}
+
+function revisionChanges(previous = {}, next = {}) {
+  const changes = []
+  if (previous.name !== next.name) changes.push('Name')
+  if (previous.destination !== next.destination) changes.push('Destination')
+  if (previous.status !== next.status) changes.push('Status')
+  if (previous.spamProtection !== next.spamProtection) changes.push('Spam protection')
+  if (previous.successMessage !== next.successMessage) changes.push('Success message')
+  if (JSON.stringify(previous.sections || []) !== JSON.stringify(next.sections || [])) changes.push('Sections')
+  if (JSON.stringify(previous.fields || []) !== JSON.stringify(next.fields || [])) changes.push('Fields')
+  return changes.length ? changes : ['Form configuration']
+}
+
+function revisionRecord(previousForm, nextForm, label = 'Saved form changes') {
+  const previous = formRevisionSnapshot(previousForm)
+  const next = formRevisionSnapshot(nextForm)
+  return {
+    id: `rev-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`,
+    createdAt: new Date().toISOString(),
+    label: String(label || 'Saved form changes').slice(0, 120),
+    changes: revisionChanges(previous, next),
+    snapshot: previous,
+  }
+}
+
+function formsWithPersistentRevisions(previousForms = [], nextForms = [], label = 'Saved form changes') {
+  const previousById = new Map((Array.isArray(previousForms) ? previousForms : []).filter(form => form?.id).map(form => [form.id, form]))
+  return (Array.isArray(nextForms) ? nextForms : []).map(form => {
+    const previous = previousById.get(form?.id)
+    if (!previous) return { ...form, revisions: Array.isArray(form?.revisions) ? form.revisions.slice(0, FORM_REVISION_LIMIT) : [] }
+    const revisions = Array.isArray(previous.revisions) ? previous.revisions : []
+    if (sameSnapshot(formRevisionSnapshot(previous), formRevisionSnapshot(form))) return { ...form, revisions }
+    return { ...form, revisions: [revisionRecord(previous, form, label), ...revisions].slice(0, FORM_REVISION_LIMIT) }
+  })
+}
+
+async function persistFormsWithRevisions(websiteId, previousForms, nextForms, label) {
+  const prepared = formsWithPersistentRevisions(previousForms, nextForms, label)
+  await request(`/forms/${websiteId}`, { method: 'PUT', body: JSON.stringify({ forms: prepared }) })
+  return prepared
+}
+
+async function mutateFormsWithRevision(websiteId, mutate, label) {
+  const previous = await refreshForms(websiteId)
+  await mutate()
+  const next = await refreshForms(websiteId)
+  return persistFormsWithRevisions(websiteId, previous, next, label)
 }
 
 export const api = {
@@ -61,26 +123,70 @@ export const api = {
   formAttachmentUrl: (websiteId, formId, submissionId, attachmentId) => `${API_BASE}/forms/${encodeURIComponent(websiteId)}/${encodeURIComponent(formId)}/submissions/${encodeURIComponent(submissionId)}/attachments/${encodeURIComponent(attachmentId)}`,
   getEmailReadiness: () => request('/notifications/email-readiness'),
   sendEmailTest: to => request('/notifications/email-test', { method: 'POST', body: JSON.stringify({ to }) }),
-  saveForms: (websiteId, forms) => request(`/forms/${websiteId}`, { method: 'PUT', body: JSON.stringify({ forms }) }),
+  saveForms: async (websiteId, forms, label = 'Saved form changes') => {
+    const previous = await refreshForms(websiteId)
+    return persistFormsWithRevisions(websiteId, previous, forms, label)
+  },
   createForm: async (websiteId, payload = {}) => {
     const form = await request(`/forms/${websiteId}`, { method: 'POST', body: JSON.stringify(payload) })
     return { form, forms: await refreshForms(websiteId) }
   },
-  updateForm: async (websiteId, formId, payload) => {
-    await request(`/forms/${websiteId}/${formId}`, { method: 'PATCH', body: JSON.stringify(payload) })
-    return refreshForms(websiteId)
-  },
+  updateForm: (websiteId, formId, payload) => mutateFormsWithRevision(
+    websiteId,
+    () => request(`/forms/${websiteId}/${formId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+    'Updated form settings',
+  ),
   deleteForm: async (websiteId, formId) => {
     await request(`/forms/${websiteId}/${formId}`, { method: 'DELETE' })
     return refreshForms(websiteId)
   },
-  addField: async (websiteId, formId, payload) => {
-    await request(`/forms/${websiteId}/${formId}/fields`, { method: 'POST', body: JSON.stringify(payload) })
-    return refreshForms(websiteId)
+  addField: (websiteId, formId, payload) => mutateFormsWithRevision(
+    websiteId,
+    () => request(`/forms/${websiteId}/${formId}/fields`, { method: 'POST', body: JSON.stringify(payload) }),
+    'Added form field',
+  ),
+  updateField: (websiteId, formId, fieldId, payload) => mutateFormsWithRevision(
+    websiteId,
+    () => request(`/forms/${websiteId}/${formId}/fields/${fieldId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+    'Updated form field',
+  ),
+  deleteField: (websiteId, formId, fieldId) => mutateFormsWithRevision(
+    websiteId,
+    () => request(`/forms/${websiteId}/${formId}/fields/${fieldId}`, { method: 'DELETE' }),
+    'Removed form field',
+  ),
+  moveField: (websiteId, formId, fieldId, direction) => mutateFormsWithRevision(
+    websiteId,
+    () => request(`/forms/${websiteId}/${formId}/fields/${fieldId}/move`, { method: 'POST', body: JSON.stringify({ direction }) }),
+    'Reordered form fields',
+  ),
+  createFormRestorePoint: async (websiteId, formId, label = 'Manual restore point') => {
+    const forms = await refreshForms(websiteId)
+    const form = forms.find(item => item.id === formId)
+    if (!form) throw new Error('Form not found')
+    const revision = {
+      id: `rev-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`,
+      createdAt: new Date().toISOString(),
+      label: String(label || 'Manual restore point').slice(0, 120),
+      changes: ['Manual restore point'],
+      snapshot: formRevisionSnapshot(form),
+    }
+    const next = forms.map(item => item.id === formId ? { ...item, revisions: [revision, ...(Array.isArray(item.revisions) ? item.revisions : [])].slice(0, FORM_REVISION_LIMIT) } : item)
+    await request(`/forms/${websiteId}`, { method: 'PUT', body: JSON.stringify({ forms: next }) })
+    return next
   },
-  updateField: (websiteId, formId, fieldId, payload) => request(`/forms/${websiteId}/${formId}/fields/${fieldId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-  deleteField: (websiteId, formId, fieldId) => request(`/forms/${websiteId}/${formId}/fields/${fieldId}`, { method: 'DELETE' }),
-  moveField: (websiteId, formId, fieldId, direction) => request(`/forms/${websiteId}/${formId}/fields/${fieldId}/move`, { method: 'POST', body: JSON.stringify({ direction }) }),
+  restoreFormRevision: async (websiteId, formId, revisionId) => {
+    const forms = await refreshForms(websiteId)
+    const form = forms.find(item => item.id === formId)
+    if (!form) throw new Error('Form not found')
+    const revision = (Array.isArray(form.revisions) ? form.revisions : []).find(item => item.id === revisionId)
+    if (!revision?.snapshot) throw new Error('Form revision not found')
+    const submissions = Array.isArray(form.submissions) ? form.submissions : []
+    const revisions = Array.isArray(form.revisions) ? form.revisions : []
+    const restored = { ...form, ...cloneValue(revision.snapshot), id: form.id, submissions, revisions }
+    const next = forms.map(item => item.id === formId ? restored : item)
+    return persistFormsWithRevisions(websiteId, forms, next, `Restored ${revision.label || 'form revision'}`)
+  },
   submitTestForm: (websiteId, formId) => request(`/forms/${websiteId}/${formId}/test-submission`, { method: 'POST', body: JSON.stringify({}) }),
   getOrders: () => request('/orders'),
   getOrder: id => request(`/orders/${id}`),
