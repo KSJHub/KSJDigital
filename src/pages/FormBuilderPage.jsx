@@ -26,6 +26,20 @@ function normaliseOptions(value) {
   return String(value || '').split(/\r?\n/).map(option => option.trim()).filter(Boolean).slice(0, 50)
 }
 
+function normaliseSections(form = {}) {
+  const seen = new Set()
+  return (Array.isArray(form.sections) ? form.sections : []).map((section, index) => {
+    const id = recordId(section?.id || `step-${index + 1}`, `step-${index + 1}`)
+    if (seen.has(id)) return null
+    seen.add(id)
+    return {
+      id,
+      title: String(section?.title || `Step ${index + 1}`).trim().slice(0, 120) || `Step ${index + 1}`,
+      description: String(section?.description || '').trim().slice(0, 300),
+    }
+  }).filter(Boolean).slice(0, 20)
+}
+
 function conditionMatches(condition, values = {}) {
   if (!condition) return true
   const actual = values[condition.fieldId]
@@ -70,6 +84,12 @@ function visibleFields(fields = [], values = {}, enabled = true) {
     if (visible) visibleIds.add(field.id)
     return visible
   })
+}
+
+function fieldsForSection(fields = [], section, sections = []) {
+  if (sections.length < 2) return fields
+  const firstId = sections[0]?.id || ''
+  return fields.filter(field => (field.sectionId || firstId) === section?.id)
 }
 
 function emptyPreviewValues(fields = []) {
@@ -144,12 +164,18 @@ export function FormBuilderPage({ client = false }) {
   const [submissionPageSize, setSubmissionPageSize] = useState(10)
   const [selectedSubmissionIds, setSelectedSubmissionIds] = useState([])
   const [previewValues, setPreviewValues] = useState({})
+  const [previewStepIndex, setPreviewStepIndex] = useState(0)
   const selected = forms.find(form => form.id === selectedId) || forms[0]
   const fields = selected?.fields || []
+  const sections = normaliseSections(selected)
   const busy = Boolean(busyAction)
   const hasFileFields = fields.some(field => field.type === 'File')
   const conditionalEnabled = !hasFileFields
-  const previewFields = visibleFields(fields, previewValues, conditionalEnabled)
+  const previewVisibleFields = visibleFields(fields, previewValues, conditionalEnabled)
+  const steppedPreview = sections.length > 1
+  const safePreviewStepIndex = Math.min(previewStepIndex, Math.max(0, sections.length - 1))
+  const previewSection = steppedPreview ? sections[safePreviewStepIndex] : null
+  const previewFields = steppedPreview ? fieldsForSection(previewVisibleFields, previewSection, sections) : previewVisibleFields
   const publicReady = selected?.status === 'Active'
   const allSubmissions = Array.isArray(selected?.submissions) ? selected.submissions : []
   const submissionSources = useMemo(() => [...new Set(allSubmissions.map(item => item.source || 'Submission'))].sort(), [allSubmissions])
@@ -213,12 +239,13 @@ export function FormBuilderPage({ client = false }) {
   useEffect(() => {
     loadDeliveryStatuses(selected?.id)
     setSubmissionQuery(''); setSubmissionStatusFilter('All'); setSubmissionSourceFilter('All'); setSubmissionPage(1); setSelectedSubmissionIds([])
-    setPreviewValues(emptyPreviewValues(selected?.fields || []))
+    setPreviewValues(emptyPreviewValues(selected?.fields || [])); setPreviewStepIndex(0)
   }, [websiteId, selected?.id])
   useEffect(() => { loadEmailReadiness() }, [isOwner])
   useEffect(() => { if (isOwner) { setTestEmail(selected?.destination || emailReadiness?.from || ''); setEmailTestState('') } }, [isOwner, selected?.id, emailReadiness?.from])
   useEffect(() => { setSubmissionPage(1) }, [submissionQuery, submissionStatusFilter, submissionSourceFilter, submissionPageSize])
   useEffect(() => { if (submissionPage > submissionPageCount) setSubmissionPage(submissionPageCount) }, [submissionPage, submissionPageCount])
+  useEffect(() => { if (previewStepIndex >= sections.length && sections.length) setPreviewStepIndex(sections.length - 1) }, [previewStepIndex, sections.length])
   useEffect(() => {
     const existing = new Set(allSubmissions.map(item => item.id))
     setSelectedSubmissionIds(current => current.filter(id => existing.has(id)))
@@ -258,6 +285,37 @@ export function FormBuilderPage({ client = false }) {
     return saveFormsConfiguration(nextForms, selected.id, 'Saving field configuration')
   }
 
+  async function addSection() {
+    if (!selected?.id || busy || sections.length >= 20) return
+    const existing = new Set(sections.map(section => section.id))
+    const id = uniqueId(`step-${sections.length + 1}`, existing)
+    const nextSections = [...sections, { id, title: `Step ${sections.length + 1}`, description: '' }]
+    await saveFormConfiguration({ sections: nextSections })
+  }
+
+  async function updateSection(sectionId, changes) {
+    const nextSections = sections.map(section => section.id === sectionId ? { ...section, ...changes } : section)
+    await saveFormConfiguration({ sections: nextSections })
+  }
+
+  async function removeSection(sectionId) {
+    if (sections.length <= 1 || busy) return
+    const nextSections = sections.filter(section => section.id !== sectionId)
+    const fallbackId = nextSections[0]?.id || ''
+    const nextFields = fields.map(field => field.sectionId === sectionId ? { ...field, sectionId: fallbackId } : field)
+    await saveFormsConfiguration(forms.map(form => form.id === selected.id ? { ...form, sections: nextSections, fields: nextFields } : form), selected.id, 'Removing section')
+  }
+
+  async function moveSection(sectionId, direction) {
+    if (busy) return
+    const index = sections.findIndex(section => section.id === sectionId)
+    const target = direction === 'up' ? index - 1 : index + 1
+    if (index < 0 || target < 0 || target >= sections.length) return
+    const nextSections = [...sections]
+    ;[nextSections[index], nextSections[target]] = [nextSections[target], nextSections[index]]
+    await saveFormConfiguration({ sections: nextSections })
+  }
+
   async function setFieldCondition(field, index, fieldId) {
     if (!fieldId) return saveFieldConfiguration(field.id, { condition: null })
     const source = fields.slice(0, index).find(item => item.id === fieldId)
@@ -273,7 +331,7 @@ export function FormBuilderPage({ client = false }) {
   async function duplicateForm() {
     if (!canEdit || !selected?.id || busy) return
     const id = uniqueId(`${selected.id || selected.name}-copy`, new Set(forms.map(form => form.id)))
-    const duplicate = { ...selected, id, name: `${selected.name || 'Form'} Copy`, status: 'Draft', fields: fields.map(field => ({ ...field })), submissions: [] }
+    const duplicate = { ...selected, id, name: `${selected.name || 'Form'} Copy`, status: 'Draft', sections: sections.map(section => ({ ...section })), fields: fields.map(field => ({ ...field })), submissions: [] }
     if (await saveFormsConfiguration([...forms, duplicate], id, 'Duplicating form')) setSelectedId(id)
   }
 
@@ -326,8 +384,12 @@ export function FormBuilderPage({ client = false }) {
   async function addNewField(type) {
     if (!canEdit || !websiteId || !selected?.id || busy) return
     setBusyAction('add-field'); setNotice('Adding field')
-    try { const next = await api.addField(websiteId, selected.id, { type }); setForms(next); setSelectedId(selected.id); setNotice(`${type} field added`) }
-    catch (error) { setNotice(error.message || 'Add field failed') } finally { setBusyAction('') }
+    try {
+      const next = await api.addField(websiteId, selected.id, { type })
+      const assigned = sections.length > 1 ? next.map(form => form.id === selected.id ? { ...form, fields: (form.fields || []).map((field, index) => index === (form.fields || []).length - 1 && !field.sectionId ? { ...field, sectionId: sections[0].id } : field) } : form) : next
+      if (sections.length > 1) await api.saveForms(websiteId, assigned)
+      setForms(assigned); setSelectedId(selected.id); setNotice(`${type} field added`)
+    } catch (error) { setNotice(error.message || 'Add field failed') } finally { setBusyAction('') }
   }
 
   async function editField(fieldId, changes) {
@@ -449,7 +511,18 @@ export function FormBuilderPage({ client = false }) {
               <label className="formCheck"><input type="checkbox" checked={selected.spamProtection !== false} disabled={!canEdit || busy} onChange={event => saveForm({ spamProtection: event.target.checked })} /> Spam protection</label>
               <label className="formSettingsWide">Success Message<textarea value={selected.successMessage || ''} disabled={!canEdit || busy} placeholder="Thanks — your enquiry has been sent." onChange={event => updateSelectedLocal({ successMessage: event.target.value })} onBlur={event => saveFormConfiguration({ successMessage: event.target.value.trim().slice(0, 500) })} /></label>
             </div>
-            <div className="submissions"><h3>Public Submission Readiness</h3><p><b>Public website integration</b><small>{publicReady ? 'Connected and accepting submissions' : 'Ready when this form is Active'}</small></p><p><b>Delivery destination</b><small>{selected.destination || 'No destination configured'}</small></p><p><b>Conditional logic</b><small>{conditionalEnabled ? 'Available · conditions may reference earlier fields only' : 'Unavailable while this form contains File fields'}</small></p><p><b>Success message</b><small>{selected.successMessage || 'Default confirmation message'}</small></p><p><b>Email transport</b><small>{isOwner ? (emailReadiness?.configured ? 'Configured' : 'Setup required') : 'Managed by KSJ Digital'}</small></p><p><b>Spam protection</b><small>{selected.spamProtection !== false ? 'Enabled for public submissions' : 'Disabled'}</small></p>{hasFileFields && <p><b>Secure file uploads</b><small>Enabled · PDF, PNG, JPG/JPEG and WebP · 5 MB per file · private authenticated downloads</small></p>}</div>
+            <div className="submissions"><h3>Public Submission Readiness</h3><p><b>Public website integration</b><small>{publicReady ? 'Connected and accepting submissions' : 'Ready when this form is Active'}</small></p><p><b>Delivery destination</b><small>{selected.destination || 'No destination configured'}</small></p><p><b>Conditional logic</b><small>{conditionalEnabled ? 'Available · conditions may reference earlier fields only' : 'Unavailable while this form contains File fields'}</small></p><p><b>Form layout</b><small>{sections.length > 1 ? `${sections.length} stepped sections` : 'Single page · add two or more sections to enable steps'}</small></p><p><b>Success message</b><small>{selected.successMessage || 'Default confirmation message'}</small></p><p><b>Email transport</b><small>{isOwner ? (emailReadiness?.configured ? 'Configured' : 'Setup required') : 'Managed by KSJ Digital'}</small></p><p><b>Spam protection</b><small>{selected.spamProtection !== false ? 'Enabled for public submissions' : 'Disabled'}</small></p>{hasFileFields && <p><b>Secure file uploads</b><small>Enabled · PDF, PNG, JPG/JPEG and WebP · 5 MB per file · private authenticated downloads</small></p>}</div>
+
+            <div className="formSectionsEditor">
+              <div className="panelHead"><div><h3>Sections / Steps</h3><small>{sections.length > 1 ? 'Public form uses Previous / Next navigation.' : 'Optional — add at least two sections to create a multi-page form.'}</small></div>{canEdit && <button type="button" disabled={busy || sections.length >= 20} onClick={addSection}>Add Section</button>}</div>
+              {sections.length ? sections.map((section, index) => <article key={section.id} className="formSectionItem">
+                <div className="formSectionNumber">{index + 1}</div>
+                <label>Title<input value={section.title} disabled={!canEdit || busy} onChange={event => updateSelectedLocal({ sections: sections.map(item => item.id === section.id ? { ...item, title: event.target.value } : item) })} onBlur={event => updateSection(section.id, { title: event.target.value.trim().slice(0, 120) || `Step ${index + 1}` })} /></label>
+                <label>Description<input value={section.description || ''} disabled={!canEdit || busy} placeholder="Optional guidance for this step" onChange={event => updateSelectedLocal({ sections: sections.map(item => item.id === section.id ? { ...item, description: event.target.value } : item) })} onBlur={event => updateSection(section.id, { description: event.target.value.trim().slice(0, 300) })} /></label>
+                {canEdit && <div className="formSectionActions"><button type="button" disabled={busy || index === 0} onClick={() => moveSection(section.id, 'up')}>↑</button><button type="button" disabled={busy || index === sections.length - 1} onClick={() => moveSection(section.id, 'down')}>↓</button><button type="button" disabled={busy || sections.length <= 1} onClick={() => removeSection(section.id)}>Remove</button></div>}
+              </article>) : <p className="emptyState">No sections configured. This form stays on one page.</p>}
+            </div>
+
             {canEdit && <div className="fieldTypeBar">{fieldTypes.map(type => <button key={type} disabled={busy} onClick={() => addNewField(type)}>{type}</button>)}</div>}
             {fields.map((field, index) => {
               const earlierFields = fields.slice(0, index).filter(item => item.type !== 'File')
@@ -459,6 +532,7 @@ export function FormBuilderPage({ client = false }) {
                 <label>Label<input value={field.label || ''} disabled={!canEdit || busy} onChange={event => updateFieldLocal(field.id, { label: event.target.value })} onBlur={event => editField(field.id, { label: event.target.value })} /></label>
                 <label>Placeholder<input value={field.placeholder || ''} disabled={!canEdit || busy} onChange={event => updateFieldLocal(field.id, { placeholder: event.target.value })} onBlur={event => editField(field.id, { placeholder: event.target.value })} /></label>
                 <label>Help Text<input value={field.helpText || ''} disabled={!canEdit || busy} placeholder="Optional guidance shown below the field" onChange={event => updateFieldLocal(field.id, { helpText: event.target.value })} onBlur={event => saveFieldConfiguration(field.id, { helpText: event.target.value.trim().slice(0, 300) })} /></label>
+                {sections.length > 1 && <label>Section / Step<select value={field.sectionId || sections[0].id} disabled={!canEdit || busy} onChange={event => saveFieldConfiguration(field.id, { sectionId: event.target.value })}>{sections.map(section => <option key={section.id} value={section.id}>{section.title}</option>)}</select></label>}
                 {field.type === 'Select' && <label>Options<textarea value={(field.options || []).join('\n')} disabled={!canEdit || busy} placeholder={'Option One\nOption Two\nOption Three'} onChange={event => updateFieldLocal(field.id, { options: normaliseOptions(event.target.value) })} onBlur={event => saveFieldConfiguration(field.id, { options: normaliseOptions(event.target.value) })} /><small>One option per line · up to 50 options</small></label>}
                 {lengthFieldTypes.has(field.type) && <div className="fieldValidationGrid"><label>Minimum Length<input type="number" min="0" max="5000" value={field.minLength || ''} disabled={!canEdit || busy} onChange={event => updateFieldLocal(field.id, { minLength: event.target.value ? Math.max(0, Math.min(5000, Number(event.target.value))) : null })} onBlur={event => saveFieldConfiguration(field.id, { minLength: event.target.value ? Math.max(0, Math.min(5000, Number(event.target.value))) : null })} /></label><label>Maximum Length<input type="number" min="1" max="5000" value={field.maxLength || ''} disabled={!canEdit || busy} onChange={event => updateFieldLocal(field.id, { maxLength: event.target.value ? Math.max(1, Math.min(5000, Number(event.target.value))) : null })} onBlur={event => saveFieldConfiguration(field.id, { maxLength: event.target.value ? Math.max(1, Math.min(5000, Number(event.target.value))) : null })} /></label></div>}
                 <label className="formCheck"><input type="checkbox" checked={field.required === true} disabled={!canEdit || busy} onChange={event => editField(field.id, { required: event.target.checked })} /> Required</label>
@@ -476,7 +550,7 @@ export function FormBuilderPage({ client = false }) {
 
         <aside className="card formPreview">
           <div className="panelHead"><h2>Portal Preview</h2>{canEdit && <button disabled={!websiteId || !selected?.id || busy} onClick={addTestSubmission}>{busyAction === 'test' ? 'Testing…' : 'Add Test Submission'}</button>}</div>
-          {selected && <form onSubmit={event => event.preventDefault()}><h3>{selected.name}</h3>{previewFields.map(field => <label key={field.id}>{field.type !== 'Checkbox' && <span>{field.label}{field.required ? ' *' : ''}</span>}<FieldPreview field={field} value={previewValues[field.id]} onChange={value => setPreviewValues(current => ({ ...current, [field.id]: value }))} /></label>)}<button type="button" disabled>Preview only</button>{conditionalEnabled && fields.some(field => field.condition) && <small>Conditional preview is live — change answers above to test rules.</small>}{selected.successMessage && <small>Success: {selected.successMessage}</small>}</form>}
+          {selected && <form onSubmit={event => event.preventDefault()}><h3>{selected.name}</h3>{steppedPreview && <div className="previewStepProgress"><span>Step {safePreviewStepIndex + 1} of {sections.length}</span><b>{previewSection?.title}</b>{previewSection?.description && <small>{previewSection.description}</small>}</div>}{previewFields.map(field => <label key={field.id}>{field.type !== 'Checkbox' && <span>{field.label}{field.required ? ' *' : ''}</span>}<FieldPreview field={field} value={previewValues[field.id]} onChange={value => setPreviewValues(current => ({ ...current, [field.id]: value }))} /></label>)}{steppedPreview ? <div className="previewStepActions">{safePreviewStepIndex > 0 && <button type="button" onClick={() => setPreviewStepIndex(index => Math.max(0, index - 1))}>Previous</button>}{safePreviewStepIndex < sections.length - 1 ? <button type="button" onClick={() => setPreviewStepIndex(index => Math.min(sections.length - 1, index + 1))}>Next</button> : <button type="button" disabled>Preview only</button>}</div> : <button type="button" disabled>Preview only</button>}{conditionalEnabled && fields.some(field => field.condition) && <small>Conditional preview is live — change answers above to test rules.</small>}{selected.successMessage && <small>Success: {selected.successMessage}</small>}</form>}
 
           <div className="submissions submissionManager">
             <div className="panelHead"><div><h3>Submissions</h3><small>{filteredSubmissions.length === submissionStats.total ? `${submissionStats.total} total` : `${filteredSubmissions.length} of ${submissionStats.total}`}</small></div><div className="submissionToolbar"><button type="button" disabled={!selected?.id || deliveryLoading} onClick={() => loadDeliveryStatuses(selected?.id)}>{deliveryLoading ? 'Checking…' : 'Refresh delivery'}</button><button type="button" disabled={!filteredSubmissions.length || busy} onClick={() => exportSubmissions(filteredSubmissions, 'filtered')}>Export filtered</button>{selectedSubmissions.length > 0 && <button type="button" disabled={busy} onClick={() => exportSubmissions(selectedSubmissions, 'selected')}>Export selected ({selectedSubmissions.length})</button>}</div></div>
