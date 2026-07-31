@@ -46,10 +46,11 @@ function isPublishedForm(form = {}) {
   return form.status === 'Active' || Boolean(form.publishedAt)
 }
 
-function publishHistoryRecord(snapshot, label = 'Published form', publishedAt = new Date().toISOString(), note = '') {
+function publishHistoryRecord(snapshot, label = 'Published form', publishedAt = new Date().toISOString(), note = '', publishedBy = '') {
   return {
     id: `pub-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`,
     publishedAt,
+    publishedBy: String(publishedBy || '').trim().slice(0, 120) || 'Unknown user',
     label: String(label || 'Published form').trim().slice(0, 120) || 'Published form',
     note: String(note || '').trim().slice(0, 500),
     snapshot: cloneValue(snapshot) || {},
@@ -156,11 +157,12 @@ function prepareStoredForm(previousStored, nextEditor, publicationAction = '', p
     const defaultLabel = isPublishedForm(previousStored) ? 'Published form changes' : 'Initial publish'
     const releaseLabel = String(publication.releaseLabel || '').trim().slice(0, 120) || defaultLabel
     const releaseNote = String(publication.releaseNote || '').trim().slice(0, 500)
+    const publishedBy = String(publication.publishedBy || '').trim().slice(0, 120)
     return {
       ...liveSnapshot,
       submissions,
       revisions,
-      publishHistory: [publishHistoryRecord(liveSnapshot, releaseLabel, publishedAt, releaseNote), ...publishHistory].slice(0, FORM_PUBLISH_HISTORY_LIMIT),
+      publishHistory: [publishHistoryRecord(liveSnapshot, releaseLabel, publishedAt, releaseNote, publishedBy), ...publishHistory].slice(0, FORM_PUBLISH_HISTORY_LIMIT),
       publishedAt,
     }
   }
@@ -272,7 +274,7 @@ async function updateStoredFormPublishDetails(websiteId, formId, publishId, deta
   return editorForms(next)
 }
 
-async function rollbackStoredFormPublish(websiteId, formId, publishId) {
+async function rollbackStoredFormPublish(websiteId, formId, publishId, details = {}) {
   const storedForms = await refreshStoredForms(websiteId)
   const stored = storedForms.find(item => item?.id === formId)
   if (!stored) throw new Error('Form not found')
@@ -286,12 +288,17 @@ async function rollbackStoredFormPublish(websiteId, formId, publishId) {
   const submissions = Array.isArray(stored.submissions) ? stored.submissions : []
   const revisions = Array.isArray(stored.revisions) ? stored.revisions : []
   const existingDraft = stored?.draftConfig && typeof stored.draftConfig === 'object' && !Array.isArray(stored.draftConfig) ? cloneValue(stored.draftConfig) : null
+  const rolledBackBy = String(details?.rolledBackBy || '').trim().slice(0, 120)
   const rollbackRelease = publishHistoryRecord(
     rolledBackSnapshot,
     `Rollback to ${release.label || 'published version'}`,
     publishedAt,
     `Restored the Live form to the release published ${release.publishedAt || 'previously'}.`,
+    rolledBackBy,
   )
+  rollbackRelease.rollbackSourceId = release.id
+  rollbackRelease.rollbackSourcePublishedAt = release.publishedAt || null
+  rollbackRelease.rollbackSourceLabel = release.label || 'Published form'
   const next = storedForms.map(item => item?.id === formId
     ? {
         ...rolledBackSnapshot,
@@ -386,10 +393,11 @@ export const api = {
       action: 'publish',
       releaseLabel: String(release?.label || '').trim().slice(0, 120),
       releaseNote: String(release?.note || '').trim().slice(0, 500),
+      publishedBy: String(release?.publishedBy || '').trim().slice(0, 120),
     },
   ),
   updateFormPublishDetails: (websiteId, formId, publishId, details = {}) => updateStoredFormPublishDetails(websiteId, formId, publishId, details),
-  rollbackFormPublish: (websiteId, formId, publishId) => rollbackStoredFormPublish(websiteId, formId, publishId),
+  rollbackFormPublish: (websiteId, formId, publishId, details = {}) => rollbackStoredFormPublish(websiteId, formId, publishId, details),
   discardFormDraft: (websiteId, formId) => discardStoredFormDraft(websiteId, formId),
   deleteForm: async (websiteId, formId) => {
     await request(`/forms/${websiteId}/${formId}`, { method: 'DELETE' })
