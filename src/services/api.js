@@ -169,6 +169,27 @@ async function updateEditorForm(websiteId, formId, updater, label, publication =
   return saveEditorForms(websiteId, next, label, publication)
 }
 
+async function discardStoredFormDraft(websiteId, formId) {
+  const storedForms = await refreshStoredForms(websiteId)
+  const stored = storedForms.find(item => item?.id === formId)
+  if (!stored) throw new Error('Form not found')
+  if (!stored.draftConfig || typeof stored.draftConfig !== 'object' || Array.isArray(stored.draftConfig)) return editorForms(storedForms)
+
+  const { draftConfig: discardedDraft, ...live } = stored
+  const revision = {
+    id: `rev-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`,
+    createdAt: new Date().toISOString(),
+    label: 'Discarded unpublished draft',
+    changes: ['Discarded draft'],
+    snapshot: cloneValue(discardedDraft),
+  }
+  const next = storedForms.map(item => item?.id === formId
+    ? { ...live, submissions: Array.isArray(stored.submissions) ? stored.submissions : [], revisions: [revision, ...(Array.isArray(stored.revisions) ? stored.revisions : [])].slice(0, FORM_REVISION_LIMIT) }
+    : item)
+  await request(`/forms/${websiteId}`, { method: 'PUT', body: JSON.stringify({ forms: next }) })
+  return editorForms(next)
+}
+
 function nextFieldId(fields = [], type = 'field') {
   const base = String(type || 'field').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'field'
   const ids = new Set(fields.map(field => String(field?.id || '')))
@@ -245,6 +266,7 @@ export const api = {
     'Published form changes',
     { formId, action: 'publish' },
   ),
+  discardFormDraft: (websiteId, formId) => discardStoredFormDraft(websiteId, formId),
   deleteForm: async (websiteId, formId) => {
     await request(`/forms/${websiteId}/${formId}`, { method: 'DELETE' })
     return refreshForms(websiteId)
