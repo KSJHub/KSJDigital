@@ -11,6 +11,107 @@ const submissionStatuses = ['New', 'Read', 'Resolved']
 const submissionPageSizes = [10, 25, 50]
 const lengthFieldTypes = new Set(['Text', 'Email', 'Textarea', 'Phone'])
 
+const formTemplates = [
+  {
+    id: 'contact-form',
+    name: 'Contact Form',
+    description: 'A clean general-purpose contact form.',
+    successMessage: 'Thanks — your message has been sent.',
+    sections: [],
+    fields: [
+      { id: 'contact-heading', label: 'Contact Us', type: 'Text', displayType: 'Heading', content: 'Tell us how we can help and we will get back to you.', width: 'full' },
+      { id: 'name', label: 'Name', type: 'Text', required: true, placeholder: 'Your name', width: 'half' },
+      { id: 'email', label: 'Email', type: 'Email', required: true, placeholder: 'you@example.com', width: 'half' },
+      { id: 'phone', label: 'Phone', type: 'Phone', required: false, placeholder: 'Optional phone number', width: 'full' },
+      { id: 'message', label: 'Message', type: 'Textarea', required: true, placeholder: 'How can we help?', width: 'full' },
+    ],
+  },
+  {
+    id: 'support-request',
+    name: 'Support Request',
+    description: 'Support intake with category and priority.',
+    successMessage: 'Thanks — your support request has been received.',
+    sections: [],
+    fields: [
+      { id: 'support-heading', label: 'Support Request', type: 'Text', displayType: 'Heading', content: 'Give us the details below so the right person can help.', width: 'full' },
+      { id: 'name', label: 'Name', type: 'Text', required: true, placeholder: 'Your name', width: 'half' },
+      { id: 'email', label: 'Email', type: 'Email', required: true, placeholder: 'you@example.com', width: 'half' },
+      { id: 'category', label: 'Support Category', type: 'Select', required: true, placeholder: 'Choose a category', options: ['Website', 'Hosting', 'Automation', 'Account', 'Billing', 'Other'], width: 'full' },
+      { id: 'priority', label: 'Priority', type: 'Text', displayType: 'Radio', required: true, options: ['Normal', 'Urgent'], width: 'full' },
+      { id: 'details', label: 'What do you need help with?', type: 'Textarea', required: true, placeholder: 'Describe the issue or request', width: 'full' },
+    ],
+  },
+  {
+    id: 'application-form',
+    name: 'Application Form',
+    description: 'Two-step application form with applicant details and questions.',
+    successMessage: 'Thanks — your application has been submitted.',
+    sections: [
+      { id: 'applicant-details', title: 'Your Details', description: 'Tell us who you are.' },
+      { id: 'application-details', title: 'Application', description: 'Tell us about your application.' },
+    ],
+    fields: [
+      { id: 'name', label: 'Full Name', type: 'Text', required: true, placeholder: 'Your full name', width: 'half', sectionId: 'applicant-details' },
+      { id: 'email', label: 'Email', type: 'Email', required: true, placeholder: 'you@example.com', width: 'half', sectionId: 'applicant-details' },
+      { id: 'phone', label: 'Phone', type: 'Phone', required: false, placeholder: 'Optional phone number', width: 'full', sectionId: 'applicant-details' },
+      { id: 'application-heading', label: 'Your Application', type: 'Text', displayType: 'Heading', content: 'Answer the questions below as clearly as you can.', width: 'full', sectionId: 'application-details' },
+      { id: 'experience', label: 'Relevant Experience', type: 'Textarea', required: true, placeholder: 'Tell us about your relevant experience', width: 'full', sectionId: 'application-details' },
+      { id: 'reason', label: 'Why are you applying?', type: 'Textarea', required: true, placeholder: 'Tell us why this is a good fit', width: 'full', sectionId: 'application-details' },
+    ],
+  },
+  {
+    id: 'project-enquiry',
+    name: 'Project Enquiry',
+    description: 'Two-step website, infrastructure and development enquiry.',
+    successMessage: 'Thanks — your project enquiry has been sent.',
+    sections: [
+      { id: 'contact-details', title: 'Contact Details', description: 'How can we reach you?' },
+      { id: 'project-details', title: 'Project Details', description: 'Tell us what you want to build.' },
+    ],
+    fields: [
+      { id: 'name', label: 'Name', type: 'Text', required: true, placeholder: 'Your name', width: 'half', sectionId: 'contact-details' },
+      { id: 'email', label: 'Email', type: 'Email', required: true, placeholder: 'you@example.com', width: 'half', sectionId: 'contact-details' },
+      { id: 'company', label: 'Company / Brand', type: 'Text', required: false, placeholder: 'Optional', width: 'full', sectionId: 'contact-details' },
+      { id: 'service', label: 'What do you need?', type: 'Select', required: true, placeholder: 'Choose a service', options: ['Website', 'Hosting & Infrastructure', 'Automation', 'Platform Development', 'Other'], width: 'full', sectionId: 'project-details' },
+      { id: 'budget', label: 'Estimated Budget', type: 'Select', required: false, placeholder: 'Choose a range', options: ['Not sure yet', 'Under £1,000', '£1,000–£2,500', '£2,500–£5,000', '£5,000+'], width: 'half', sectionId: 'project-details' },
+      { id: 'timeline', label: 'Target Timeline', type: 'Text', required: false, placeholder: 'e.g. 6–8 weeks', width: 'half', sectionId: 'project-details' },
+      { id: 'project', label: 'Project Details', type: 'Textarea', required: true, placeholder: 'Describe what you want to build', width: 'full', sectionId: 'project-details' },
+    ],
+  },
+]
+
+const fieldGroups = [
+  {
+    id: 'contact-details',
+    name: 'Contact Details',
+    description: 'Name, email and phone.',
+    fields: [
+      { id: 'name', label: 'Name', type: 'Text', required: true, placeholder: 'Your name', width: 'half' },
+      { id: 'email', label: 'Email', type: 'Email', required: true, placeholder: 'you@example.com', width: 'half' },
+      { id: 'phone', label: 'Phone', type: 'Phone', required: false, placeholder: 'Optional phone number', width: 'full' },
+    ],
+  },
+  {
+    id: 'address',
+    name: 'Address',
+    description: 'Address line, town/city and postcode.',
+    fields: [
+      { id: 'address', label: 'Address', type: 'Text', required: true, placeholder: 'Street address', width: 'full' },
+      { id: 'town-city', label: 'Town / City', type: 'Text', required: true, placeholder: 'Town or city', width: 'half' },
+      { id: 'postcode', label: 'Postcode', type: 'Text', required: true, placeholder: 'Postcode', width: 'half' },
+    ],
+  },
+  {
+    id: 'enquiry-details',
+    name: 'Enquiry Details',
+    description: 'Subject and detailed message.',
+    fields: [
+      { id: 'subject', label: 'Subject', type: 'Text', required: true, placeholder: 'What is this about?', width: 'full' },
+      { id: 'message', label: 'Message', type: 'Textarea', required: true, placeholder: 'Tell us more', width: 'full' },
+    ],
+  },
+]
+
 function fieldKind(field = {}) {
   return advancedFieldTypes.has(field.displayType) ? field.displayType : field.type || 'Text'
 }
@@ -309,6 +410,36 @@ export function FormBuilderPage({ client = false }) {
     return saveFormsConfiguration(nextForms, selected.id, 'Saving field configuration')
   }
 
+  async function createFromTemplate(template) {
+    if (!canEdit || !websiteId || busy || !template) return
+    const id = uniqueId(template.id || template.name, new Set(forms.map(form => form.id)))
+    const nextForm = {
+      id,
+      name: template.name,
+      status: 'Draft',
+      destination: selected?.destination || '',
+      spamProtection: true,
+      successMessage: template.successMessage || '',
+      sections: (template.sections || []).map(section => ({ ...section })),
+      fields: (template.fields || []).map(field => ({ ...field })),
+      submissions: [],
+    }
+    if (await saveFormsConfiguration([...forms, nextForm], id, `Creating ${template.name}`)) setSelectedId(id)
+  }
+
+  async function insertFieldGroup(group) {
+    if (!canEdit || !selected?.id || busy || !group) return
+    const existingIds = new Set(fields.map(field => field.id))
+    const defaultSectionId = sections.length > 1 ? sections[Math.min(previewStepIndex, sections.length - 1)]?.id || sections[0]?.id : ''
+    const inserted = (group.fields || []).map(source => {
+      const id = uniqueId(source.id || source.label || 'field', existingIds)
+      existingIds.add(id)
+      return { ...source, id, ...(defaultSectionId ? { sectionId: defaultSectionId } : {}) }
+    })
+    const nextFields = cleanFieldConditions([...fields, ...inserted])
+    await saveFormsConfiguration(forms.map(form => form.id === selected.id ? { ...form, fields: nextFields } : form), selected.id, `Inserting ${group.name} group`)
+  }
+
   async function addSection() {
     if (!selected?.id || busy || sections.length >= 20) return
     const existing = new Set(sections.map(section => section.id))
@@ -537,6 +668,11 @@ export function FormBuilderPage({ client = false }) {
 
       {isOwner && websites.length > 1 && <section className="card formSettings"><label>Website<select value={websiteId || ''} disabled={busy} onChange={event => { setSelectedWebsiteId(event.target.value); setSelectedId(''); setDeliveryStatuses({}) }}>{websites.map(site => <option key={site.id} value={site.id}>{site.name}</option>)}</select></label></section>}
 
+      {canEdit && <section className="card formSectionsEditor">
+        <div className="panelHead"><div><h3>Start From a Template</h3><small>Create a new Draft form with a ready-made structure. Everything can be edited afterwards.</small></div></div>
+        <div className="fieldTypeBar">{formTemplates.map(template => <button type="button" key={template.id} disabled={!websiteId || busy} title={template.description} onClick={() => createFromTemplate(template)}>{template.name}</button>)}</div>
+      </section>}
+
       {isOwner && <section className="card emailReadinessPanel">
         <div className="panelHead"><div><span>Email Delivery</span><h2>{emailReadiness?.configured ? 'Ready' : emailReadinessLoading ? 'Checking…' : 'Setup required'}</h2></div><button type="button" disabled={emailReadinessLoading || busy} onClick={loadEmailReadiness}>{emailReadinessLoading ? 'Checking…' : 'Refresh'}</button></div>
         <div className="emailReadinessGrid"><p><b>HTTP endpoint</b><small>{emailReadiness?.endpointConfigured ? 'Configured' : 'Not configured'}</small></p><p><b>Sender</b><small>{emailReadiness?.from || 'Not configured'}</small></p><p><b>Authentication</b><small>{emailReadiness?.authenticationConfigured ? 'Token configured' : 'No token configured'}</small></p></div>
@@ -567,6 +703,11 @@ export function FormBuilderPage({ client = false }) {
                 {canEdit && <div className="formSectionActions"><button type="button" disabled={busy || index === 0} onClick={() => moveSection(section.id, 'up')}>↑</button><button type="button" disabled={busy || index === sections.length - 1} onClick={() => moveSection(section.id, 'down')}>↓</button><button type="button" disabled={busy || sections.length <= 1} onClick={() => removeSection(section.id)}>Remove</button></div>}
               </article>) : <p className="emptyState">No sections configured. This form stays on one page.</p>}
             </div>
+
+            {canEdit && <div className="formSectionsEditor">
+              <div className="panelHead"><div><h3>Reusable Field Groups</h3><small>Insert a ready-made group into {sections.length > 1 ? 'the currently previewed step' : 'this form'}. Duplicate IDs are renamed automatically.</small></div></div>
+              <div className="fieldTypeBar">{fieldGroups.map(group => <button type="button" key={group.id} disabled={busy} title={group.description} onClick={() => insertFieldGroup(group)}>{group.name}</button>)}</div>
+            </div>}
 
             {canEdit && <div className="fieldTypeBar">{fieldTypes.map(type => <button key={type} disabled={busy || (type === 'File' && hasAdvancedFields) || (advancedFieldTypes.has(type) && hasFileFields)} title={(type === 'File' && hasAdvancedFields) || (advancedFieldTypes.has(type) && hasFileFields) ? 'Secure File fields and advanced fields cannot be combined yet' : ''} onClick={() => addNewField(type)}>{type}</button>)}</div>}
             {fields.map((field, index) => {
