@@ -707,6 +707,31 @@ export function FormBuilderPage({ client = false }) {
     } finally { setBusyAction('') }
   }
 
+  async function discardDraft() {
+    if (!canEdit || !websiteId || !selected?.id || !isPublished || !hasUnpublishedChanges || busy) return
+    const formId = selected.id
+    const formName = selected.name || 'this form'
+    if (!globalThis.confirm(`Discard all unpublished changes to “${formName}” and return the editor to the current live version? The public form and stored submissions will not change. The discarded saved draft will remain recoverable in Revision History.`)) return
+    if (draftDirty) {
+      const saved = await saveFormsConfiguration(forms, formId, 'Saving draft before discard')
+      if (!saved) return
+    }
+    setBusyAction('discard-draft'); setNotice('Discarding draft changes')
+    try {
+      const next = await api.discardFormDraft(websiteId, formId)
+      setForms(next)
+      setSelectedId(formId)
+      setDraftDirty(false)
+      setEditHistory(current => ({ ...current, [formId]: { past: [], future: [] } }))
+      const live = next.find(form => form.id === formId)
+      if (live) setSavedConfigs(current => ({ ...current, [formId]: formConfigSnapshot(live) }))
+      setNotice('Draft discarded · live version restored')
+    } catch (error) {
+      setNotice(error.message || 'Discard draft failed')
+      await loadForms(formId, error.message || 'Discard draft failed')
+    } finally { setBusyAction('') }
+  }
+
   async function removeForm() {
     if (!canEdit || !websiteId || !selected?.id || busy) return
     if (!globalThis.confirm(`Delete “${selected.name || 'this form'}”? Its configured fields and stored submissions will be removed. This action cannot be undone.`)) return
@@ -881,7 +906,7 @@ export function FormBuilderPage({ client = false }) {
           <div className="panelHead"><h2>{canEdit ? 'Form Settings' : 'Form Details'}</h2>{selected && <div className="formHeaderActions"><button type="button" disabled>{isPublished ? (hasUnpublishedChanges ? 'Live · Draft changes' : 'Live') : 'Draft'}</button>{canEdit && <><button type="button" disabled={busy || !canUndoEdit} onClick={undoEdit}>{draftDirty ? 'Undo Draft' : 'Undo'}</button><button type="button" disabled={busy || !canRedoEdit} onClick={redoEdit}>Redo</button><button type="button" disabled={busy} onClick={duplicateForm}>Duplicate Form</button></>}</div>}</div>
           {selected && <>
             <div className="formSectionsEditor">
-              <div className="panelHead"><div><h3>Publishing</h3><small>{isPublished ? (hasUnpublishedChanges ? 'The public website is still using the last published version while these changes remain in draft.' : 'The saved editor configuration matches the version currently live on the public website.') : 'This form is not currently published to the public website.'}</small></div>{canEdit && <button type="button" disabled={busy || (isPublished && !hasUnpublishedChanges)} onClick={publishChanges}>{busyAction === 'publish-form' ? 'Publishing…' : isPublished ? 'Publish Changes' : 'Publish Form'}</button>}</div>
+              <div className="panelHead"><div><h3>Publishing</h3><small>{isPublished ? (hasUnpublishedChanges ? 'The public website is still using the last published version while these changes remain in draft.' : 'The saved editor configuration matches the version currently live on the public website.') : 'This form is not currently published to the public website.'}</small></div>{canEdit && <div className="formHeaderActions">{isPublished && hasUnpublishedChanges && <button type="button" disabled={busy} onClick={discardDraft}>{busyAction === 'discard-draft' ? 'Discarding…' : 'Discard Draft'}</button>}<button type="button" disabled={busy || (isPublished && !hasUnpublishedChanges)} onClick={publishChanges}>{busyAction === 'publish-form' ? 'Publishing…' : isPublished ? 'Publish Changes' : 'Publish Form'}</button></div>}</div>
               <div className="submissions"><p><b>Live state</b><small>{isPublished ? 'Published and available to the public website' : 'Not published'}</small></p><p><b>Draft state</b><small>{draftDirty ? 'Unsaved editor changes · autosaving shortly' : publication.hasUnpublishedChanges ? 'Saved draft changes waiting to be published' : isPublished ? 'No unpublished changes' : 'Saved as draft'}</small></p><p><b>Last published</b><small>{publishedAt || 'Never published'}</small></p>{isPublished && hasUnpublishedChanges && <p><b>Public safety</b><small>Visitors continue to receive the previous live version until Publish Changes is confirmed.</small></p>}</div>
             </div>
 
