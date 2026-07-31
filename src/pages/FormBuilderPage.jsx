@@ -10,6 +10,8 @@ const displayOnlyTypes = new Set(['Heading', 'Instructions', 'Divider'])
 const submissionStatuses = ['New', 'Read', 'Resolved']
 const submissionPageSizes = [10, 25, 50]
 const lengthFieldTypes = new Set(['Text', 'Email', 'Textarea', 'Phone'])
+const editHistoryLimit = 30
+const autosaveDelayMs = 1200
 
 const formTemplates = [
   {
@@ -111,6 +113,24 @@ const fieldGroups = [
     ],
   },
 ]
+
+function cloneValue(value) {
+  return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
+}
+
+function formConfigSnapshot(form = {}) {
+  const { submissions: _submissions, ...config } = form || {}
+  return cloneValue(config) || {}
+}
+
+function applyFormConfig(form = {}, snapshot = {}) {
+  const submissions = Array.isArray(form.submissions) ? form.submissions : []
+  return { ...form, ...cloneValue(snapshot), id: form.id, submissions }
+}
+
+function sameConfig(left, right) {
+  return JSON.stringify(left || {}) === JSON.stringify(right || {})
+}
 
 function fieldKind(field = {}) {
   return advancedFieldTypes.has(field.displayType) ? field.displayType : field.type || 'Text'
@@ -288,6 +308,9 @@ export function FormBuilderPage({ client = false }) {
   const [selectedSubmissionIds, setSelectedSubmissionIds] = useState([])
   const [previewValues, setPreviewValues] = useState({})
   const [previewStepIndex, setPreviewStepIndex] = useState(0)
+  const [savedConfigs, setSavedConfigs] = useState({})
+  const [editHistory, setEditHistory] = useState({})
+  const [draftDirty, setDraftDirty] = useState(false)
   const selected = forms.find(form => form.id === selectedId) || forms[0]
   const fields = selected?.fields || []
   const sections = normaliseSections(selected)
@@ -303,6 +326,9 @@ export function FormBuilderPage({ client = false }) {
   const previewFields = steppedPreview ? fieldsForSection(previewVisibleFields, previewSection, sections) : previewVisibleFields
   const publicReady = selected?.status === 'Active'
   const allSubmissions = Array.isArray(selected?.submissions) ? selected.submissions : []
+  const selectedHistory = editHistory[selected?.id] || { past: [], future: [] }
+  const canUndoEdit = Boolean(selected?.id) && (draftDirty || selectedHistory.past.length > 0)
+  const canRedoEdit = Boolean(selected?.id) && !draftDirty && selectedHistory.future.length > 0
   const submissionSources = useMemo(() => [...new Set(allSubmissions.map(item => item.source || 'Submission'))].sort(), [allSubmissions])
   const submissionStats = useMemo(() => ({
     total: allSubmissions.length,
@@ -333,15 +359,17 @@ export function FormBuilderPage({ client = false }) {
 
   async function loadForms(nextId = selectedId, message = canEdit ? 'Ready' : 'Preview only') {
     if (!websiteId) {
-      setForms([]); setSelectedId(''); setDeliveryStatuses({}); setNotice('Waiting for assigned website'); return
+      setForms([]); setSelectedId(''); setDeliveryStatuses({}); setSavedConfigs({}); setNotice('Waiting for assigned website'); return
     }
     try {
       const next = await api.getForms(websiteId)
-      setForms(Array.isArray(next) ? next : [])
-      setSelectedId(next.find(form => form.id === nextId)?.id || next[0]?.id || '')
+      const normalised = Array.isArray(next) ? next : []
+      setForms(normalised)
+      setSavedConfigs(Object.fromEntries(normalised.filter(form => form?.id).map(form => [form.id, formConfigSnapshot(form)])))
+      setSelectedId(normalised.find(form => form.id === nextId)?.id || normalised[0]?.id || '')
       setNotice(message)
     } catch (error) {
-      setForms([]); setSelectedId(''); setDeliveryStatuses({}); setNotice(error.message || 'Forms unavailable')
+      setForms([]); setSelectedId(''); setDeliveryStatuses({}); setSavedConfigs({}); setNotice(error.message || 'Forms unavailable')
     }
   }
 
@@ -360,11 +388,11 @@ export function FormBuilderPage({ client = false }) {
     try { setEmailReadiness(await api.getEmailReadiness()) } catch { setEmailReadiness(null) } finally { setEmailReadinessLoading(false) }
   }
 
-  useEffect(() => { setBusyAction(''); loadForms('', canEdit ? 'Ready' : 'Preview only') }, [canEdit, websiteId])
+  useEffect(() => { setBusyAction(''); setEditHistory({}); setSavedConfigs({}); setDraftDirty(false); loadForms('', canEdit ? 'Ready' : 'Preview only') }, [canEdit, websiteId])
   useEffect(() => {
     loadDeliveryStatuses(selected?.id)
     setSubmissionQuery(''); setSubmissionStatusFilter('All'); setSubmissionSourceFilter('All'); setSubmissionPage(1); setSelectedSubmissionIds([])
-    setPreviewValues(emptyPreviewValues(selected?.fields || [])); setPreviewStepIndex(0)
+    setPreviewValues(emptyPreviewValues(selected?.fields || [])); setPreviewStepIndex(0); setDraftDirty(false)
   }, [websiteId, selected?.id])
   useEffect(() => { loadEmailReadiness() }, [isOwner])
   useEffect(() => { if (isOwner) { setTestEmail(selected?.destination || emailReadiness?.from || ''); setEmailTestState('') } }, [isOwner, selected?.id, emailReadiness?.from])
@@ -375,22 +403,99 @@ export function FormBuilderPage({ client = false }) {
     const existing = new Set(allSubmissions.map(item => item.id))
     setSelectedSubmissionIds(current => current.filter(id => existing.has(id)))
   }, [allSubmissions])
+  useEffect(() => {
+    if (!draftDirty || !canEdit || !websiteId || !selected?.id || busy) return undefined
+    const formId = selected.id
+    const timer = globalThis.setTimeout(() => {
+      saveFormsConfiguration(forms, formId, 'Autosaving')
+    }, autosaveDelayMs)
+    return () => globalThis.clearTimeout(timer)
+  }, [draftDirty, canEdit, websiteId, selected?.id, busy, forms])
 
   function updateSelectedLocal(changes) {
-    if (selected?.id) setForms(current => current.map(form => form.id === selected.id ? { ...form, ...changes } : form))
+    if (selected?.id) {
+      setForms(current => current.map(form => form.id === selected.id ? { ...form, ...changes } : form))
+      setDraftDirty(true)
+    }
   }
 
   function updateFieldLocal(fieldId, changes) {
     if (!selected?.id) return
     setForms(current => current.map(form => form.id === selected.id ? { ...form, fields: (form.fields || []).map(field => field.id === fieldId ? { ...field, ...changes } : field) } : form))
+    setDraftDirty(true)
+  }
+
+  function recordConfigChange(formId, previousSnapshot, nextForm) {
+    if (!formId || !nextForm) return
+    const nextSnapshot = formConfigSnapshot(nextForm)
+    if (previousSnapshot && !sameConfig(previousSnapshot, nextSnapshot)) {
+      setEditHistory(current => {
+        const history = current[formId] || { past: [], future: [] }
+        return { ...current, [formId]: { past: [...history.past, cloneValue(previousSnapshot)].slice(-editHistoryLimit), future: [] } }
+      })
+    }
+    setSavedConfigs(current => ({ ...current, [formId]: nextSnapshot }))
+  }
+
+  async function undoEdit() {
+    if (!canEdit || !selected?.id || busy) return
+    const formId = selected.id
+    if (draftDirty) {
+      const baseline = savedConfigs[formId]
+      if (baseline) setForms(current => current.map(form => form.id === formId ? applyFormConfig(form, baseline) : form))
+      setDraftDirty(false)
+      setNotice('Unsaved draft changes reverted')
+      return
+    }
+    const history = editHistory[formId] || { past: [], future: [] }
+    const target = history.past[history.past.length - 1]
+    if (!target) return
+    const currentSnapshot = savedConfigs[formId] || formConfigSnapshot(selected)
+    const nextForms = forms.map(form => form.id === formId ? applyFormConfig(form, target) : form)
+    setBusyAction('history'); setNotice('Restoring previous form version')
+    try {
+      await api.saveForms(websiteId, nextForms)
+      setEditHistory(current => {
+        const latest = current[formId] || { past: [], future: [] }
+        return { ...current, [formId]: { past: latest.past.slice(0, -1), future: [cloneValue(currentSnapshot), ...latest.future].slice(0, editHistoryLimit) } }
+      })
+      setSavedConfigs(current => ({ ...current, [formId]: cloneValue(target) }))
+      setDraftDirty(false)
+      await loadForms(formId, 'Previous form version restored')
+    } catch (error) { setNotice(error.message || 'Undo failed') } finally { setBusyAction('') }
+  }
+
+  async function redoEdit() {
+    if (!canEdit || !selected?.id || busy || draftDirty) return
+    const formId = selected.id
+    const history = editHistory[formId] || { past: [], future: [] }
+    const target = history.future[0]
+    if (!target) return
+    const currentSnapshot = savedConfigs[formId] || formConfigSnapshot(selected)
+    const nextForms = forms.map(form => form.id === formId ? applyFormConfig(form, target) : form)
+    setBusyAction('history'); setNotice('Restoring next form version')
+    try {
+      await api.saveForms(websiteId, nextForms)
+      setEditHistory(current => {
+        const latest = current[formId] || { past: [], future: [] }
+        return { ...current, [formId]: { past: [...latest.past, cloneValue(currentSnapshot)].slice(-editHistoryLimit), future: latest.future.slice(1) } }
+      })
+      setSavedConfigs(current => ({ ...current, [formId]: cloneValue(target) }))
+      setDraftDirty(false)
+      await loadForms(formId, 'Next form version restored')
+    } catch (error) { setNotice(error.message || 'Redo failed') } finally { setBusyAction('') }
   }
 
   async function saveFormsConfiguration(nextForms, nextId, message) {
     if (!canEdit || !websiteId || busy) return false
+    const previousSnapshot = savedConfigs[nextId] || null
     setBusyAction('save-configuration'); setNotice(message)
     try {
       await api.saveForms(websiteId, nextForms)
-      await loadForms(nextId, message.replace(/ing$/, 'ed'))
+      const savedForm = nextForms.find(form => form.id === nextId)
+      if (savedForm) recordConfigChange(nextId, previousSnapshot, savedForm)
+      setDraftDirty(false)
+      await loadForms(nextId, message === 'Autosaving' ? 'Autosaved' : message.replace(/ing$/, 'ed'))
       return true
     } catch (error) {
       setNotice(error.message || 'Configuration save failed')
@@ -515,7 +620,7 @@ export function FormBuilderPage({ client = false }) {
     if (!canEdit) return setNotice('Edit permission required')
     if (!websiteId || busy) return
     setBusyAction('create-form'); setNotice('Creating form')
-    try { const result = await api.createForm(websiteId, { name: 'New Form' }); setForms(result.forms); setSelectedId(result.form.id); setNotice('Form created') }
+    try { const result = await api.createForm(websiteId, { name: 'New Form' }); setForms(result.forms); setSavedConfigs(current => ({ ...current, [result.form.id]: formConfigSnapshot(result.form) })); setSelectedId(result.form.id); setNotice('Form created') }
     catch (error) { setNotice(error.message || 'Create failed') } finally { setBusyAction('') }
   }
 
@@ -523,8 +628,14 @@ export function FormBuilderPage({ client = false }) {
     if (!canEdit) return setNotice('Edit permission required')
     if (!websiteId || !selected?.id || busy) return false
     const formId = selected.id
+    const previousSnapshot = savedConfigs[formId] || formConfigSnapshot(selected)
     setBusyAction('save-form'); setNotice('Saving form')
-    try { const next = await api.updateForm(websiteId, formId, changes); setForms(next); setSelectedId(formId); setNotice('Form saved'); return true }
+    try {
+      const next = await api.updateForm(websiteId, formId, changes)
+      const savedForm = next.find(form => form.id === formId)
+      if (savedForm) recordConfigChange(formId, previousSnapshot, savedForm)
+      setForms(next); setSelectedId(formId); setDraftDirty(false); setNotice('Form saved'); return true
+    }
     catch (error) { setNotice(error.message || 'Save failed'); await loadForms(formId, error.message || 'Save failed'); return false }
     finally { setBusyAction('') }
   }
@@ -532,8 +643,15 @@ export function FormBuilderPage({ client = false }) {
   async function removeForm() {
     if (!canEdit || !websiteId || !selected?.id || busy) return
     if (!globalThis.confirm(`Delete “${selected.name || 'this form'}”? Its configured fields and stored submissions will be removed. This action cannot be undone.`)) return
+    const removedId = selected.id
     setBusyAction('delete-form'); setNotice('Deleting form')
-    try { const next = await api.deleteForm(websiteId, selected.id); setForms(next); setSelectedId(next[0]?.id || ''); setDeliveryStatuses({}); setNotice('Form deleted') }
+    try {
+      const next = await api.deleteForm(websiteId, removedId)
+      setForms(next); setSelectedId(next[0]?.id || ''); setDeliveryStatuses({}); setDraftDirty(false)
+      setSavedConfigs(current => { const updated = { ...current }; delete updated[removedId]; return updated })
+      setEditHistory(current => { const updated = { ...current }; delete updated[removedId]; return updated })
+      setNotice('Form deleted')
+    }
     catch (error) { setNotice(error.message || 'Delete failed') } finally { setBusyAction('') }
   }
 
@@ -559,20 +677,30 @@ export function FormBuilderPage({ client = false }) {
       }
       return saveFormsConfiguration(forms.map(form => form.id === selected.id ? { ...form, fields: [...(form.fields || []), nextField] } : form), selected.id, `Adding ${type} field`)
     }
+    const previousSnapshot = savedConfigs[selected.id] || formConfigSnapshot(selected)
     setBusyAction('add-field'); setNotice('Adding field')
     try {
       const next = await api.addField(websiteId, selected.id, { type })
       const assigned = next.map(form => form.id === selected.id ? { ...form, fields: (form.fields || []).map((field, index) => index === (form.fields || []).length - 1 ? { ...field, width: field.width || 'full', ...(sections.length > 1 && !field.sectionId ? { sectionId: sections[0].id } : {}) } : field) } : form)
       await api.saveForms(websiteId, assigned)
-      setForms(assigned); setSelectedId(selected.id); setNotice(`${type} field added`)
+      const savedForm = assigned.find(form => form.id === selected.id)
+      if (savedForm) recordConfigChange(selected.id, previousSnapshot, savedForm)
+      setForms(assigned); setSelectedId(selected.id); setDraftDirty(false); setNotice(`${type} field added`)
     } catch (error) { setNotice(error.message || 'Add field failed') } finally { setBusyAction('') }
   }
 
   async function editField(fieldId, changes) {
     if (!canEdit || !websiteId || !selected?.id || busy) return false
+    const formId = selected.id
+    const previousSnapshot = savedConfigs[formId] || formConfigSnapshot(selected)
     setBusyAction(`field-${fieldId}`); setNotice('Saving field')
-    try { const next = await api.updateField(websiteId, selected.id, fieldId, changes); setForms(next); setSelectedId(selected.id); setNotice('Field updated'); return true }
-    catch (error) { setNotice(error.message || 'Field save failed'); await loadForms(selected.id, error.message || 'Field save failed'); return false }
+    try {
+      const next = await api.updateField(websiteId, formId, fieldId, changes)
+      const savedForm = next.find(form => form.id === formId)
+      if (savedForm) recordConfigChange(formId, previousSnapshot, savedForm)
+      setForms(next); setSelectedId(formId); setDraftDirty(false); setNotice('Field updated'); return true
+    }
+    catch (error) { setNotice(error.message || 'Field save failed'); await loadForms(formId, error.message || 'Field save failed'); return false }
     finally { setBusyAction('') }
   }
 
@@ -683,7 +811,7 @@ export function FormBuilderPage({ client = false }) {
         <aside className="card formList"><div className="panelHead"><h2>Forms</h2>{canEdit && <button onClick={addForm} disabled={!websiteId || busy}>{busyAction === 'create-form' ? 'Creating…' : 'Create'}</button>}</div>{forms.map(form => <button className={form.id === selectedId ? 'active' : ''} disabled={busy} key={form.id} onClick={() => setSelectedId(form.id)}><b>{form.name}</b><small>{form.status} · {(form.fields || []).length} fields</small></button>)}{!forms.length && <p className="emptyState">No forms configured yet.</p>}</aside>
 
         <section className="card formEditor">
-          <div className="panelHead"><h2>{canEdit ? 'Form Settings' : 'Form Details'}</h2>{selected && <div className="formHeaderActions"><button type="button" disabled>{selected.status}</button>{canEdit && <button type="button" disabled={busy} onClick={duplicateForm}>Duplicate Form</button>}</div>}</div>
+          <div className="panelHead"><h2>{canEdit ? 'Form Settings' : 'Form Details'}</h2>{selected && <div className="formHeaderActions"><button type="button" disabled>{selected.status}</button>{canEdit && <><button type="button" disabled={busy || !canUndoEdit} onClick={undoEdit}>{draftDirty ? 'Undo Draft' : 'Undo'}</button><button type="button" disabled={busy || !canRedoEdit} onClick={redoEdit}>Redo</button><button type="button" disabled={busy} onClick={duplicateForm}>Duplicate Form</button></>}</div>}</div>
           {selected && <>
             <div className="formSettings">
               <label>Name<input value={selected.name || ''} disabled={!canEdit || busy} onChange={event => updateSelectedLocal({ name: event.target.value })} onBlur={event => saveForm({ name: event.target.value })} /></label>
@@ -692,7 +820,7 @@ export function FormBuilderPage({ client = false }) {
               <label className="formCheck"><input type="checkbox" checked={selected.spamProtection !== false} disabled={!canEdit || busy} onChange={event => saveForm({ spamProtection: event.target.checked })} /> Spam protection</label>
               <label className="formSettingsWide">Success Message<textarea value={selected.successMessage || ''} disabled={!canEdit || busy} placeholder="Thanks — your enquiry has been sent." onChange={event => updateSelectedLocal({ successMessage: event.target.value })} onBlur={event => saveFormConfiguration({ successMessage: event.target.value.trim().slice(0, 500) })} /></label>
             </div>
-            <div className="submissions"><h3>Public Submission Readiness</h3><p><b>Public website integration</b><small>{publicReady ? 'Connected and accepting submissions' : 'Ready when this form is Active'}</small></p><p><b>Delivery destination</b><small>{selected.destination || 'No destination configured'}</small></p><p><b>Conditional logic</b><small>{conditionalEnabled ? 'Available · conditions may reference earlier answer fields only' : 'Unavailable while this form contains File fields'}</small></p><p><b>Form layout</b><small>{sections.length > 1 ? `${sections.length} stepped sections · full / half-width controls available` : 'Single page · full / half-width controls available'}</small></p><p><b>Advanced fields</b><small>{hasFileFields ? 'Unavailable while this form contains File fields' : 'Radio, Number, Heading, Instructions and Divider available'}</small></p><p><b>Success message</b><small>{selected.successMessage || 'Default confirmation message'}</small></p><p><b>Email transport</b><small>{isOwner ? (emailReadiness?.configured ? 'Configured' : 'Setup required') : 'Managed by KSJ Digital'}</small></p><p><b>Spam protection</b><small>{selected.spamProtection !== false ? 'Enabled for public submissions' : 'Disabled'}</small></p>{hasFileFields && <p><b>Secure file uploads</b><small>Enabled · PDF, PNG, JPG/JPEG and WebP · 5 MB per file · private authenticated downloads</small></p>}</div>
+            <div className="submissions"><h3>Public Submission Readiness</h3><p><b>Public website integration</b><small>{publicReady ? 'Connected and accepting submissions' : 'Ready when this form is Active'}</small></p><p><b>Delivery destination</b><small>{selected.destination || 'No destination configured'}</small></p><p><b>Draft safety</b><small>{draftDirty ? 'Unsaved changes · autosaving shortly' : `${selectedHistory.past.length} undo revision${selectedHistory.past.length === 1 ? '' : 's'} available this session · autosave enabled`}</small></p><p><b>Conditional logic</b><small>{conditionalEnabled ? 'Available · conditions may reference earlier answer fields only' : 'Unavailable while this form contains File fields'}</small></p><p><b>Form layout</b><small>{sections.length > 1 ? `${sections.length} stepped sections · full / half-width controls available` : 'Single page · full / half-width controls available'}</small></p><p><b>Advanced fields</b><small>{hasFileFields ? 'Unavailable while this form contains File fields' : 'Radio, Number, Heading, Instructions and Divider available'}</small></p><p><b>Success message</b><small>{selected.successMessage || 'Default confirmation message'}</small></p><p><b>Email transport</b><small>{isOwner ? (emailReadiness?.configured ? 'Configured' : 'Setup required') : 'Managed by KSJ Digital'}</small></p><p><b>Spam protection</b><small>{selected.spamProtection !== false ? 'Enabled for public submissions' : 'Disabled'}</small></p>{hasFileFields && <p><b>Secure file uploads</b><small>Enabled · PDF, PNG, JPG/JPEG and WebP · 5 MB per file · private authenticated downloads</small></p>}</div>
 
             <div className="formSectionsEditor">
               <div className="panelHead"><div><h3>Sections / Steps</h3><small>{sections.length > 1 ? 'Public form uses Previous / Next navigation.' : 'Optional — add at least two sections to create a multi-page form.'}</small></div>{canEdit && <button type="button" disabled={busy || sections.length >= 20} onClick={addSection}>Add Section</button>}</div>
