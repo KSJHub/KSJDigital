@@ -68,12 +68,29 @@ function releaseTypeLabel(type) {
   return 'Publish'
 }
 
-function publishHistoryRecord(snapshot, label = 'Published form', publishedAt = new Date().toISOString(), note = '', publishedBy = '', releaseType = 'publish') {
+function normalisePublishHistoryNumbers(history = []) {
+  const chronological = [...(Array.isArray(history) ? history : [])].reverse()
+  let latest = 0
+  const numbered = chronological.map(release => {
+    const explicit = Number(release?.releaseNumber)
+    const releaseNumber = Number.isInteger(explicit) && explicit > latest ? explicit : latest + 1
+    latest = releaseNumber
+    return { ...release, releaseNumber }
+  })
+  return numbered.reverse()
+}
+
+function nextReleaseNumber(history = []) {
+  return normalisePublishHistoryNumbers(history).reduce((highest, release) => Math.max(highest, Number(release?.releaseNumber) || 0), 0) + 1
+}
+
+function publishHistoryRecord(snapshot, label = 'Published form', publishedAt = new Date().toISOString(), note = '', publishedBy = '', releaseType = 'publish', releaseNumber = 1) {
   return {
     id: `pub-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`,
     publishedAt,
     publishedBy: String(publishedBy || '').trim().slice(0, 120) || 'Unknown user',
     releaseType: normaliseReleaseType(releaseType),
+    releaseNumber: Math.max(1, Number(releaseNumber) || 1),
     label: String(label || 'Published form').trim().slice(0, 120) || 'Published form',
     note: String(note || '').trim().slice(0, 500),
     snapshot: cloneValue(snapshot) || {},
@@ -111,14 +128,16 @@ function editorForm(stored = {}) {
   const live = formRevisionSnapshot(stored)
   const editable = draft ? { ...stored, ...draft, id: stored.id } : { ...stored }
   const editableSnapshot = formRevisionSnapshot(editable)
-  const publishHistory = (Array.isArray(stored.publishHistory) ? stored.publishHistory : []).map(release => {
+  const publishHistory = normalisePublishHistoryNumbers(stored.publishHistory).map(release => {
     const releaseType = normaliseReleaseType(release?.releaseType, release)
     const typeLabel = releaseTypeLabel(releaseType)
+    const releaseLabel = `Release #${release.releaseNumber}`
     return {
       ...release,
       releaseType,
       releaseTypeLabel: typeLabel,
-      attributionSummary: release?.publishedBy ? `${typeLabel} · Published by ${release.publishedBy}` : typeLabel,
+      releaseNumberLabel: releaseLabel,
+      attributionSummary: release?.publishedBy ? `${releaseLabel} · ${typeLabel} · Published by ${release.publishedBy}` : `${releaseLabel} · ${typeLabel}`,
       rollbackSourceSummary: release?.rollbackSourcePublishedAt
         ? `Rollback source: ${release.rollbackSourceLabel || 'Published form'} · ${release.rollbackSourcePublishedAt}`
         : '',
@@ -178,7 +197,7 @@ function prepareStoredForm(previousStored, nextEditor, publicationAction = '', p
     ? cloneValue(nextEditor.submissions)
     : Array.isArray(previousStored?.submissions) ? previousStored.submissions : []
   const revisions = Array.isArray(previousStored?.revisions) ? previousStored.revisions : []
-  const publishHistory = Array.isArray(previousStored?.publishHistory) ? previousStored.publishHistory : []
+  const publishHistory = normalisePublishHistoryNumbers(previousStored?.publishHistory)
 
   if (!previousStored) {
     return { ...nextSnapshot, submissions, revisions, publishHistory, ...(nextSnapshot.status === 'Active' ? { publishedAt: new Date().toISOString() } : {}) }
@@ -193,11 +212,12 @@ function prepareStoredForm(previousStored, nextEditor, publicationAction = '', p
     const releaseNote = String(publication.releaseNote || '').trim().slice(0, 500)
     const publishedBy = String(publication.publishedBy || '').trim().slice(0, 120)
     const releaseType = initialPublish ? 'initial-publish' : 'publish'
+    const releaseNumber = nextReleaseNumber(publishHistory)
     return {
       ...liveSnapshot,
       submissions,
       revisions,
-      publishHistory: [publishHistoryRecord(liveSnapshot, releaseLabel, publishedAt, releaseNote, publishedBy, releaseType), ...publishHistory].slice(0, FORM_PUBLISH_HISTORY_LIMIT),
+      publishHistory: [publishHistoryRecord(liveSnapshot, releaseLabel, publishedAt, releaseNote, publishedBy, releaseType, releaseNumber), ...publishHistory].slice(0, FORM_PUBLISH_HISTORY_LIMIT),
       publishedAt,
     }
   }
@@ -271,7 +291,7 @@ async function discardStoredFormDraft(websiteId, formId) {
     snapshot: cloneValue(discardedDraft),
   }
   const next = storedForms.map(item => item?.id === formId
-    ? { ...live, submissions: Array.isArray(stored.submissions) ? stored.submissions : [], revisions: [revision, ...(Array.isArray(stored.revisions) ? stored.revisions : [])].slice(0, FORM_REVISION_LIMIT), publishHistory: Array.isArray(stored.publishHistory) ? stored.publishHistory : [] }
+    ? { ...live, submissions: Array.isArray(stored.submissions) ? stored.submissions : [], revisions: [revision, ...(Array.isArray(stored.revisions) ? stored.revisions : [])].slice(0, FORM_REVISION_LIMIT), publishHistory: normalisePublishHistoryNumbers(stored.publishHistory) }
     : item)
   await request(`/forms/${websiteId}`, { method: 'PUT', body: JSON.stringify({ forms: next }) })
   return editorForms(next)
@@ -281,7 +301,7 @@ async function updateStoredFormPublishDetails(websiteId, formId, publishId, deta
   const storedForms = await refreshStoredForms(websiteId)
   const stored = storedForms.find(item => item?.id === formId)
   if (!stored) throw new Error('Form not found')
-  const publishHistory = Array.isArray(stored.publishHistory) ? stored.publishHistory : []
+  const publishHistory = normalisePublishHistoryNumbers(stored.publishHistory)
   const release = publishHistory.find(item => item?.id === publishId)
   if (!release) throw new Error('Published form version not found')
   const label = String(details?.label || '').trim().slice(0, 120) || 'Published form'
@@ -313,7 +333,7 @@ async function rollbackStoredFormPublish(websiteId, formId, publishId, details =
   const storedForms = await refreshStoredForms(websiteId)
   const stored = storedForms.find(item => item?.id === formId)
   if (!stored) throw new Error('Form not found')
-  const publishHistory = Array.isArray(stored.publishHistory) ? stored.publishHistory : []
+  const publishHistory = normalisePublishHistoryNumbers(stored.publishHistory)
   const release = publishHistory.find(item => item?.id === publishId)
   if (!release?.snapshot) throw new Error('Published form version not found')
 
@@ -324,6 +344,7 @@ async function rollbackStoredFormPublish(websiteId, formId, publishId, details =
   const revisions = Array.isArray(stored.revisions) ? stored.revisions : []
   const existingDraft = stored?.draftConfig && typeof stored.draftConfig === 'object' && !Array.isArray(stored.draftConfig) ? cloneValue(stored.draftConfig) : null
   const rolledBackBy = String(details?.rolledBackBy || '').trim().slice(0, 120)
+  const releaseNumber = nextReleaseNumber(publishHistory)
   const rollbackRelease = publishHistoryRecord(
     rolledBackSnapshot,
     `Rollback to ${release.label || 'published version'}`,
@@ -331,10 +352,12 @@ async function rollbackStoredFormPublish(websiteId, formId, publishId, details =
     `Restored the Live form to the release published ${release.publishedAt || 'previously'}.`,
     rolledBackBy,
     'rollback',
+    releaseNumber,
   )
   rollbackRelease.rollbackSourceId = release.id
   rollbackRelease.rollbackSourcePublishedAt = release.publishedAt || null
   rollbackRelease.rollbackSourceLabel = release.label || 'Published form'
+  rollbackRelease.rollbackSourceReleaseNumber = release.releaseNumber || null
   const next = storedForms.map(item => item?.id === formId
     ? {
         ...rolledBackSnapshot,
