@@ -15,7 +15,7 @@ async function request(path, options = {}) {
   return data
 }
 
-async function refreshForms(websiteId) {
+async function refreshStoredForms(websiteId) {
   return request(`/forms/${websiteId}`)
 }
 
@@ -24,12 +24,51 @@ function cloneValue(value) {
 }
 
 function formRevisionSnapshot(form = {}) {
-  const { submissions: _submissions, revisions: _revisions, ...config } = form || {}
+  const {
+    submissions: _submissions,
+    revisions: _revisions,
+    draftConfig: _draftConfig,
+    publishedAt: _publishedAt,
+    publication: _publication,
+    ...config
+  } = form || {}
   return cloneValue(config) || {}
 }
 
 function sameSnapshot(left, right) {
   return JSON.stringify(left || {}) === JSON.stringify(right || {})
+}
+
+function isPublishedForm(form = {}) {
+  return form.status === 'Active' || Boolean(form.publishedAt)
+}
+
+function editorForm(stored = {}) {
+  const draft = stored?.draftConfig && typeof stored.draftConfig === 'object' && !Array.isArray(stored.draftConfig)
+    ? cloneValue(stored.draftConfig)
+    : null
+  const live = formRevisionSnapshot(stored)
+  const editable = draft ? { ...stored, ...draft, id: stored.id } : { ...stored }
+  const editableSnapshot = formRevisionSnapshot(editable)
+  return {
+    ...editable,
+    submissions: Array.isArray(stored.submissions) ? stored.submissions : [],
+    revisions: Array.isArray(stored.revisions) ? stored.revisions : [],
+    publication: {
+      isPublished: isPublishedForm(stored),
+      publishedAt: stored.publishedAt || null,
+      hasUnpublishedChanges: Boolean(draft && !sameSnapshot(live, editableSnapshot)),
+      liveStatus: stored.status || 'Draft',
+    },
+  }
+}
+
+function editorForms(forms = []) {
+  return (Array.isArray(forms) ? forms : []).map(editorForm)
+}
+
+async function refreshForms(websiteId) {
+  return editorForms(await refreshStoredForms(websiteId))
 }
 
 function revisionChanges(previous = {}, next = {}) {
@@ -56,28 +95,87 @@ function revisionRecord(previousForm, nextForm, label = 'Saved form changes') {
   }
 }
 
-function formsWithPersistentRevisions(previousForms = [], nextForms = [], label = 'Saved form changes') {
-  const previousById = new Map((Array.isArray(previousForms) ? previousForms : []).filter(form => form?.id).map(form => [form.id, form]))
-  return (Array.isArray(nextForms) ? nextForms : []).map(form => {
-    const previous = previousById.get(form?.id)
-    if (!previous) return { ...form, revisions: Array.isArray(form?.revisions) ? form.revisions.slice(0, FORM_REVISION_LIMIT) : [] }
-    const revisions = Array.isArray(previous.revisions) ? previous.revisions : []
-    if (sameSnapshot(formRevisionSnapshot(previous), formRevisionSnapshot(form))) return { ...form, revisions }
-    return { ...form, revisions: [revisionRecord(previous, form, label), ...revisions].slice(0, FORM_REVISION_LIMIT) }
+function prepareStoredForm(previousStored, nextEditor, publicationAction = '') {
+  const nextSnapshot = formRevisionSnapshot(nextEditor)
+  const submissions = Array.isArray(nextEditor?.submissions)
+    ? cloneValue(nextEditor.submissions)
+    : Array.isArray(previousStored?.submissions) ? previousStored.submissions : []
+  const revisions = Array.isArray(previousStored?.revisions) ? previousStored.revisions : []
+
+  if (!previousStored) {
+    return { ...nextSnapshot, submissions, revisions, ...(nextSnapshot.status === 'Active' ? { publishedAt: new Date().toISOString() } : {}) }
+  }
+
+  if (publicationAction === 'publish') {
+    return {
+      ...nextSnapshot,
+      status: 'Active',
+      submissions,
+      revisions,
+      publishedAt: new Date().toISOString(),
+    }
+  }
+
+  if (publicationAction === 'unpublish') {
+    const { publishedAt: _publishedAt, draftConfig: _draftConfig, ...rest } = previousStored
+    return { ...rest, ...nextSnapshot, submissions, revisions }
+  }
+
+  if (!isPublishedForm(previousStored)) {
+    const { draftConfig: _draftConfig, publication: _publication, ...rest } = previousStored
+    return { ...rest, ...nextSnapshot, submissions, revisions }
+  }
+
+  const liveSnapshot = formRevisionSnapshot(previousStored)
+  if (sameSnapshot(liveSnapshot, nextSnapshot)) {
+    const { draftConfig: _draftConfig, publication: _publication, ...rest } = previousStored
+    return { ...rest, submissions, revisions }
+  }
+
+  return {
+    ...previousStored,
+    submissions,
+    revisions,
+    draftConfig: nextSnapshot,
+  }
+}
+
+async function persistFormsWithRevisions(websiteId, previousStoredForms, nextEditorForms, label, publication = {}) {
+  const previousById = new Map((Array.isArray(previousStoredForms) ? previousStoredForms : []).filter(form => form?.id).map(form => [form.id, form]))
+  const prepared = (Array.isArray(nextEditorForms) ? nextEditorForms : []).map(nextEditor => {
+    const previousStored = previousById.get(nextEditor?.id)
+    const previousEditor = previousStored ? editorForm(previousStored) : null
+    const action = publication.formId === nextEditor?.id ? publication.action || '' : ''
+    const stored = prepareStoredForm(previousStored, nextEditor, action)
+    const revisions = Array.isArray(previousStored?.revisions) ? previousStored.revisions : []
+    const changed = previousEditor && !sameSnapshot(formRevisionSnapshot(previousEditor), formRevisionSnapshot(nextEditor))
+    stored.revisions = changed
+      ? [revisionRecord(previousEditor, nextEditor, label), ...revisions].slice(0, FORM_REVISION_LIMIT)
+      : revisions.slice(0, FORM_REVISION_LIMIT)
+    return stored
   })
-}
-
-async function persistFormsWithRevisions(websiteId, previousForms, nextForms, label) {
-  const prepared = formsWithPersistentRevisions(previousForms, nextForms, label)
   await request(`/forms/${websiteId}`, { method: 'PUT', body: JSON.stringify({ forms: prepared }) })
-  return prepared
+  return editorForms(prepared)
 }
 
-async function mutateFormsWithRevision(websiteId, mutate, label) {
-  const previous = await refreshForms(websiteId)
-  await mutate()
-  const next = await refreshForms(websiteId)
-  return persistFormsWithRevisions(websiteId, previous, next, label)
+async function saveEditorForms(websiteId, nextForms, label = 'Saved form changes', publication = {}) {
+  const previousStored = await refreshStoredForms(websiteId)
+  return persistFormsWithRevisions(websiteId, previousStored, nextForms, label, publication)
+}
+
+async function updateEditorForm(websiteId, formId, updater, label, publication = {}) {
+  const forms = await refreshForms(websiteId)
+  const next = forms.map(form => form.id === formId ? updater(form) : form)
+  return saveEditorForms(websiteId, next, label, publication)
+}
+
+function nextFieldId(fields = [], type = 'field') {
+  const base = String(type || 'field').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'field'
+  const ids = new Set(fields.map(field => String(field?.id || '')))
+  if (!ids.has(base)) return base
+  let index = 2
+  while (ids.has(`${base}-${index}`)) index += 1
+  return `${base}-${index}`
 }
 
 export const api = {
@@ -123,47 +221,80 @@ export const api = {
   formAttachmentUrl: (websiteId, formId, submissionId, attachmentId) => `${API_BASE}/forms/${encodeURIComponent(websiteId)}/${encodeURIComponent(formId)}/submissions/${encodeURIComponent(submissionId)}/attachments/${encodeURIComponent(attachmentId)}`,
   getEmailReadiness: () => request('/notifications/email-readiness'),
   sendEmailTest: to => request('/notifications/email-test', { method: 'POST', body: JSON.stringify({ to }) }),
-  saveForms: async (websiteId, forms, label = 'Saved form changes') => {
-    const previous = await refreshForms(websiteId)
-    return persistFormsWithRevisions(websiteId, previous, forms, label)
-  },
+  saveForms: (websiteId, forms, label = 'Saved form changes') => saveEditorForms(websiteId, forms, label),
   createForm: async (websiteId, payload = {}) => {
     const form = await request(`/forms/${websiteId}`, { method: 'POST', body: JSON.stringify(payload) })
-    return { form, forms: await refreshForms(websiteId) }
+    const forms = await refreshForms(websiteId)
+    return { form: forms.find(item => item.id === form.id) || editorForm(form), forms }
   },
-  updateForm: (websiteId, formId, payload) => mutateFormsWithRevision(
+  updateForm: async (websiteId, formId, payload = {}) => {
+    const hasStatus = Object.prototype.hasOwnProperty.call(payload, 'status')
+    const action = hasStatus && payload.status === 'Active' ? 'publish' : hasStatus && ['Draft', 'Archived'].includes(payload.status) ? 'unpublish' : ''
+    return updateEditorForm(
+      websiteId,
+      formId,
+      form => ({ ...form, ...payload }),
+      action === 'publish' ? 'Published form changes' : action === 'unpublish' ? `Changed form status to ${payload.status}` : 'Updated form settings',
+      action ? { formId, action } : {},
+    )
+  },
+  publishForm: (websiteId, formId) => updateEditorForm(
     websiteId,
-    () => request(`/forms/${websiteId}/${formId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-    'Updated form settings',
+    formId,
+    form => ({ ...form, status: 'Active' }),
+    'Published form changes',
+    { formId, action: 'publish' },
   ),
   deleteForm: async (websiteId, formId) => {
     await request(`/forms/${websiteId}/${formId}`, { method: 'DELETE' })
     return refreshForms(websiteId)
   },
-  addField: (websiteId, formId, payload) => mutateFormsWithRevision(
+  addField: (websiteId, formId, payload = {}) => updateEditorForm(
     websiteId,
-    () => request(`/forms/${websiteId}/${formId}/fields`, { method: 'POST', body: JSON.stringify(payload) }),
+    formId,
+    form => {
+      const fields = Array.isArray(form.fields) ? form.fields : []
+      const type = payload.type || 'Text'
+      const field = {
+        id: payload.id || nextFieldId(fields, type),
+        label: payload.label || type,
+        type,
+        required: payload.required === true,
+        placeholder: payload.placeholder || '',
+      }
+      return { ...form, fields: [...fields, field] }
+    },
     'Added form field',
   ),
-  updateField: (websiteId, formId, fieldId, payload) => mutateFormsWithRevision(
+  updateField: (websiteId, formId, fieldId, payload) => updateEditorForm(
     websiteId,
-    () => request(`/forms/${websiteId}/${formId}/fields/${fieldId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+    formId,
+    form => ({ ...form, fields: (Array.isArray(form.fields) ? form.fields : []).map(field => field.id === fieldId ? { ...field, ...payload } : field) }),
     'Updated form field',
   ),
-  deleteField: (websiteId, formId, fieldId) => mutateFormsWithRevision(
+  deleteField: (websiteId, formId, fieldId) => updateEditorForm(
     websiteId,
-    () => request(`/forms/${websiteId}/${formId}/fields/${fieldId}`, { method: 'DELETE' }),
+    formId,
+    form => ({ ...form, fields: (Array.isArray(form.fields) ? form.fields : []).filter(field => field.id !== fieldId) }),
     'Removed form field',
   ),
-  moveField: (websiteId, formId, fieldId, direction) => mutateFormsWithRevision(
+  moveField: (websiteId, formId, fieldId, direction) => updateEditorForm(
     websiteId,
-    () => request(`/forms/${websiteId}/${formId}/fields/${fieldId}/move`, { method: 'POST', body: JSON.stringify({ direction }) }),
+    formId,
+    form => {
+      const fields = [...(Array.isArray(form.fields) ? form.fields : [])]
+      const index = fields.findIndex(field => field.id === fieldId)
+      const target = direction === 'up' ? index - 1 : index + 1
+      if (index >= 0 && target >= 0 && target < fields.length) [fields[index], fields[target]] = [fields[target], fields[index]]
+      return { ...form, fields }
+    },
     'Reordered form fields',
   ),
   createFormRestorePoint: async (websiteId, formId, label = 'Manual restore point') => {
-    const forms = await refreshForms(websiteId)
-    const form = forms.find(item => item.id === formId)
-    if (!form) throw new Error('Form not found')
+    const storedForms = await refreshStoredForms(websiteId)
+    const stored = storedForms.find(item => item.id === formId)
+    if (!stored) throw new Error('Form not found')
+    const form = editorForm(stored)
     const revision = {
       id: `rev-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`,
       createdAt: new Date().toISOString(),
@@ -171,23 +302,26 @@ export const api = {
       changes: ['Manual restore point'],
       snapshot: formRevisionSnapshot(form),
     }
-    const next = forms.map(item => item.id === formId ? { ...item, revisions: [revision, ...(Array.isArray(item.revisions) ? item.revisions : [])].slice(0, FORM_REVISION_LIMIT) } : item)
+    const next = storedForms.map(item => item.id === formId ? { ...item, revisions: [revision, ...(Array.isArray(item.revisions) ? item.revisions : [])].slice(0, FORM_REVISION_LIMIT) } : item)
     await request(`/forms/${websiteId}`, { method: 'PUT', body: JSON.stringify({ forms: next }) })
-    return next
+    return editorForms(next)
   },
   restoreFormRevision: async (websiteId, formId, revisionId) => {
-    const forms = await refreshForms(websiteId)
-    const form = forms.find(item => item.id === formId)
-    if (!form) throw new Error('Form not found')
-    const revision = (Array.isArray(form.revisions) ? form.revisions : []).find(item => item.id === revisionId)
+    const storedForms = await refreshStoredForms(websiteId)
+    const stored = storedForms.find(item => item.id === formId)
+    if (!stored) throw new Error('Form not found')
+    const revision = (Array.isArray(stored.revisions) ? stored.revisions : []).find(item => item.id === revisionId)
     if (!revision?.snapshot) throw new Error('Form revision not found')
-    const submissions = Array.isArray(form.submissions) ? form.submissions : []
-    const revisions = Array.isArray(form.revisions) ? form.revisions : []
-    const restored = { ...form, ...cloneValue(revision.snapshot), id: form.id, submissions, revisions }
-    const next = forms.map(item => item.id === formId ? restored : item)
-    return persistFormsWithRevisions(websiteId, forms, next, `Restored ${revision.label || 'form revision'}`)
+    const forms = editorForms(storedForms)
+    const next = forms.map(form => form.id === formId
+      ? { ...form, ...cloneValue(revision.snapshot), id: form.id, submissions: form.submissions, revisions: form.revisions }
+      : form)
+    return persistFormsWithRevisions(websiteId, storedForms, next, `Restored ${revision.label || 'form revision'}`)
   },
-  submitTestForm: (websiteId, formId) => request(`/forms/${websiteId}/${formId}/test-submission`, { method: 'POST', body: JSON.stringify({}) }),
+  submitTestForm: async (websiteId, formId) => {
+    await request(`/forms/${websiteId}/${formId}/test-submission`, { method: 'POST', body: JSON.stringify({}) })
+    return refreshForms(websiteId)
+  },
   getOrders: () => request('/orders'),
   getOrder: id => request(`/orders/${id}`),
   getInventory: websiteId => request(`/inventory/${encodeURIComponent(websiteId)}`),
