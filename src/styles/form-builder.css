@@ -52,7 +52,8 @@
 .formSettings label,
 .fieldEditor label,
 .formPreview form label,
-.emailTestControls label {
+.emailTestControls label,
+.formSectionItem label {
   display: grid;
   gap: 8px;
   color: #b9c3d6;
@@ -67,6 +68,7 @@
 .formPreview input,
 .formPreview textarea,
 .formPreview select,
+.formSectionItem input,
 .submissionActions select,
 .emailTestControls input,
 .submissionFilters input,
@@ -106,7 +108,9 @@
 
 .formHeaderActions button,
 .emailReadinessPanel .panelHead button,
-.emailTestControls button {
+.emailTestControls button,
+.formSectionsEditor .panelHead button,
+.formSectionActions button {
   padding: 10px 14px;
   border: 1px solid #2b4771;
   border-radius: 10px;
@@ -170,6 +174,65 @@
 .emailTestControls small {
   grid-column: 1 / -1;
   color: #96a3b8;
+}
+
+.formSectionsEditor {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid #263650;
+  border-radius: 16px;
+  background: #08111d;
+}
+
+.formSectionsEditor .panelHead > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.formSectionsEditor .panelHead h3,
+.formSectionsEditor .panelHead small {
+  margin: 0;
+}
+
+.formSectionsEditor .panelHead small {
+  color: #96a3b8;
+}
+
+.formSectionItem {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.35fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid #263650;
+  border-radius: 14px;
+  background: #0a1524;
+}
+
+.formSectionNumber {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 3px;
+  border: 1px solid #31517d;
+  border-radius: 999px;
+  background: #102542;
+  color: #86b8ff;
+  font-weight: 900;
+}
+
+.formSectionActions {
+  display: flex;
+  gap: 6px;
+  align-items: end;
+}
+
+.formSectionActions button {
+  min-width: 40px;
+  padding: 10px;
 }
 
 .fieldTypeBar {
@@ -267,6 +330,41 @@
 
 .formPreview textarea {
   min-height: 110px;
+}
+
+.previewStepProgress {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid #2b4771;
+  border-radius: 12px;
+  background: #0a1524;
+}
+
+.previewStepProgress span {
+  color: #7fb2ff;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.previewStepProgress b {
+  color: #fff;
+}
+
+.previewStepProgress small {
+  line-height: 1.4;
+}
+
+.previewStepActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.previewStepActions button {
+  min-width: 100px;
 }
 
 .submissions {
@@ -519,6 +617,15 @@
     grid-column: auto;
   }
 
+  .formSectionItem {
+    grid-template-columns: auto 1fr;
+  }
+
+  .formSectionItem label,
+  .formSectionActions {
+    grid-column: 2;
+  }
+
   .submissionStats {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -533,6 +640,22 @@
   .fieldConditionRule,
   .submissionFilters {
     grid-template-columns: 1fr;
+  }
+
+  .formSectionItem {
+    grid-template-columns: 1fr;
+  }
+
+  .formSectionNumber,
+  .formSectionItem label,
+  .formSectionActions {
+    grid-column: 1;
+  }
+
+  .formSectionActions,
+  .previewStepActions {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
   }
 
   .submissionStats {
