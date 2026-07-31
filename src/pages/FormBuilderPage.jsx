@@ -348,6 +348,9 @@ export function FormBuilderPage({ client = false }) {
   const [draftDirty, setDraftDirty] = useState(false)
   const [releaseLabel, setReleaseLabel] = useState('')
   const [releaseNote, setReleaseNote] = useState('')
+  const [publishHistoryQuery, setPublishHistoryQuery] = useState('')
+  const [publishHistoryTypeFilter, setPublishHistoryTypeFilter] = useState('All')
+  const [publishHistoryStatusFilter, setPublishHistoryStatusFilter] = useState('All')
   const selected = forms.find(form => form.id === selectedId) || forms[0]
   const publication = selected?.publication || {}
   const liveConfig = publication.liveConfig && typeof publication.liveConfig === 'object' ? publication.liveConfig : null
@@ -355,6 +358,29 @@ export function FormBuilderPage({ client = false }) {
   const isArchived = !isPublished && selected?.status === 'Archived'
   const hasUnpublishedChanges = publication.hasUnpublishedChanges === true || draftDirty
   const publishHistory = Array.isArray(selected?.publishHistory) ? selected.publishHistory : []
+  const filteredPublishHistory = useMemo(() => {
+    const query = publishHistoryQuery.trim().toLowerCase()
+    return publishHistory.filter(release => {
+      if (publishHistoryTypeFilter !== 'All' && release?.releaseType !== publishHistoryTypeFilter) return false
+      if (publishHistoryStatusFilter !== 'All' && release?.releaseStatus !== publishHistoryStatusFilter) return false
+      if (!query) return true
+      const searchText = [
+        release?.releaseNumber,
+        release?.releaseNumberLabel,
+        release?.label,
+        release?.note,
+        release?.publishedBy,
+        release?.releaseType,
+        release?.releaseTypeLabel,
+        release?.releaseStatus,
+        release?.releaseStatusLabel,
+        release?.rollbackSourceLabel,
+        release?.rollbackSourceReleaseNumber,
+        release?.rollbackSourceSummary,
+      ].filter(value => value !== undefined && value !== null).map(String).join(' ').toLowerCase()
+      return searchText.includes(query)
+    })
+  }, [publishHistory, publishHistoryQuery, publishHistoryTypeFilter, publishHistoryStatusFilter])
   const historicalRelease = publishHistory.find(release => release?.id === historicalPreviewId && release?.snapshot) || null
   const previewingLive = previewVersion === 'live' && isPublished && liveConfig
   const previewingHistorical = previewVersion === 'historical' && Boolean(historicalRelease)
@@ -449,7 +475,7 @@ export function FormBuilderPage({ client = false }) {
     loadDeliveryStatuses(selected?.id)
     setSubmissionQuery(''); setSubmissionStatusFilter('All'); setSubmissionSourceFilter('All'); setSubmissionPage(1); setSelectedSubmissionIds([])
     setPreviewVersion('draft'); setHistoricalPreviewId(''); setPreviewValues(emptyPreviewValues(selected?.fields || [])); setPreviewStepIndex(0); setDraftDirty(false)
-    setReleaseLabel(''); setReleaseNote('')
+    setReleaseLabel(''); setReleaseNote(''); setPublishHistoryQuery(''); setPublishHistoryTypeFilter('All'); setPublishHistoryStatusFilter('All')
   }, [websiteId, selected?.id])
   useEffect(() => { loadEmailReadiness() }, [isOwner])
   useEffect(() => { if (isOwner) { setTestEmail(selected?.destination || emailReadiness?.from || ''); setEmailTestState('') } }, [isOwner, selected?.id, emailReadiness?.from])
@@ -1067,16 +1093,17 @@ export function FormBuilderPage({ client = false }) {
             </div>
 
             <div className="formSectionsEditor">
-              <div className="panelHead"><div><h3>Publish History</h3><small>Each Live release can be named and noted, previewed without changing Draft or Live, and rolled back separately.</small></div></div>
-              {publishHistory.length ? <div className="submissions">{publishHistory.map((release, index) => {
+              <div className="panelHead"><div><h3>Publish History</h3><small>Each Live release can be named and noted, previewed without changing Draft or Live, and rolled back separately.</small></div><small>{publishHistory.length ? `${filteredPublishHistory.length} of ${publishHistory.length} releases` : '0 releases'}</small></div>
+              {publishHistory.length > 0 && <div className="submissionFilters"><label>Search<input type="search" value={publishHistoryQuery} placeholder="Release #, label, note, publisher…" onChange={event => setPublishHistoryQuery(event.target.value)} /></label><label>Type<select value={publishHistoryTypeFilter} onChange={event => setPublishHistoryTypeFilter(event.target.value)}><option value="All">All</option><option value="initial-publish">Initial Publish</option><option value="publish">Publish</option><option value="rollback">Rollback</option></select></label><label>Status<select value={publishHistoryStatusFilter} onChange={event => setPublishHistoryStatusFilter(event.target.value)}><option value="All">All</option><option value="current-live">Current Live</option><option value="previous-live">Previous Live</option><option value="superseded">Superseded</option></select></label></div>}
+              {filteredPublishHistory.length ? <div className="submissions">{filteredPublishHistory.map((release, index) => {
                 const releaseFields = Array.isArray(release.snapshot?.fields) ? release.snapshot.fields.length : 0
                 const releaseSections = normaliseSections(release.snapshot || {}).length
-                const currentRelease = index === 0 && isPublished && release.publishedAt === publication.publishedAt
+                const currentRelease = release.releaseStatus === 'current-live'
                 const previewingRelease = previewingHistorical && historicalPreviewId === release.id
                 const releaseVsLive = isPublished && liveConfig && release.snapshot ? draftVsLiveSummary(liveConfig, release.snapshot) : []
                 const metadataHistory = Array.isArray(release.metadataHistory) ? release.metadataHistory : []
                 return <div key={release.id || `${release.publishedAt}-${index}`}><p><b>{release.label || 'Published form'}</b><small>{revisionTimestamp(release.publishedAt)} · {releaseFields} field{releaseFields === 1 ? '' : 's'} · {releaseSections > 1 ? `${releaseSections} steps` : 'single page'}{currentRelease ? ' · Current Live' : ''}{previewingRelease ? ' · Previewing' : ''}</small>{release.note && <small>Note: {release.note}</small>}{release.attributionSummary && <small>{release.attributionSummary}</small>}{release.rollbackSourceSummary && <small>{release.rollbackSourceSummary}</small>}{release.metadataEditedAt && <small>Details last edited {revisionTimestamp(release.metadataEditedAt)}{release.metadataEditedBy ? ` by ${release.metadataEditedBy}` : ''}</small>}{!currentRelease && isPublished && <small>Rollback impact: {releaseVsLive.length ? releaseVsLive.join(' · ') : 'No configuration differences from Current Live'}</small>}<span className="formHeaderActions"><button type="button" disabled={busy || !release.id || previewingRelease} onClick={() => previewPublishedVersion(release)}>{previewingRelease ? 'Previewing' : 'Preview Release'}</button>{canEdit && <button type="button" disabled={busy || !release.id} onClick={() => editPublishedVersionDetails(release)}>{busyAction === `edit-publish-${release.id}` ? 'Saving…' : 'Edit Details'}</button>}{canEdit && isPublished && !currentRelease && <button type="button" disabled={busy || !release.id || !releaseVsLive.length} onClick={() => rollbackPublishedVersion(release)}>{busyAction === `rollback-publish-${release.id}` ? 'Rolling back…' : releaseVsLive.length ? 'Rollback Live Version' : 'Matches Live'}</button>}</span></p>{metadataHistory.length > 0 && <details><summary>Metadata History ({metadataHistory.length})</summary>{metadataHistory.map((entry, historyIndex) => <p key={`${entry.editedAt || 'edit'}-${historyIndex}`}><b>{revisionTimestamp(entry.editedAt)} · {entry.editedBy || 'Unknown user'}</b>{entry.previousLabel !== entry.newLabel && <small>Label: “{entry.previousLabel || 'Published form'}” → “{entry.newLabel || 'Published form'}”</small>}{entry.previousNote !== entry.newNote && <small>Note: “{entry.previousNote || 'None'}” → “{entry.newNote || 'None'}”</small>}</p>)}</details>}</div>
-              })}</div> : <p className="emptyState">No publish history yet. The first release will appear here after this form is published.</p>}
+              })}</div> : publishHistory.length ? <p className="emptyState">No releases match the current Publish History filters.</p> : <p className="emptyState">No publish history yet. The first release will appear here after this form is published.</p>}
             </div>
 
             <div className="formSectionsEditor">
