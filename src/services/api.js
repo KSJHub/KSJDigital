@@ -1,5 +1,6 @@
 const API_BASE = import.meta.env.VITE_KSJ_API_URL || 'http://localhost:4174/api'
 const FORM_REVISION_LIMIT = 30
+const FORM_PUBLISH_HISTORY_LIMIT = 20
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -27,6 +28,7 @@ function formRevisionSnapshot(form = {}) {
   const {
     submissions: _submissions,
     revisions: _revisions,
+    publishHistory: _publishHistory,
     draftConfig: _draftConfig,
     publishedAt: _publishedAt,
     publication: _publication,
@@ -43,6 +45,15 @@ function isPublishedForm(form = {}) {
   return form.status === 'Active' || Boolean(form.publishedAt)
 }
 
+function publishHistoryRecord(snapshot, label = 'Published form', publishedAt = new Date().toISOString()) {
+  return {
+    id: `pub-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`,
+    publishedAt,
+    label: String(label || 'Published form').slice(0, 120),
+    snapshot: cloneValue(snapshot) || {},
+  }
+}
+
 function editorForm(stored = {}) {
   const draft = stored?.draftConfig && typeof stored.draftConfig === 'object' && !Array.isArray(stored.draftConfig)
     ? cloneValue(stored.draftConfig)
@@ -54,6 +65,7 @@ function editorForm(stored = {}) {
     ...editable,
     submissions: Array.isArray(stored.submissions) ? stored.submissions : [],
     revisions: Array.isArray(stored.revisions) ? stored.revisions : [],
+    publishHistory: Array.isArray(stored.publishHistory) ? stored.publishHistory : [],
     publication: {
       isPublished: isPublishedForm(stored),
       publishedAt: stored.publishedAt || null,
@@ -102,41 +114,45 @@ function prepareStoredForm(previousStored, nextEditor, publicationAction = '') {
     ? cloneValue(nextEditor.submissions)
     : Array.isArray(previousStored?.submissions) ? previousStored.submissions : []
   const revisions = Array.isArray(previousStored?.revisions) ? previousStored.revisions : []
+  const publishHistory = Array.isArray(previousStored?.publishHistory) ? previousStored.publishHistory : []
 
   if (!previousStored) {
-    return { ...nextSnapshot, submissions, revisions, ...(nextSnapshot.status === 'Active' ? { publishedAt: new Date().toISOString() } : {}) }
+    return { ...nextSnapshot, submissions, revisions, publishHistory, ...(nextSnapshot.status === 'Active' ? { publishedAt: new Date().toISOString() } : {}) }
   }
 
   if (publicationAction === 'publish') {
+    const publishedAt = new Date().toISOString()
+    const liveSnapshot = { ...nextSnapshot, status: 'Active' }
     return {
-      ...nextSnapshot,
-      status: 'Active',
+      ...liveSnapshot,
       submissions,
       revisions,
-      publishedAt: new Date().toISOString(),
+      publishHistory: [publishHistoryRecord(liveSnapshot, isPublishedForm(previousStored) ? 'Published form changes' : 'Initial publish', publishedAt), ...publishHistory].slice(0, FORM_PUBLISH_HISTORY_LIMIT),
+      publishedAt,
     }
   }
 
   if (publicationAction === 'unpublish') {
     const { publishedAt: _publishedAt, draftConfig: _draftConfig, ...rest } = previousStored
-    return { ...rest, ...nextSnapshot, submissions, revisions }
+    return { ...rest, ...nextSnapshot, submissions, revisions, publishHistory }
   }
 
   if (!isPublishedForm(previousStored)) {
     const { draftConfig: _draftConfig, publication: _publication, ...rest } = previousStored
-    return { ...rest, ...nextSnapshot, submissions, revisions }
+    return { ...rest, ...nextSnapshot, submissions, revisions, publishHistory }
   }
 
   const liveSnapshot = formRevisionSnapshot(previousStored)
   if (sameSnapshot(liveSnapshot, nextSnapshot)) {
     const { draftConfig: _draftConfig, publication: _publication, ...rest } = previousStored
-    return { ...rest, submissions, revisions }
+    return { ...rest, submissions, revisions, publishHistory }
   }
 
   return {
     ...previousStored,
     submissions,
     revisions,
+    publishHistory,
     draftConfig: nextSnapshot,
   }
 }
@@ -185,7 +201,35 @@ async function discardStoredFormDraft(websiteId, formId) {
     snapshot: cloneValue(discardedDraft),
   }
   const next = storedForms.map(item => item?.id === formId
-    ? { ...live, submissions: Array.isArray(stored.submissions) ? stored.submissions : [], revisions: [revision, ...(Array.isArray(stored.revisions) ? stored.revisions : [])].slice(0, FORM_REVISION_LIMIT) }
+    ? { ...live, submissions: Array.isArray(stored.submissions) ? stored.submissions : [], revisions: [revision, ...(Array.isArray(stored.revisions) ? stored.revisions : [])].slice(0, FORM_REVISION_LIMIT), publishHistory: Array.isArray(stored.publishHistory) ? stored.publishHistory : [] }
+    : item)
+  await request(`/forms/${websiteId}`, { method: 'PUT', body: JSON.stringify({ forms: next }) })
+  return editorForms(next)
+}
+
+async function rollbackStoredFormPublish(websiteId, formId, publishId) {
+  const storedForms = await refreshStoredForms(websiteId)
+  const stored = storedForms.find(item => item?.id === formId)
+  if (!stored) throw new Error('Form not found')
+  const publishHistory = Array.isArray(stored.publishHistory) ? stored.publishHistory : []
+  const release = publishHistory.find(item => item?.id === publishId)
+  if (!release?.snapshot) throw new Error('Published form version not found')
+
+  const publishedAt = new Date().toISOString()
+  const rolledBackSnapshot = { ...cloneValue(release.snapshot), id: stored.id, status: 'Active' }
+  const submissions = Array.isArray(stored.submissions) ? stored.submissions : []
+  const revisions = Array.isArray(stored.revisions) ? stored.revisions : []
+  const existingDraft = stored?.draftConfig && typeof stored.draftConfig === 'object' && !Array.isArray(stored.draftConfig) ? cloneValue(stored.draftConfig) : null
+  const rollbackRelease = publishHistoryRecord(rolledBackSnapshot, `Rollback to ${release.label || 'published version'}`, publishedAt)
+  const next = storedForms.map(item => item?.id === formId
+    ? {
+        ...rolledBackSnapshot,
+        submissions,
+        revisions,
+        publishHistory: [rollbackRelease, ...publishHistory].slice(0, FORM_PUBLISH_HISTORY_LIMIT),
+        publishedAt,
+        ...(existingDraft ? { draftConfig: existingDraft } : {}),
+      }
     : item)
   await request(`/forms/${websiteId}`, { method: 'PUT', body: JSON.stringify({ forms: next }) })
   return editorForms(next)
@@ -268,6 +312,7 @@ export const api = {
     'Published form changes',
     { formId, action: 'publish' },
   ),
+  rollbackFormPublish: (websiteId, formId, publishId) => rollbackStoredFormPublish(websiteId, formId, publishId),
   discardFormDraft: (websiteId, formId) => discardStoredFormDraft(websiteId, formId),
   deleteForm: async (websiteId, formId) => {
     await request(`/forms/${websiteId}/${formId}`, { method: 'DELETE' })
@@ -338,7 +383,7 @@ export const api = {
     if (!revision?.snapshot) throw new Error('Form revision not found')
     const forms = editorForms(storedForms)
     const next = forms.map(form => form.id === formId
-      ? { ...form, ...cloneValue(revision.snapshot), id: form.id, submissions: form.submissions, revisions: form.revisions }
+      ? { ...form, ...cloneValue(revision.snapshot), id: form.id, submissions: form.submissions, revisions: form.revisions, publishHistory: form.publishHistory }
       : form)
     return persistFormsWithRevisions(websiteId, storedForms, next, `Restored ${revision.label || 'form revision'}`)
   },
