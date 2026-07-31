@@ -249,11 +249,13 @@ async function updateStoredFormPublishDetails(websiteId, formId, publishId, deta
   const label = String(details?.label || '').trim().slice(0, 120) || 'Published form'
   const note = String(details?.note || '').trim().slice(0, 500)
   if (release.label === label && (release.note || '') === note) return editorForms(storedForms)
+  const metadataEditedAt = new Date().toISOString()
+  const metadataEditedBy = String(details?.editedBy || '').trim().slice(0, 120) || 'Unknown user'
   const next = storedForms.map(item => item?.id === formId
     ? {
         ...item,
         publishHistory: publishHistory.map(entry => entry?.id === publishId
-          ? { ...entry, label, note }
+          ? { ...entry, label, note, metadataEditedAt, metadataEditedBy }
           : entry),
       }
     : item)
