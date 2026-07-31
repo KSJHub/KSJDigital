@@ -245,6 +245,7 @@ async function rollbackStoredFormPublish(websiteId, formId, publishId) {
 
   const publishedAt = new Date().toISOString()
   const rolledBackSnapshot = { ...cloneValue(release.snapshot), id: stored.id, status: 'Active' }
+  if (sameSnapshot(formRevisionSnapshot(stored), rolledBackSnapshot)) throw new Error('Selected published version already matches Current Live')
   const submissions = Array.isArray(stored.submissions) ? stored.submissions : []
   const revisions = Array.isArray(stored.revisions) ? stored.revisions : []
   const existingDraft = stored?.draftConfig && typeof stored.draftConfig === 'object' && !Array.isArray(stored.draftConfig) ? cloneValue(stored.draftConfig) : null
