@@ -334,6 +334,7 @@ export function FormBuilderPage({ client = false }) {
   const previewFields = steppedPreview ? fieldsForSection(previewVisibleFields, previewSection, sections) : previewVisibleFields
   const publication = selected?.publication || {}
   const isPublished = publication.isPublished === true
+  const isArchived = !isPublished && selected?.status === 'Archived'
   const hasUnpublishedChanges = publication.hasUnpublishedChanges === true || draftDirty
   const publicReady = isPublished
   const publishedAt = publication.publishedAt ? revisionTimestamp(publication.publishedAt) : ''
@@ -683,8 +684,33 @@ export function FormBuilderPage({ client = false }) {
     finally { setBusyAction('') }
   }
 
+  async function changeLifecycle(nextStatus) {
+    if (!canEdit || !websiteId || !selected?.id || busy || !['Draft', 'Archived'].includes(nextStatus)) return
+    const formName = selected.name || 'this form'
+    if (nextStatus === 'Archived') {
+      const warning = isPublished
+        ? `Archive “${formName}”? This will remove the currently live form from the public website. Stored submissions and revision history will be preserved.`
+        : `Archive “${formName}”? It will remain stored but unavailable for publishing until restored to Draft.`
+      if (!globalThis.confirm(warning)) return
+    }
+    setBusyAction('lifecycle'); setNotice(nextStatus === 'Archived' ? 'Archiving form' : 'Restoring form to draft')
+    try {
+      const next = await api.updateForm(websiteId, selected.id, { status: nextStatus })
+      setForms(next)
+      setSelectedId(selected.id)
+      setDraftDirty(false)
+      setEditHistory(current => ({ ...current, [selected.id]: { past: [], future: [] } }))
+      const updated = next.find(form => form.id === selected.id)
+      if (updated) setSavedConfigs(current => ({ ...current, [selected.id]: formConfigSnapshot(updated) }))
+      setNotice(nextStatus === 'Archived' ? 'Form archived' : 'Form restored to draft')
+    } catch (error) {
+      setNotice(error.message || 'Lifecycle update failed')
+      await loadForms(selected.id, error.message || 'Lifecycle update failed')
+    } finally { setBusyAction('') }
+  }
+
   async function publishChanges() {
-    if (!canEdit || !websiteId || !selected?.id || busy) return
+    if (!canEdit || !websiteId || !selected?.id || busy || isArchived) return
     const formId = selected.id
     if (draftDirty) {
       const saved = await saveFormsConfiguration(forms, formId, 'Saving draft before publish')
@@ -903,21 +929,26 @@ export function FormBuilderPage({ client = false }) {
         <aside className="card formList"><div className="panelHead"><h2>Forms</h2>{canEdit && <button onClick={addForm} disabled={!websiteId || busy}>{busyAction === 'create-form' ? 'Creating…' : 'Create'}</button>}</div>{forms.map(form => <button className={form.id === selectedId ? 'active' : ''} disabled={busy} key={form.id} onClick={() => setSelectedId(form.id)}><b>{form.name}</b><small>{form.publication?.isPublished ? (form.publication?.hasUnpublishedChanges ? 'Live · draft changes' : 'Live') : form.status || 'Draft'} · {(form.fields || []).length} fields</small></button>)}{!forms.length && <p className="emptyState">No forms configured yet.</p>}</aside>
 
         <section className="card formEditor">
-          <div className="panelHead"><h2>{canEdit ? 'Form Settings' : 'Form Details'}</h2>{selected && <div className="formHeaderActions"><button type="button" disabled>{isPublished ? (hasUnpublishedChanges ? 'Live · Draft changes' : 'Live') : 'Draft'}</button>{canEdit && <><button type="button" disabled={busy || !canUndoEdit} onClick={undoEdit}>{draftDirty ? 'Undo Draft' : 'Undo'}</button><button type="button" disabled={busy || !canRedoEdit} onClick={redoEdit}>Redo</button><button type="button" disabled={busy} onClick={duplicateForm}>Duplicate Form</button></>}</div>}</div>
+          <div className="panelHead"><h2>{canEdit ? 'Form Settings' : 'Form Details'}</h2>{selected && <div className="formHeaderActions"><button type="button" disabled>{isPublished ? (hasUnpublishedChanges ? 'Live · Draft changes' : 'Live') : isArchived ? 'Archived' : 'Draft'}</button>{canEdit && <><button type="button" disabled={busy || !canUndoEdit} onClick={undoEdit}>{draftDirty ? 'Undo Draft' : 'Undo'}</button><button type="button" disabled={busy || !canRedoEdit} onClick={redoEdit}>Redo</button><button type="button" disabled={busy} onClick={duplicateForm}>Duplicate Form</button></>}</div>}</div>
           {selected && <>
             <div className="formSectionsEditor">
-              <div className="panelHead"><div><h3>Publishing</h3><small>{isPublished ? (hasUnpublishedChanges ? 'The public website is still using the last published version while these changes remain in draft.' : 'The saved editor configuration matches the version currently live on the public website.') : 'This form is not currently published to the public website.'}</small></div>{canEdit && <div className="formHeaderActions">{isPublished && hasUnpublishedChanges && <button type="button" disabled={busy} onClick={discardDraft}>{busyAction === 'discard-draft' ? 'Discarding…' : 'Discard Draft'}</button>}<button type="button" disabled={busy || (isPublished && !hasUnpublishedChanges)} onClick={publishChanges}>{busyAction === 'publish-form' ? 'Publishing…' : isPublished ? 'Publish Changes' : 'Publish Form'}</button></div>}</div>
-              <div className="submissions"><p><b>Live state</b><small>{isPublished ? 'Published and available to the public website' : 'Not published'}</small></p><p><b>Draft state</b><small>{draftDirty ? 'Unsaved editor changes · autosaving shortly' : publication.hasUnpublishedChanges ? 'Saved draft changes waiting to be published' : isPublished ? 'No unpublished changes' : 'Saved as draft'}</small></p><p><b>Last published</b><small>{publishedAt || 'Never published'}</small></p>{isPublished && hasUnpublishedChanges && <p><b>Public safety</b><small>Visitors continue to receive the previous live version until Publish Changes is confirmed.</small></p>}</div>
+              <div className="panelHead"><div><h3>Publishing</h3><small>{isArchived ? 'This form is archived. Restore it to Draft before publishing.' : isPublished ? (hasUnpublishedChanges ? 'The public website is still using the last published version while these changes remain in draft.' : 'The saved editor configuration matches the version currently live on the public website.') : 'This form is not currently published to the public website.'}</small></div>{canEdit && !isArchived && <div className="formHeaderActions">{isPublished && hasUnpublishedChanges && <button type="button" disabled={busy} onClick={discardDraft}>{busyAction === 'discard-draft' ? 'Discarding…' : 'Discard Draft'}</button>}<button type="button" disabled={busy || (isPublished && !hasUnpublishedChanges)} onClick={publishChanges}>{busyAction === 'publish-form' ? 'Publishing…' : isPublished ? 'Publish Changes' : 'Publish Form'}</button></div>}</div>
+              <div className="submissions"><p><b>Live state</b><small>{isPublished ? 'Published and available to the public website' : isArchived ? 'Archived and unavailable to the public website' : 'Not published'}</small></p><p><b>Draft state</b><small>{isArchived ? 'Archived · restore to Draft to continue publishing' : draftDirty ? 'Unsaved editor changes · autosaving shortly' : publication.hasUnpublishedChanges ? 'Saved draft changes waiting to be published' : isPublished ? 'No unpublished changes' : 'Saved as draft'}</small></p><p><b>Last published</b><small>{publishedAt || 'Never published'}</small></p>{isPublished && hasUnpublishedChanges && <p><b>Public safety</b><small>Visitors continue to receive the previous live version until Publish Changes is confirmed.</small></p>}</div>
             </div>
 
             <div className="formSettings">
               <label>Name<input value={selected.name || ''} disabled={!canEdit || busy} onChange={event => updateSelectedLocal({ name: event.target.value })} onBlur={event => saveForm({ name: event.target.value })} /></label>
               <label>Email Destination<input type="email" value={selected.destination || ''} disabled={!canEdit || busy} onChange={event => updateSelectedLocal({ destination: event.target.value })} onBlur={event => saveForm({ destination: event.target.value.trim() })} /></label>
-              <label>Status<select value={selected.status || 'Draft'} disabled={!canEdit || busy} onChange={event => saveForm({ status: event.target.value })}><option>Active</option><option>Draft</option><option>Archived</option></select></label>
+              <label>Lifecycle<input value={isPublished ? 'Live' : isArchived ? 'Archived' : 'Draft'} disabled readOnly /></label>
               <label className="formCheck"><input type="checkbox" checked={selected.spamProtection !== false} disabled={!canEdit || busy} onChange={event => saveForm({ spamProtection: event.target.checked })} /> Spam protection</label>
               <label className="formSettingsWide">Success Message<textarea value={selected.successMessage || ''} disabled={!canEdit || busy} placeholder="Thanks — your enquiry has been sent." onChange={event => updateSelectedLocal({ successMessage: event.target.value })} onBlur={event => saveFormConfiguration({ successMessage: event.target.value.trim().slice(0, 500) })} /></label>
             </div>
-            <div className="submissions"><h3>Public Submission Readiness</h3><p><b>Public website integration</b><small>{publicReady ? (hasUnpublishedChanges ? 'Live · draft changes are not public yet' : 'Connected and accepting submissions') : 'Ready after this form is published'}</small></p><p><b>Delivery destination</b><small>{selected.destination || 'No destination configured'}</small></p><p><b>Draft safety</b><small>{draftDirty ? 'Unsaved changes · autosaving shortly' : publication.hasUnpublishedChanges ? 'Saved draft changes · live version protected' : `${selectedHistory.past.length} undo revision${selectedHistory.past.length === 1 ? '' : 's'} available this session · autosave enabled`}</small></p><p><b>Persistent history</b><small>{persistentRevisions.length ? `${persistentRevisions.length} saved revision${persistentRevisions.length === 1 ? '' : 's'} available across sessions` : 'No saved revisions yet'}</small></p><p><b>Conditional logic</b><small>{conditionalEnabled ? 'Available · conditions may reference earlier answer fields only' : 'Unavailable while this form contains File fields'}</small></p><p><b>Form layout</b><small>{sections.length > 1 ? `${sections.length} stepped sections · full / half-width controls available` : 'Single page · full / half-width controls available'}</small></p><p><b>Advanced fields</b><small>{hasFileFields ? 'Unavailable while this form contains File fields' : 'Radio, Number, Heading, Instructions and Divider available'}</small></p><p><b>Success message</b><small>{selected.successMessage || 'Default confirmation message'}</small></p><p><b>Email transport</b><small>{isOwner ? (emailReadiness?.configured ? 'Configured' : 'Setup required') : 'Managed by KSJ Digital'}</small></p><p><b>Spam protection</b><small>{selected.spamProtection !== false ? 'Enabled for public submissions' : 'Disabled'}</small></p>{hasFileFields && <p><b>Secure file uploads</b><small>Enabled · PDF, PNG, JPG/JPEG and WebP · 5 MB per file · private authenticated downloads</small></p>}</div>
+
+            <div className="formSectionsEditor">
+              <div className="panelHead"><div><h3>Form Lifecycle</h3><small>{isPublished ? 'Archive removes this form from the public website but preserves submissions and revision history.' : isArchived ? 'Restore returns this form to Draft. Publishing remains a separate explicit action.' : 'Draft forms can be archived for storage or published through the Publishing panel.'}</small></div>{canEdit && <button type="button" disabled={busy} onClick={() => changeLifecycle(isArchived ? 'Draft' : 'Archived')}>{busyAction === 'lifecycle' ? (isArchived ? 'Restoring…' : 'Archiving…') : isArchived ? 'Restore to Draft' : 'Archive Form'}</button>}</div>
+            </div>
+
+            <div className="submissions"><h3>Public Submission Readiness</h3><p><b>Public website integration</b><small>{publicReady ? (hasUnpublishedChanges ? 'Live · draft changes are not public yet' : 'Connected and accepting submissions') : isArchived ? 'Archived · restore to Draft before publishing' : 'Ready after this form is published'}</small></p><p><b>Delivery destination</b><small>{selected.destination || 'No destination configured'}</small></p><p><b>Draft safety</b><small>{draftDirty ? 'Unsaved changes · autosaving shortly' : publication.hasUnpublishedChanges ? 'Saved draft changes · live version protected' : `${selectedHistory.past.length} undo revision${selectedHistory.past.length === 1 ? '' : 's'} available this session · autosave enabled`}</small></p><p><b>Persistent history</b><small>{persistentRevisions.length ? `${persistentRevisions.length} saved revision${persistentRevisions.length === 1 ? '' : 's'} available across sessions` : 'No saved revisions yet'}</small></p><p><b>Conditional logic</b><small>{conditionalEnabled ? 'Available · conditions may reference earlier answer fields only' : 'Unavailable while this form contains File fields'}</small></p><p><b>Form layout</b><small>{sections.length > 1 ? `${sections.length} stepped sections · full / half-width controls available` : 'Single page · full / half-width controls available'}</small></p><p><b>Advanced fields</b><small>{hasFileFields ? 'Unavailable while this form contains File fields' : 'Radio, Number, Heading, Instructions and Divider available'}</small></p><p><b>Success message</b><small>{selected.successMessage || 'Default confirmation message'}</small></p><p><b>Email transport</b><small>{isOwner ? (emailReadiness?.configured ? 'Configured' : 'Setup required') : 'Managed by KSJ Digital'}</small></p><p><b>Spam protection</b><small>{selected.spamProtection !== false ? 'Enabled for public submissions' : 'Disabled'}</small></p>{hasFileFields && <p><b>Secure file uploads</b><small>Enabled · PDF, PNG, JPG/JPEG and WebP · 5 MB per file · private authenticated downloads</small></p>}</div>
 
             <div className="formSectionsEditor">
               <div className="panelHead"><div><h3>Revision History</h3><small>Saved configuration history survives refresh and logout. Restoring never replaces stored submissions.</small></div>{canEdit && <button type="button" disabled={busy} onClick={createRestorePoint}>{busyAction === 'restore-point' ? 'Creating…' : 'Create Restore Point'}</button>}</div>
