@@ -3,12 +3,20 @@ import express from 'express'
 import { completeMfaLogin } from './services/authenticationService.js'
 import { paths, readJson, safeName, writeJson } from './storage.js'
 
-const PUBLIC_FIELD_TYPES = new Set(['Text', 'Email', 'Textarea', 'Phone', 'Select', 'Checkbox', 'Date', 'File'])
-const PUBLIC_FIELD_LENGTH_CAPS = { Text: 500, Email: 320, Textarea: 5000, Phone: 40, Select: 500, Date: 20 }
+const PUBLIC_STORAGE_FIELD_TYPES = new Set(['Text', 'Email', 'Textarea', 'Phone', 'Select', 'Checkbox', 'Date', 'File'])
+const PUBLIC_ADVANCED_FIELD_TYPES = new Set(['Radio', 'Number', 'Heading', 'Instructions', 'Divider'])
+const PUBLIC_DISPLAY_ONLY_TYPES = new Set(['Heading', 'Instructions', 'Divider'])
+const PUBLIC_FIELD_LENGTH_CAPS = { Text: 500, Email: 320, Textarea: 5000, Phone: 40, Select: 500, Radio: 500, Date: 20, Number: 80 }
 const PUBLIC_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PUBLIC_PHONE_PATTERN = /^[0-9+() .'\-]{5,40}$/
 const PUBLIC_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 const CONDITIONAL_OPERATORS = new Set(['equals', 'notEquals', 'checked', 'unchecked'])
+
+function effectiveFieldType(field = {}) {
+  const displayType = String(field.displayType || '').trim()
+  if (PUBLIC_ADVANCED_FIELD_TYPES.has(displayType)) return displayType
+  return PUBLIC_STORAGE_FIELD_TYPES.has(field.type) ? field.type : 'Text'
+}
 
 function publicSections(form = {}) {
   const source = Array.isArray(form.sections) ? form.sections : []
@@ -29,7 +37,7 @@ function publicCondition(field = {}, earlierFields = []) {
   const condition = field.condition && typeof field.condition === 'object' && !Array.isArray(field.condition) ? field.condition : null
   if (!condition) return null
   const source = earlierFields.find(item => item.id === String(condition.fieldId || ''))
-  if (!source || source.type === 'File') return null
+  if (!source || source.type === 'File' || PUBLIC_DISPLAY_ONLY_TYPES.has(source.type)) return null
   const operator = String(condition.operator || '')
   if (!CONDITIONAL_OPERATORS.has(operator)) return null
   if (source.type === 'Checkbox' && !['checked', 'unchecked'].includes(operator)) return null
@@ -42,7 +50,7 @@ function publicCondition(field = {}, earlierFields = []) {
 }
 
 function publicFieldConfiguration(field = {}, earlierFields = [], sectionIds = new Set()) {
-  const type = PUBLIC_FIELD_TYPES.has(field.type) ? field.type : 'Text'
+  const type = effectiveFieldType(field)
   const cap = PUBLIC_FIELD_LENGTH_CAPS[type] || null
   const options = Array.isArray(field.options)
     ? field.options.map(value => String(value || '').trim().slice(0, 120)).filter(Boolean).slice(0, 50)
@@ -54,16 +62,22 @@ function publicFieldConfiguration(field = {}, earlierFields = [], sectionIds = n
     ? Math.min(requestedMin, maxLength || cap)
     : null
   const requestedSectionId = safeName(field.sectionId || '')
+  const width = field.width === 'half' ? 'half' : 'full'
   return {
     id: String(field.id || ''),
-    label: String(field.label || ''),
+    label: String(field.label || '').trim().slice(0, 120),
     type,
-    required: field.required === true,
-    placeholder: String(field.placeholder || ''),
+    required: PUBLIC_DISPLAY_ONLY_TYPES.has(type) ? false : field.required === true,
+    placeholder: String(field.placeholder || '').slice(0, 250),
     helpText: String(field.helpText || '').trim().slice(0, 300),
+    content: String(field.content || '').trim().slice(0, 1000),
     options,
     minLength,
     maxLength,
+    min: type === 'Number' && Number.isFinite(Number(field.min)) ? Number(field.min) : null,
+    max: type === 'Number' && Number.isFinite(Number(field.max)) ? Number(field.max) : null,
+    step: type === 'Number' && Number(field.step) > 0 ? Math.min(Number(field.step), 1000000) : null,
+    width,
     sectionId: sectionIds.has(requestedSectionId) ? requestedSectionId : '',
     condition: publicCondition(field, earlierFields),
   }
@@ -95,11 +109,22 @@ function validDate(value) {
 }
 
 function validateFieldValue(field, rawValue) {
+  if (PUBLIC_DISPLAY_ONLY_TYPES.has(field.type)) return { skip: true }
   if (field.type === 'Checkbox') {
     if (rawValue === undefined || rawValue === null) return field.required ? { error: `${field.label || 'Required field'} must be accepted` } : { value: false }
     if (typeof rawValue !== 'boolean') return { error: `${field.label || 'Checkbox'} must be true or false` }
     if (field.required && rawValue !== true) return { error: `${field.label || 'Required field'} must be accepted` }
     return { value: rawValue }
+  }
+  if (field.type === 'Number') {
+    const text = rawValue === undefined || rawValue === null ? '' : String(rawValue).trim()
+    if (field.required && !text) return { error: `${field.label || 'Required field'} is required` }
+    if (!text) return { value: '' }
+    const value = Number(text)
+    if (!Number.isFinite(value)) return { error: `${field.label || 'Number'} must be a valid number` }
+    if (field.min !== null && value < field.min) return { error: `${field.label || 'Number'} must be at least ${field.min}` }
+    if (field.max !== null && value > field.max) return { error: `${field.label || 'Number'} must be no more than ${field.max}` }
+    return { value }
   }
   const cap = PUBLIC_FIELD_LENGTH_CAPS[field.type] || 500
   const value = String(rawValue ?? '').trim().slice(0, cap)
@@ -110,7 +135,7 @@ function validateFieldValue(field, rawValue) {
   if (field.type === 'Email' && !PUBLIC_EMAIL_PATTERN.test(value)) return { error: `${field.label || 'Email'} must be a valid email address` }
   if (field.type === 'Phone' && !PUBLIC_PHONE_PATTERN.test(value)) return { error: `${field.label || 'Phone'} must be a valid phone number` }
   if (field.type === 'Date' && !validDate(value)) return { error: `${field.label || 'Date'} must be a valid date` }
-  if (field.type === 'Select' && field.options.length && !field.options.includes(value)) return { error: `${field.label || 'Selection'} contains an invalid option` }
+  if (['Select', 'Radio'].includes(field.type) && field.options.length && !field.options.includes(value)) return { error: `${field.label || 'Selection'} contains an invalid option` }
   return { value }
 }
 
@@ -131,7 +156,7 @@ function validateConditionalJsonSubmission(form, body = {}) {
     if (!conditionMatches(field.condition, values)) continue
     const result = validateFieldValue(field, body.values[field.id])
     if (result.error) return { status: 422, error: result.error }
-    values[field.id] = result.value
+    if (!result.skip) values[field.id] = result.value
   }
   return { values }
 }
@@ -171,7 +196,8 @@ export function createAuthenticationPublicRouter() {
       const form = forms.find(item => safeName(item.id) === formId && item.status === 'Active')
       if (!form) return res.status(404).json({ error: 'Active form not found' })
       const hasConditions = (form.fields || []).some(field => field.condition)
-      if (!hasConditions) return next()
+      const hasAdvancedFields = (form.fields || []).some(field => PUBLIC_ADVANCED_FIELD_TYPES.has(String(field.displayType || '').trim()))
+      if (!hasConditions && !hasAdvancedFields) return next()
       const validated = validateConditionalJsonSubmission(form, req.body || {})
       if (validated.spam) return res.status(202).json({ submitted: true })
       if (validated.error) return res.status(validated.status || 422).json({ error: validated.error })
