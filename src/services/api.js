@@ -128,10 +128,13 @@ function editorForm(stored = {}) {
   const live = formRevisionSnapshot(stored)
   const editable = draft ? { ...stored, ...draft, id: stored.id } : { ...stored }
   const editableSnapshot = formRevisionSnapshot(editable)
-  const publishHistory = normalisePublishHistoryNumbers(stored.publishHistory).map(release => {
+  const numberedPublishHistory = normalisePublishHistoryNumbers(stored.publishHistory)
+  const publishHistory = numberedPublishHistory.map(release => {
     const releaseType = normaliseReleaseType(release?.releaseType, release)
     const typeLabel = releaseTypeLabel(releaseType)
     const releaseLabel = `Release #${release.releaseNumber}`
+    const rollbackSourceRelease = release?.rollbackSourceId ? numberedPublishHistory.find(candidate => candidate?.id === release.rollbackSourceId) : null
+    const rollbackSourceNumber = Number(release?.rollbackSourceReleaseNumber) || Number(rollbackSourceRelease?.releaseNumber) || 0
     return {
       ...release,
       releaseType,
@@ -139,7 +142,7 @@ function editorForm(stored = {}) {
       releaseNumberLabel: releaseLabel,
       attributionSummary: release?.publishedBy ? `${releaseLabel} · ${typeLabel} · Published by ${release.publishedBy}` : `${releaseLabel} · ${typeLabel}`,
       rollbackSourceSummary: release?.rollbackSourcePublishedAt
-        ? `Rollback source: ${release.rollbackSourceLabel || 'Published form'} · ${release.rollbackSourcePublishedAt}`
+        ? `Rollback source: ${rollbackSourceNumber ? `Release #${rollbackSourceNumber} · ` : ''}${release.rollbackSourceLabel || 'Published form'}`
         : '',
       comparison: isPublishedForm(stored) && release?.snapshot ? publishReleaseComparison(live, release.snapshot) : [],
     }
