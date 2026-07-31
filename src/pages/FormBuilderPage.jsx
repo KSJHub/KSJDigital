@@ -749,7 +749,11 @@ export function FormBuilderPage({ client = false }) {
       const saved = await saveFormsConfiguration(forms, formId, 'Saving draft before publish')
       if (!saved) return
     }
-    if (!globalThis.confirm(isPublished ? `Publish the latest saved changes to “${selected.name || 'this form'}”? The public form will update immediately.` : `Publish “${selected.name || 'this form'}” and make it available on the public website?`)) return
+    const reviewChanges = isPublished && liveConfig ? draftVsLiveSummary(liveConfig, selected || {}) : []
+    const reviewMessage = isPublished
+      ? `Publish changes to “${selected.name || 'this form'}”?\n\nChanges going live:\n${reviewChanges.length ? `• ${reviewChanges.join('\n• ')}` : '• Saved draft configuration changes'}\n\nThe public form will update immediately after confirmation.`
+      : `Publish “${selected.name || 'this form'}” and make it available on the public website?\n\nPre-publish review:\n• ${fields.length} field${fields.length === 1 ? '' : 's'}\n• ${sections.length > 1 ? `${sections.length} sections / steps` : 'Single-page form'}\n• Email destination: ${selected.destination || 'Not configured'}\n• Spam protection: ${selected.spamProtection !== false ? 'Enabled' : 'Disabled'}\n\nThe form will become available publicly immediately after confirmation.`
+    if (!globalThis.confirm(reviewMessage)) return
     setBusyAction('publish-form'); setNotice(isPublished ? 'Publishing changes' : 'Publishing form')
     try {
       const next = await api.publishForm(websiteId, formId)
