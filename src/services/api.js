@@ -250,12 +250,13 @@ export const api = {
   },
   updateForm: async (websiteId, formId, payload = {}) => {
     const hasStatus = Object.prototype.hasOwnProperty.call(payload, 'status')
-    const action = hasStatus && payload.status === 'Active' ? 'publish' : hasStatus && ['Draft', 'Archived'].includes(payload.status) ? 'unpublish' : ''
+    if (hasStatus && payload.status === 'Active') throw new Error('Use Publish Form or Publish Changes to make a form live')
+    const action = hasStatus && ['Draft', 'Archived'].includes(payload.status) ? 'unpublish' : ''
     return updateEditorForm(
       websiteId,
       formId,
       form => ({ ...form, ...payload }),
-      action === 'publish' ? 'Published form changes' : action === 'unpublish' ? `Changed form status to ${payload.status}` : 'Updated form settings',
+      action === 'unpublish' ? `Changed form status to ${payload.status}` : 'Updated form settings',
       action ? { formId, action } : {},
     )
   },
