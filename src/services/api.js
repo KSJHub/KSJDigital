@@ -1,6 +1,7 @@
 const API_BASE = import.meta.env.VITE_KSJ_API_URL || 'http://localhost:4174/api'
 const FORM_REVISION_LIMIT = 30
 const FORM_PUBLISH_HISTORY_LIMIT = 20
+const FORM_RELEASE_METADATA_HISTORY_LIMIT = 20
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -251,11 +252,19 @@ async function updateStoredFormPublishDetails(websiteId, formId, publishId, deta
   if (release.label === label && (release.note || '') === note) return editorForms(storedForms)
   const metadataEditedAt = new Date().toISOString()
   const metadataEditedBy = String(details?.editedBy || '').trim().slice(0, 120) || 'Unknown user'
+  const metadataEntry = {
+    editedAt: metadataEditedAt,
+    editedBy: metadataEditedBy,
+    previousLabel: String(release.label || 'Published form').slice(0, 120),
+    previousNote: String(release.note || '').slice(0, 500),
+    newLabel: label,
+    newNote: note,
+  }
   const next = storedForms.map(item => item?.id === formId
     ? {
         ...item,
         publishHistory: publishHistory.map(entry => entry?.id === publishId
-          ? { ...entry, label, note, metadataEditedAt, metadataEditedBy }
+          ? { ...entry, label, note, metadataEditedAt, metadataEditedBy, metadataHistory: [metadataEntry, ...(Array.isArray(entry.metadataHistory) ? entry.metadataHistory : [])].slice(0, FORM_RELEASE_METADATA_HISTORY_LIMIT) }
           : entry),
       }
     : item)
