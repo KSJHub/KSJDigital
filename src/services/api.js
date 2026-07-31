@@ -97,18 +97,14 @@ function editorForm(stored = {}) {
   const live = formRevisionSnapshot(stored)
   const editable = draft ? { ...stored, ...draft, id: stored.id } : { ...stored }
   const editableSnapshot = formRevisionSnapshot(editable)
-  const publishHistory = (Array.isArray(stored.publishHistory) ? stored.publishHistory : []).map(release => {
-    const attribution = release?.publishedBy ? `Published by ${release.publishedBy}` : ''
-    const rollbackSource = release?.rollbackSourcePublishedAt
+  const publishHistory = (Array.isArray(stored.publishHistory) ? stored.publishHistory : []).map(release => ({
+    ...release,
+    attributionSummary: release?.publishedBy ? `Published by ${release.publishedBy}` : '',
+    rollbackSourceSummary: release?.rollbackSourcePublishedAt
       ? `Rollback source: ${release.rollbackSourceLabel || 'Published form'} · ${release.rollbackSourcePublishedAt}`
-      : ''
-    const note = [release?.note, attribution, rollbackSource].filter(Boolean).join(' · ')
-    return {
-      ...release,
-      note,
-      comparison: isPublishedForm(stored) && release?.snapshot ? publishReleaseComparison(live, release.snapshot) : [],
-    }
-  })
+      : '',
+    comparison: isPublishedForm(stored) && release?.snapshot ? publishReleaseComparison(live, release.snapshot) : [],
+  }))
   return {
     ...editable,
     submissions: Array.isArray(stored.submissions) ? stored.submissions : [],
