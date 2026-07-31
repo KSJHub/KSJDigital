@@ -55,11 +55,25 @@ function isPublishedForm(form = {}) {
   return form.status === 'Active' || Boolean(form.publishedAt)
 }
 
-function publishHistoryRecord(snapshot, label = 'Published form', publishedAt = new Date().toISOString(), note = '', publishedBy = '') {
+function normaliseReleaseType(value, release = {}) {
+  if (['initial-publish', 'publish', 'rollback'].includes(value)) return value
+  if (release?.rollbackSourceId || release?.rollbackSourcePublishedAt) return 'rollback'
+  if (String(release?.label || '').trim().toLowerCase() === 'initial publish') return 'initial-publish'
+  return 'publish'
+}
+
+function releaseTypeLabel(type) {
+  if (type === 'initial-publish') return 'Initial Publish'
+  if (type === 'rollback') return 'Rollback'
+  return 'Publish'
+}
+
+function publishHistoryRecord(snapshot, label = 'Published form', publishedAt = new Date().toISOString(), note = '', publishedBy = '', releaseType = 'publish') {
   return {
     id: `pub-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`,
     publishedAt,
     publishedBy: String(publishedBy || '').trim().slice(0, 120) || 'Unknown user',
+    releaseType: normaliseReleaseType(releaseType),
     label: String(label || 'Published form').trim().slice(0, 120) || 'Published form',
     note: String(note || '').trim().slice(0, 500),
     snapshot: cloneValue(snapshot) || {},
@@ -97,14 +111,20 @@ function editorForm(stored = {}) {
   const live = formRevisionSnapshot(stored)
   const editable = draft ? { ...stored, ...draft, id: stored.id } : { ...stored }
   const editableSnapshot = formRevisionSnapshot(editable)
-  const publishHistory = (Array.isArray(stored.publishHistory) ? stored.publishHistory : []).map(release => ({
-    ...release,
-    attributionSummary: release?.publishedBy ? `Published by ${release.publishedBy}` : '',
-    rollbackSourceSummary: release?.rollbackSourcePublishedAt
-      ? `Rollback source: ${release.rollbackSourceLabel || 'Published form'} · ${release.rollbackSourcePublishedAt}`
-      : '',
-    comparison: isPublishedForm(stored) && release?.snapshot ? publishReleaseComparison(live, release.snapshot) : [],
-  }))
+  const publishHistory = (Array.isArray(stored.publishHistory) ? stored.publishHistory : []).map(release => {
+    const releaseType = normaliseReleaseType(release?.releaseType, release)
+    const typeLabel = releaseTypeLabel(releaseType)
+    return {
+      ...release,
+      releaseType,
+      releaseTypeLabel: typeLabel,
+      attributionSummary: release?.publishedBy ? `${typeLabel} · Published by ${release.publishedBy}` : typeLabel,
+      rollbackSourceSummary: release?.rollbackSourcePublishedAt
+        ? `Rollback source: ${release.rollbackSourceLabel || 'Published form'} · ${release.rollbackSourcePublishedAt}`
+        : '',
+      comparison: isPublishedForm(stored) && release?.snapshot ? publishReleaseComparison(live, release.snapshot) : [],
+    }
+  })
   return {
     ...editable,
     submissions: Array.isArray(stored.submissions) ? stored.submissions : [],
@@ -167,15 +187,17 @@ function prepareStoredForm(previousStored, nextEditor, publicationAction = '', p
   if (publicationAction === 'publish') {
     const publishedAt = new Date().toISOString()
     const liveSnapshot = { ...nextSnapshot, status: 'Active' }
-    const defaultLabel = isPublishedForm(previousStored) ? 'Published form changes' : 'Initial publish'
+    const initialPublish = !isPublishedForm(previousStored)
+    const defaultLabel = initialPublish ? 'Initial publish' : 'Published form changes'
     const releaseLabel = String(publication.releaseLabel || '').trim().slice(0, 120) || defaultLabel
     const releaseNote = String(publication.releaseNote || '').trim().slice(0, 500)
     const publishedBy = String(publication.publishedBy || '').trim().slice(0, 120)
+    const releaseType = initialPublish ? 'initial-publish' : 'publish'
     return {
       ...liveSnapshot,
       submissions,
       revisions,
-      publishHistory: [publishHistoryRecord(liveSnapshot, releaseLabel, publishedAt, releaseNote, publishedBy), ...publishHistory].slice(0, FORM_PUBLISH_HISTORY_LIMIT),
+      publishHistory: [publishHistoryRecord(liveSnapshot, releaseLabel, publishedAt, releaseNote, publishedBy, releaseType), ...publishHistory].slice(0, FORM_PUBLISH_HISTORY_LIMIT),
       publishedAt,
     }
   }
@@ -308,6 +330,7 @@ async function rollbackStoredFormPublish(websiteId, formId, publishId, details =
     publishedAt,
     `Restored the Live form to the release published ${release.publishedAt || 'previously'}.`,
     rolledBackBy,
+    'rollback',
   )
   rollbackRelease.rollbackSourceId = release.id
   rollbackRelease.rollbackSourcePublishedAt = release.publishedAt || null
