@@ -45,11 +45,12 @@ function isPublishedForm(form = {}) {
   return form.status === 'Active' || Boolean(form.publishedAt)
 }
 
-function publishHistoryRecord(snapshot, label = 'Published form', publishedAt = new Date().toISOString()) {
+function publishHistoryRecord(snapshot, label = 'Published form', publishedAt = new Date().toISOString(), note = '') {
   return {
     id: `pub-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`,
     publishedAt,
-    label: String(label || 'Published form').slice(0, 120),
+    label: String(label || 'Published form').trim().slice(0, 120) || 'Published form',
+    note: String(note || '').trim().slice(0, 500),
     snapshot: cloneValue(snapshot) || {},
   }
 }
@@ -136,7 +137,7 @@ function revisionRecord(previousForm, nextForm, label = 'Saved form changes') {
   }
 }
 
-function prepareStoredForm(previousStored, nextEditor, publicationAction = '') {
+function prepareStoredForm(previousStored, nextEditor, publicationAction = '', publication = {}) {
   const nextSnapshot = formRevisionSnapshot(nextEditor)
   const submissions = Array.isArray(nextEditor?.submissions)
     ? cloneValue(nextEditor.submissions)
@@ -151,11 +152,14 @@ function prepareStoredForm(previousStored, nextEditor, publicationAction = '') {
   if (publicationAction === 'publish') {
     const publishedAt = new Date().toISOString()
     const liveSnapshot = { ...nextSnapshot, status: 'Active' }
+    const defaultLabel = isPublishedForm(previousStored) ? 'Published form changes' : 'Initial publish'
+    const releaseLabel = String(publication.releaseLabel || '').trim().slice(0, 120) || defaultLabel
+    const releaseNote = String(publication.releaseNote || '').trim().slice(0, 500)
     return {
       ...liveSnapshot,
       submissions,
       revisions,
-      publishHistory: [publishHistoryRecord(liveSnapshot, isPublishedForm(previousStored) ? 'Published form changes' : 'Initial publish', publishedAt), ...publishHistory].slice(0, FORM_PUBLISH_HISTORY_LIMIT),
+      publishHistory: [publishHistoryRecord(liveSnapshot, releaseLabel, publishedAt, releaseNote), ...publishHistory].slice(0, FORM_PUBLISH_HISTORY_LIMIT),
       publishedAt,
     }
   }
@@ -191,7 +195,7 @@ async function persistFormsWithRevisions(websiteId, previousStoredForms, nextEdi
     const previousStored = previousById.get(nextEditor?.id)
     const previousEditor = previousStored ? editorForm(previousStored) : null
     const action = publication.formId === nextEditor?.id ? publication.action || '' : ''
-    const stored = prepareStoredForm(previousStored, nextEditor, action)
+    const stored = prepareStoredForm(previousStored, nextEditor, action, publication)
     const revisions = Array.isArray(previousStored?.revisions) ? previousStored.revisions : []
     const changed = previousEditor && !sameSnapshot(formRevisionSnapshot(previousEditor), formRevisionSnapshot(nextEditor))
     stored.revisions = changed
@@ -249,7 +253,12 @@ async function rollbackStoredFormPublish(websiteId, formId, publishId) {
   const submissions = Array.isArray(stored.submissions) ? stored.submissions : []
   const revisions = Array.isArray(stored.revisions) ? stored.revisions : []
   const existingDraft = stored?.draftConfig && typeof stored.draftConfig === 'object' && !Array.isArray(stored.draftConfig) ? cloneValue(stored.draftConfig) : null
-  const rollbackRelease = publishHistoryRecord(rolledBackSnapshot, `Rollback to ${release.label || 'published version'}`, publishedAt)
+  const rollbackRelease = publishHistoryRecord(
+    rolledBackSnapshot,
+    `Rollback to ${release.label || 'published version'}`,
+    publishedAt,
+    `Restored the Live form to the release published ${release.publishedAt || 'previously'}.`,
+  )
   const next = storedForms.map(item => item?.id === formId
     ? {
         ...rolledBackSnapshot,
@@ -334,12 +343,17 @@ export const api = {
       action ? { formId, action } : {},
     )
   },
-  publishForm: (websiteId, formId) => updateEditorForm(
+  publishForm: (websiteId, formId, release = {}) => updateEditorForm(
     websiteId,
     formId,
     form => ({ ...form, status: 'Active' }),
     'Published form changes',
-    { formId, action: 'publish' },
+    {
+      formId,
+      action: 'publish',
+      releaseLabel: String(release?.label || '').trim().slice(0, 120),
+      releaseNote: String(release?.note || '').trim().slice(0, 500),
+    },
   ),
   rollbackFormPublish: (websiteId, formId, publishId) => rollbackStoredFormPublish(websiteId, formId, publishId),
   discardFormDraft: (websiteId, formId) => discardStoredFormDraft(websiteId, formId),
