@@ -346,6 +346,8 @@ export function FormBuilderPage({ client = false }) {
   const [savedConfigs, setSavedConfigs] = useState({})
   const [editHistory, setEditHistory] = useState({})
   const [draftDirty, setDraftDirty] = useState(false)
+  const [releaseLabel, setReleaseLabel] = useState('')
+  const [releaseNote, setReleaseNote] = useState('')
   const selected = forms.find(form => form.id === selectedId) || forms[0]
   const publication = selected?.publication || {}
   const liveConfig = publication.liveConfig && typeof publication.liveConfig === 'object' ? publication.liveConfig : null
@@ -447,6 +449,7 @@ export function FormBuilderPage({ client = false }) {
     loadDeliveryStatuses(selected?.id)
     setSubmissionQuery(''); setSubmissionStatusFilter('All'); setSubmissionSourceFilter('All'); setSubmissionPage(1); setSelectedSubmissionIds([])
     setPreviewVersion('draft'); setHistoricalPreviewId(''); setPreviewValues(emptyPreviewValues(selected?.fields || [])); setPreviewStepIndex(0); setDraftDirty(false)
+    setReleaseLabel(''); setReleaseNote('')
   }, [websiteId, selected?.id])
   useEffect(() => { loadEmailReadiness() }, [isOwner])
   useEffect(() => { if (isOwner) { setTestEmail(selected?.destination || emailReadiness?.from || ''); setEmailTestState('') } }, [isOwner, selected?.id, emailReadiness?.from])
@@ -758,18 +761,23 @@ export function FormBuilderPage({ client = false }) {
       if (!saved) return
     }
     const reviewChanges = isPublished && liveConfig ? draftVsLiveSummary(liveConfig, selected || {}) : []
+    const cleanReleaseLabel = releaseLabel.trim().slice(0, 120)
+    const cleanReleaseNote = releaseNote.trim().slice(0, 500)
+    const releaseSummary = `\n\nRelease details:\n• Label: ${cleanReleaseLabel || (isPublished ? 'Published form changes' : 'Initial publish')}\n• Note: ${cleanReleaseNote || 'None'}`
     const reviewMessage = isPublished
-      ? `Publish changes to “${selected.name || 'this form'}”?\n\nChanges going live:\n${reviewChanges.length ? `• ${reviewChanges.join('\n• ')}` : '• Saved draft configuration changes'}\n\nThe public form will update immediately after confirmation.`
-      : `Publish “${selected.name || 'this form'}” and make it available on the public website?\n\nPre-publish review:\n• ${fields.length} field${fields.length === 1 ? '' : 's'}\n• ${sections.length > 1 ? `${sections.length} sections / steps` : 'Single-page form'}\n• Email destination: ${selected.destination || 'Not configured'}\n• Spam protection: ${selected.spamProtection !== false ? 'Enabled' : 'Disabled'}\n\nThe form will become available publicly immediately after confirmation.`
+      ? `Publish changes to “${selected.name || 'this form'}”?\n\nChanges going live:\n${reviewChanges.length ? `• ${reviewChanges.join('\n• ')}` : '• Saved draft configuration changes'}${releaseSummary}\n\nThe public form will update immediately after confirmation.`
+      : `Publish “${selected.name || 'this form'}” and make it available on the public website?\n\nPre-publish review:\n• ${fields.length} field${fields.length === 1 ? '' : 's'}\n• ${sections.length > 1 ? `${sections.length} sections / steps` : 'Single-page form'}\n• Email destination: ${selected.destination || 'Not configured'}\n• Spam protection: ${selected.spamProtection !== false ? 'Enabled' : 'Disabled'}${releaseSummary}\n\nThe form will become available publicly immediately after confirmation.`
     if (!globalThis.confirm(reviewMessage)) return
     setBusyAction('publish-form'); setNotice(isPublished ? 'Publishing changes' : 'Publishing form')
     try {
-      const next = await api.publishForm(websiteId, formId)
+      const next = await api.publishForm(websiteId, formId, { label: cleanReleaseLabel, note: cleanReleaseNote })
       setForms(next)
       setSelectedId(formId)
       setHistoricalPreviewId('')
       setPreviewVersion('live')
       setDraftDirty(false)
+      setReleaseLabel('')
+      setReleaseNote('')
       setEditHistory(current => ({ ...current, [formId]: { past: [], future: [] } }))
       const published = next.find(form => form.id === formId)
       if (published) setSavedConfigs(current => ({ ...current, [formId]: formConfigSnapshot(published) }))
@@ -811,7 +819,7 @@ export function FormBuilderPage({ client = false }) {
     if (!release?.id || !release.snapshot) return
     setHistoricalPreviewId(release.id)
     setPreviewVersion('historical')
-    setNotice(`Previewing published release from ${revisionTimestamp(release.publishedAt)}`)
+    setNotice(`Previewing ${release.label || 'published release'} from ${revisionTimestamp(release.publishedAt)}`)
   }
 
   async function rollbackPublishedVersion(release) {
@@ -820,8 +828,9 @@ export function FormBuilderPage({ client = false }) {
     const rollbackChanges = liveConfig && release.snapshot ? draftVsLiveSummary(liveConfig, release.snapshot) : []
     if (!rollbackChanges.length) return setNotice('Selected published version already matches Current Live')
     const impactSummary = `\n\nChanges to Current Live:\n• ${rollbackChanges.join('\n• ')}`
+    const releaseDetail = `\n\nRelease: ${release.label || 'Published form'}${release.note ? `\nNote: ${release.note}` : ''}`
     const draftNote = hasUnpublishedChanges ? '\n\nYour current unpublished Draft will be preserved.' : ''
-    if (!globalThis.confirm(`Roll the Live version of “${selected.name || 'this form'}” back to the release from ${releaseTime}?${impactSummary}\n\nVisitors will receive that version immediately after confirmation. Stored submissions and Revision History will not be changed.${draftNote}`)) return
+    if (!globalThis.confirm(`Roll the Live version of “${selected.name || 'this form'}” back to the release from ${releaseTime}?${releaseDetail}${impactSummary}\n\nVisitors will receive that version immediately after confirmation. Stored submissions and Revision History will not be changed.${draftNote}`)) return
     setBusyAction(`rollback-publish-${release.id}`); setNotice('Rolling back live form')
     try {
       const next = await api.rollbackFormPublish(websiteId, selected.id, release.id)
@@ -1015,6 +1024,7 @@ export function FormBuilderPage({ client = false }) {
           {selected && <>
             <div className="formSectionsEditor">
               <div className="panelHead"><div><h3>Publishing</h3><small>{isArchived ? 'This form is archived. Restore it to Draft before publishing.' : isPublished ? (hasUnpublishedChanges ? 'The public website is still using the last published version while these changes remain in draft.' : 'The saved editor configuration matches the version currently live on the public website.') : 'This form is not currently published to the public website.'}</small></div>{canEdit && !isArchived && <div className="formHeaderActions">{isPublished && hasUnpublishedChanges && <button type="button" disabled={busy} onClick={discardDraft}>{busyAction === 'discard-draft' ? 'Discarding…' : 'Discard Draft'}</button>}<button type="button" disabled={busy || (isPublished && !hasUnpublishedChanges)} onClick={publishChanges}>{busyAction === 'publish-form' ? 'Publishing…' : isPublished ? 'Publish Changes' : 'Publish Form'}</button></div>}</div>
+              {canEdit && !isArchived && <div className="formSettings"><label>Release Label <small>(optional)</small><input value={releaseLabel} maxLength={120} disabled={busy} placeholder={isPublished ? 'e.g. Added phone field' : 'e.g. Contact Form v1'} onChange={event => setReleaseLabel(event.target.value)} /></label><label className="formSettingsWide">Release Note <small>(optional)</small><textarea value={releaseNote} maxLength={500} disabled={busy} placeholder="Short note explaining this release" onChange={event => setReleaseNote(event.target.value)} /></label></div>}
               <div className="submissions"><p><b>Live state</b><small>{isPublished ? 'Published and available to the public website' : isArchived ? 'Archived and unavailable to the public website' : 'Not published'}</small></p><p><b>Draft state</b><small>{isArchived ? 'Archived · restore to Draft to continue publishing' : draftDirty ? 'Unsaved editor changes · autosaving shortly' : publication.hasUnpublishedChanges ? 'Saved draft changes waiting to be published' : isPublished ? 'No unpublished changes' : 'Saved as draft'}</small></p><p><b>Last published</b><small>{publishedAt || 'Never published'}</small></p>{isPublished && hasUnpublishedChanges && <p><b>Draft vs Live</b><small>{draftLiveChanges.length ? draftLiveChanges.join(' · ') : 'Draft contains unpublished configuration changes'}</small></p>}{isPublished && hasUnpublishedChanges && <p><b>Public safety</b><small>Visitors continue to receive the previous live version until Publish Changes is confirmed.</small></p>}</div>
             </div>
 
@@ -1038,14 +1048,14 @@ export function FormBuilderPage({ client = false }) {
             </div>
 
             <div className="formSectionsEditor">
-              <div className="panelHead"><div><h3>Publish History</h3><small>Each Live release can be previewed without changing Draft or Live. Rollback remains a separate explicit action.</small></div></div>
+              <div className="panelHead"><div><h3>Publish History</h3><small>Each Live release can be named and noted, previewed without changing Draft or Live, and rolled back separately.</small></div></div>
               {publishHistory.length ? <div className="submissions">{publishHistory.map((release, index) => {
                 const releaseFields = Array.isArray(release.snapshot?.fields) ? release.snapshot.fields.length : 0
                 const releaseSections = normaliseSections(release.snapshot || {}).length
                 const currentRelease = index === 0 && isPublished && release.publishedAt === publication.publishedAt
                 const previewingRelease = previewingHistorical && historicalPreviewId === release.id
                 const releaseVsLive = isPublished && liveConfig && release.snapshot ? draftVsLiveSummary(liveConfig, release.snapshot) : []
-                return <p key={release.id || `${release.publishedAt}-${index}`}><b>{release.label || 'Published form'}</b><small>{revisionTimestamp(release.publishedAt)} · {releaseFields} field{releaseFields === 1 ? '' : 's'} · {releaseSections > 1 ? `${releaseSections} steps` : 'single page'}{currentRelease ? ' · Current Live' : ''}{previewingRelease ? ' · Previewing' : ''}</small>{!currentRelease && isPublished && <small>Rollback impact: {releaseVsLive.length ? releaseVsLive.join(' · ') : 'No configuration differences from Current Live'}</small>}<span className="formHeaderActions"><button type="button" disabled={busy || !release.id || previewingRelease} onClick={() => previewPublishedVersion(release)}>{previewingRelease ? 'Previewing' : 'Preview Release'}</button>{canEdit && isPublished && !currentRelease && <button type="button" disabled={busy || !release.id || !releaseVsLive.length} onClick={() => rollbackPublishedVersion(release)}>{busyAction === `rollback-publish-${release.id}` ? 'Rolling back…' : releaseVsLive.length ? 'Rollback Live Version' : 'Matches Live'}</button>}</span></p>
+                return <p key={release.id || `${release.publishedAt}-${index}`}><b>{release.label || 'Published form'}</b><small>{revisionTimestamp(release.publishedAt)} · {releaseFields} field{releaseFields === 1 ? '' : 's'} · {releaseSections > 1 ? `${releaseSections} steps` : 'single page'}{currentRelease ? ' · Current Live' : ''}{previewingRelease ? ' · Previewing' : ''}</small>{release.note && <small>Note: {release.note}</small>}{!currentRelease && isPublished && <small>Rollback impact: {releaseVsLive.length ? releaseVsLive.join(' · ') : 'No configuration differences from Current Live'}</small>}<span className="formHeaderActions"><button type="button" disabled={busy || !release.id || previewingRelease} onClick={() => previewPublishedVersion(release)}>{previewingRelease ? 'Previewing' : 'Preview Release'}</button>{canEdit && isPublished && !currentRelease && <button type="button" disabled={busy || !release.id || !releaseVsLive.length} onClick={() => rollbackPublishedVersion(release)}>{busyAction === `rollback-publish-${release.id}` ? 'Rolling back…' : releaseVsLive.length ? 'Rollback Live Version' : 'Matches Live'}</button>}</span></p>
               })}</div> : <p className="emptyState">No publish history yet. The first release will appear here after this form is published.</p>}
             </div>
 
@@ -1095,8 +1105,8 @@ export function FormBuilderPage({ client = false }) {
         </section>
 
         <aside className="card formPreview">
-          <div className="panelHead"><div><h2>Portal Preview</h2>{selected && <small>{previewingHistorical ? `Historical release · ${revisionTimestamp(historicalRelease?.publishedAt)}` : previewingLive ? 'Live version currently served to visitors' : isPublished ? (hasUnpublishedChanges ? 'Draft preview · unpublished changes' : 'Draft preview · matches Live') : 'Draft preview · not published'}</small>}</div><div className="formHeaderActions">{selected && isPublished && <><button type="button" disabled={previewVersion === 'draft'} onClick={() => { setHistoricalPreviewId(''); setPreviewVersion('draft') }}>Draft</button><button type="button" disabled={previewVersion === 'live'} onClick={() => { setHistoricalPreviewId(''); setPreviewVersion('live') }}>Live</button>{previewingHistorical && <button type="button" disabled>Historical</button>}</>}{canEdit && <button disabled={!websiteId || !selected?.id || busy} onClick={addTestSubmission}>{busyAction === 'test' ? 'Testing…' : 'Add Test Submission'}</button>}</div></div>
-          {selected && <form onSubmit={event => event.preventDefault()}><h3>{previewForm?.name}</h3>{previewingHistorical && <small>Read-only release preview. Draft and Live remain unchanged.</small>}{previewingHistorical && <div className="submissions"><p><b>Compared with Current Live</b><small>{historicalLiveChanges.length ? historicalLiveChanges.join(' · ') : 'This historical release matches the current Live configuration.'}</small></p><p><b>Rollback effect</b><small>{historicalLiveChanges.length ? 'Rolling back would apply the differences above to the public form immediately.' : 'Rolling back would not change the current public form configuration.'}</small></p></div>}{steppedPreview && <div className="previewStepProgress"><span>Step {safePreviewStepIndex + 1} of {previewSourceSections.length}</span><b>{previewSection?.title}</b>{previewSection?.description && <small>{previewSection.description}</small>}</div>}<div className="previewFieldsGrid">{previewFields.map(field => <FieldPreview key={field.id} field={field} value={previewValues[field.id]} onChange={value => setPreviewValues(current => ({ ...current, [field.id]: value }))} />)}</div>{steppedPreview ? <div className="previewStepActions">{safePreviewStepIndex > 0 && <button type="button" onClick={() => setPreviewStepIndex(index => Math.max(0, index - 1))}>Previous</button>}{safePreviewStepIndex < previewSourceSections.length - 1 ? <button type="button" onClick={() => setPreviewStepIndex(index => Math.min(previewSourceSections.length - 1, index + 1))}>Next</button> : <button type="button" disabled>Preview only</button>}</div> : <button type="button" disabled>Preview only</button>}{previewConditionalEnabled && previewSourceFields.some(field => field.condition) && <small>Conditional preview is live — change answers above to test rules.</small>}{previewForm?.successMessage && <small>Success: {previewForm.successMessage}</small>}</form>}
+          <div className="panelHead"><div><h2>Portal Preview</h2>{selected && <small>{previewingHistorical ? `Historical release · ${historicalRelease?.label || 'Published form'} · ${revisionTimestamp(historicalRelease?.publishedAt)}` : previewingLive ? 'Live version currently served to visitors' : isPublished ? (hasUnpublishedChanges ? 'Draft preview · unpublished changes' : 'Draft preview · matches Live') : 'Draft preview · not published'}</small>}</div><div className="formHeaderActions">{selected && isPublished && <><button type="button" disabled={previewVersion === 'draft'} onClick={() => { setHistoricalPreviewId(''); setPreviewVersion('draft') }}>Draft</button><button type="button" disabled={previewVersion === 'live'} onClick={() => { setHistoricalPreviewId(''); setPreviewVersion('live') }}>Live</button>{previewingHistorical && <button type="button" disabled>Historical</button>}</>}{canEdit && <button disabled={!websiteId || !selected?.id || busy} onClick={addTestSubmission}>{busyAction === 'test' ? 'Testing…' : 'Add Test Submission'}</button>}</div></div>
+          {selected && <form onSubmit={event => event.preventDefault()}><h3>{previewForm?.name}</h3>{previewingHistorical && <small>Read-only release preview. Draft and Live remain unchanged.</small>}{previewingHistorical && historicalRelease?.note && <small>Release note: {historicalRelease.note}</small>}{previewingHistorical && <div className="submissions"><p><b>Compared with Current Live</b><small>{historicalLiveChanges.length ? historicalLiveChanges.join(' · ') : 'This historical release matches the current Live configuration.'}</small></p><p><b>Rollback effect</b><small>{historicalLiveChanges.length ? 'Rolling back would apply the differences above to the public form immediately.' : 'Rolling back would not change the current public form configuration.'}</small></p></div>}{steppedPreview && <div className="previewStepProgress"><span>Step {safePreviewStepIndex + 1} of {previewSourceSections.length}</span><b>{previewSection?.title}</b>{previewSection?.description && <small>{previewSection.description}</small>}</div>}<div className="previewFieldsGrid">{previewFields.map(field => <FieldPreview key={field.id} field={field} value={previewValues[field.id]} onChange={value => setPreviewValues(current => ({ ...current, [field.id]: value }))} />)}</div>{steppedPreview ? <div className="previewStepActions">{safePreviewStepIndex > 0 && <button type="button" onClick={() => setPreviewStepIndex(index => Math.max(0, index - 1))}>Previous</button>}{safePreviewStepIndex < previewSourceSections.length - 1 ? <button type="button" onClick={() => setPreviewStepIndex(index => Math.min(previewSourceSections.length - 1, index + 1))}>Next</button> : <button type="button" disabled>Preview only</button>}</div> : <button type="button" disabled>Preview only</button>}{previewConditionalEnabled && previewSourceFields.some(field => field.condition) && <small>Conditional preview is live — change answers above to test rules.</small>}{previewForm?.successMessage && <small>Success: {previewForm.successMessage}</small>}</form>}
 
           <div className="submissions submissionManager">
             <div className="panelHead"><div><h3>Submissions</h3><small>{filteredSubmissions.length === submissionStats.total ? `${submissionStats.total} total` : `${filteredSubmissions.length} of ${submissionStats.total}`}</small></div><div className="submissionToolbar"><button type="button" disabled={!selected?.id || deliveryLoading} onClick={() => loadDeliveryStatuses(selected?.id)}>{deliveryLoading ? 'Checking…' : 'Refresh delivery'}</button><button type="button" disabled={!filteredSubmissions.length || busy} onClick={() => exportSubmissions(filteredSubmissions, 'filtered')}>Export filtered</button>{selectedSubmissions.length > 0 && <button type="button" disabled={busy} onClick={() => exportSubmissions(selectedSubmissions, 'selected')}>Export selected ({selectedSubmissions.length})</button>}</div></div>
