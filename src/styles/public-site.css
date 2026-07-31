@@ -188,11 +188,20 @@
   background: rgba(3, 12, 25, 0.72);
 }
 .publicContactForm h3 { margin: 0 0 0.25rem; font-size: 1.25rem; }
-.publicContactForm > label:not(.publicFormCheck):not(.publicFormTrap) { display: grid; gap: 0.4rem; color: #dbe8fb; font-size: 0.83rem; font-weight: 700; }
-.publicContactForm input:not([type='checkbox']),
+.publicFormFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+.publicFormFields > label:not(.publicFormCheck),
+.publicFormFields > fieldset { display: grid; gap: 0.4rem; color: #dbe8fb; font-size: 0.83rem; font-weight: 700; }
+.publicFormFull { grid-column: 1 / -1; }
+.publicFormHalf { grid-column: span 1; }
+.publicContactForm input:not([type='checkbox']):not([type='radio']),
 .publicContactForm textarea,
 .publicContactForm select {
   width: 100%;
+  box-sizing: border-box;
   border: 1px solid #2d476d;
   border-radius: 11px;
   background: #061224;
@@ -206,6 +215,42 @@
 .publicContactForm select:focus { border-color: #5b9cff; box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.14); }
 .publicFormCheck { display: flex; align-items: flex-start; gap: 0.55rem; color: #dbe8fb; font-size: 0.83rem; font-weight: 700; }
 .publicFormCheck input { margin-top: 0.15rem; }
+.publicFormRadio {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.publicFormRadio legend { padding: 0 0 0.35rem; }
+.publicFormRadio > div { display: grid; gap: 0.55rem; }
+.publicFormRadio > div label { display: flex; gap: 0.55rem; align-items: center; font-weight: 600; }
+.publicFormDisplay { min-width: 0; }
+.publicFormHeading {
+  padding-top: 0.25rem;
+  border-bottom: 1px solid #28466f;
+}
+.publicFormHeading h4 { margin: 0 0 0.4rem; font-size: 1.08rem; }
+.publicFormHeading p,
+.publicFormInstructions p { margin: 0 0 0.65rem; color: #a9bad3; line-height: 1.5; }
+.publicFormInstructions {
+  padding: 0.8rem 0.9rem;
+  border: 1px solid #29466d;
+  border-radius: 11px;
+  background: #07162a;
+}
+.publicFormInstructions b { display: block; margin-bottom: 0.35rem; }
+.publicFormInstructions p { margin-bottom: 0; }
+.publicFormDivider {
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+  color: #86a8d7;
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.publicFormDivider::before,
+.publicFormDivider::after { content: ''; flex: 1; height: 1px; background: #28466f; }
 .publicContactForm button {
   border: 1px solid #4e8cff;
   border-radius: 999px;
@@ -256,6 +301,9 @@
   .publicActions { flex-direction: column; align-items: stretch; }
   .ecosystemGrid { grid-template-columns: 1fr; }
   .publicPills { grid-template-columns: 1fr; }
+  .publicFormFields { grid-template-columns: 1fr; }
+  .publicFormHalf,
+  .publicFormFull { grid-column: 1; }
   .publicFormStepActions { display: grid; grid-template-columns: 1fr 1fr; }
   .publicFormProgress > div { align-items: flex-start; flex-direction: column; gap: 0.2rem; }
   .publicFormProgress b { text-align: left; }
