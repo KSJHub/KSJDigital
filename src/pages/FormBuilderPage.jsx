@@ -351,6 +351,7 @@ export function FormBuilderPage({ client = false }) {
   const [publishHistoryQuery, setPublishHistoryQuery] = useState('')
   const [publishHistoryTypeFilter, setPublishHistoryTypeFilter] = useState('All')
   const [publishHistoryStatusFilter, setPublishHistoryStatusFilter] = useState('All')
+  const [publishHistorySort, setPublishHistorySort] = useState('newest')
   const selected = forms.find(form => form.id === selectedId) || forms[0]
   const publication = selected?.publication || {}
   const liveConfig = publication.liveConfig && typeof publication.liveConfig === 'object' ? publication.liveConfig : null
@@ -360,7 +361,7 @@ export function FormBuilderPage({ client = false }) {
   const publishHistory = Array.isArray(selected?.publishHistory) ? selected.publishHistory : []
   const filteredPublishHistory = useMemo(() => {
     const query = publishHistoryQuery.trim().toLowerCase()
-    return publishHistory.filter(release => {
+    const filtered = publishHistory.filter(release => {
       if (publishHistoryTypeFilter !== 'All' && release?.releaseType !== publishHistoryTypeFilter) return false
       if (publishHistoryStatusFilter !== 'All' && release?.releaseStatus !== publishHistoryStatusFilter) return false
       if (!query) return true
@@ -380,7 +381,21 @@ export function FormBuilderPage({ client = false }) {
       ].filter(value => value !== undefined && value !== null).map(String).join(' ').toLowerCase()
       return searchText.includes(query)
     })
-  }, [publishHistory, publishHistoryQuery, publishHistoryTypeFilter, publishHistoryStatusFilter])
+    return [...filtered].sort((left, right) => {
+      const leftNumber = Number(left?.releaseNumber) || 0
+      const rightNumber = Number(right?.releaseNumber) || 0
+      const leftTime = new Date(left?.publishedAt || 0).getTime() || 0
+      const rightTime = new Date(right?.publishedAt || 0).getTime() || 0
+      if (publishHistorySort === 'oldest') return leftTime - rightTime || leftNumber - rightNumber
+      if (publishHistorySort === 'release-asc') return leftNumber - rightNumber
+      if (publishHistorySort === 'release-desc') return rightNumber - leftNumber
+      if (publishHistorySort === 'label-asc') return String(left?.label || '').localeCompare(String(right?.label || '')) || rightNumber - leftNumber
+      if (publishHistorySort === 'label-desc') return String(right?.label || '').localeCompare(String(left?.label || '')) || rightNumber - leftNumber
+      if (publishHistorySort === 'publisher-asc') return String(left?.publishedBy || '').localeCompare(String(right?.publishedBy || '')) || rightNumber - leftNumber
+      if (publishHistorySort === 'publisher-desc') return String(right?.publishedBy || '').localeCompare(String(left?.publishedBy || '')) || rightNumber - leftNumber
+      return rightTime - leftTime || rightNumber - leftNumber
+    })
+  }, [publishHistory, publishHistoryQuery, publishHistoryTypeFilter, publishHistoryStatusFilter, publishHistorySort])
   const historicalRelease = publishHistory.find(release => release?.id === historicalPreviewId && release?.snapshot) || null
   const previewingLive = previewVersion === 'live' && isPublished && liveConfig
   const previewingHistorical = previewVersion === 'historical' && Boolean(historicalRelease)
@@ -475,7 +490,7 @@ export function FormBuilderPage({ client = false }) {
     loadDeliveryStatuses(selected?.id)
     setSubmissionQuery(''); setSubmissionStatusFilter('All'); setSubmissionSourceFilter('All'); setSubmissionPage(1); setSelectedSubmissionIds([])
     setPreviewVersion('draft'); setHistoricalPreviewId(''); setPreviewValues(emptyPreviewValues(selected?.fields || [])); setPreviewStepIndex(0); setDraftDirty(false)
-    setReleaseLabel(''); setReleaseNote(''); setPublishHistoryQuery(''); setPublishHistoryTypeFilter('All'); setPublishHistoryStatusFilter('All')
+    setReleaseLabel(''); setReleaseNote(''); setPublishHistoryQuery(''); setPublishHistoryTypeFilter('All'); setPublishHistoryStatusFilter('All'); setPublishHistorySort('newest')
   }, [websiteId, selected?.id])
   useEffect(() => { loadEmailReadiness() }, [isOwner])
   useEffect(() => { if (isOwner) { setTestEmail(selected?.destination || emailReadiness?.from || ''); setEmailTestState('') } }, [isOwner, selected?.id, emailReadiness?.from])
@@ -1094,7 +1109,7 @@ export function FormBuilderPage({ client = false }) {
 
             <div className="formSectionsEditor">
               <div className="panelHead"><div><h3>Publish History</h3><small>Each Live release can be named and noted, previewed without changing Draft or Live, and rolled back separately.</small></div><small>{publishHistory.length ? `${filteredPublishHistory.length} of ${publishHistory.length} releases` : '0 releases'}</small></div>
-              {publishHistory.length > 0 && <div className="submissionFilters"><label>Search<input type="search" value={publishHistoryQuery} placeholder="Release #, label, note, publisher…" onChange={event => setPublishHistoryQuery(event.target.value)} /></label><label>Type<select value={publishHistoryTypeFilter} onChange={event => setPublishHistoryTypeFilter(event.target.value)}><option value="All">All</option><option value="initial-publish">Initial Publish</option><option value="publish">Publish</option><option value="rollback">Rollback</option></select></label><label>Status<select value={publishHistoryStatusFilter} onChange={event => setPublishHistoryStatusFilter(event.target.value)}><option value="All">All</option><option value="current-live">Current Live</option><option value="previous-live">Previous Live</option><option value="superseded">Superseded</option></select></label></div>}
+              {publishHistory.length > 0 && <div className="submissionFilters"><label>Search<input type="search" value={publishHistoryQuery} placeholder="Release #, label, note, publisher…" onChange={event => setPublishHistoryQuery(event.target.value)} /></label><label>Type<select value={publishHistoryTypeFilter} onChange={event => setPublishHistoryTypeFilter(event.target.value)}><option value="All">All</option><option value="initial-publish">Initial Publish</option><option value="publish">Publish</option><option value="rollback">Rollback</option></select></label><label>Status<select value={publishHistoryStatusFilter} onChange={event => setPublishHistoryStatusFilter(event.target.value)}><option value="All">All</option><option value="current-live">Current Live</option><option value="previous-live">Previous Live</option><option value="superseded">Superseded</option></select></label><label>Sort<select value={publishHistorySort} onChange={event => setPublishHistorySort(event.target.value)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="release-desc">Release # high → low</option><option value="release-asc">Release # low → high</option><option value="label-asc">Label A → Z</option><option value="label-desc">Label Z → A</option><option value="publisher-asc">Publisher A → Z</option><option value="publisher-desc">Publisher Z → A</option></select></label></div>}
               {filteredPublishHistory.length ? <div className="submissions">{filteredPublishHistory.map((release, index) => {
                 const releaseFields = Array.isArray(release.snapshot?.fields) ? release.snapshot.fields.length : 0
                 const releaseSections = normaliseSections(release.snapshot || {}).length
