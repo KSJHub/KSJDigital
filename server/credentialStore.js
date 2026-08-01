@@ -20,12 +20,17 @@ export function validateStrongPassword(password) {
   if (!/[a-z]/.test(value) || !/[A-Z]/.test(value) || !/\d/.test(value) || !/[^A-Za-z0-9]/.test(value)) throw new Error('Password must include upper, lower, number and symbol characters')
   return value
 }
-export async function hashPassword(password) {
+async function createPasswordHash(password) {
   const value = String(password || '')
-  if (value.length < 8) throw new Error('Password must be at least 8 characters')
+  if (!value) throw new Error('Password is required')
   const salt = crypto.randomBytes(16)
   const derived = await scrypt(value, salt, KEY_LENGTH)
   return `${HASH_PREFIX}$${salt.toString('base64url')}$${Buffer.from(derived).toString('base64url')}`
+}
+export async function hashPassword(password) {
+  const value = String(password || '')
+  if (value.length < 8) throw new Error('Password must be at least 8 characters')
+  return createPasswordHash(value)
 }
 export async function verifyPassword(password, encoded) {
   const [prefix, saltValue, hashValue] = String(encoded || '').split('$')
@@ -105,7 +110,7 @@ export async function migratePlaintextCredentials() {
   let accountsSanitisedCount = 0
   for (const account of accounts) {
     const id = credentialId(account.id); const plaintext = String(account.password || account.accessCode || '')
-    if (id && plaintext && !credentials[id]?.passwordHash) { credentials[id] = { passwordHash: await hashPassword(plaintext), passwordHistory: [], updatedAt: nowIso(), migratedAt: nowIso(), failedAttempts: 0, lockedUntil: null }; credentialChanged = true; credentialsCreatedCount += 1 }
+    if (id && plaintext && !credentials[id]?.passwordHash) { credentials[id] = { passwordHash: await createPasswordHash(plaintext), passwordHistory: [], updatedAt: nowIso(), migratedAt: nowIso(), failedAttempts: 0, lockedUntil: null }; credentialChanged = true; credentialsCreatedCount += 1 }
     if ('password' in account || 'accessCode' in account) { const safeAccount = { ...account }; delete safeAccount.password; delete safeAccount.accessCode; migrated.push(safeAccount); accountChanged = true; accountsSanitisedCount += 1 } else migrated.push(account)
   }
   if (credentialChanged) await writeJson(CREDENTIAL_FILE, credentials)
