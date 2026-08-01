@@ -2,6 +2,8 @@ import {
   ActivityPanel,
   PublishPanel,
   QuickActions,
+  SkeletonCard,
+  SkeletonList,
   Stat,
   StatusPanel,
   TicketPanel,
@@ -73,6 +75,43 @@ function clientActions(account) {
   ].filter(action => action.allowed)
 }
 
+function ClientDashboardLoading() {
+  return (
+    <Layout client title="My Website">
+      <div className="clientHome">
+        <SkeletonCard lines={3} />
+        <SkeletonCard lines={2} />
+        <section className="clientActionGrid" aria-label="Loading dashboard actions" aria-busy="true">
+          {Array.from({ length: 4 }, (_, index) => <SkeletonCard key={index} lines={3} />)}
+        </section>
+        <section className="clientBottomGrid" aria-label="Loading dashboard details" aria-busy="true">
+          <SkeletonCard lines={4} />
+          <SkeletonCard lines={3} />
+        </section>
+      </div>
+    </Layout>
+  )
+}
+
+function OwnerDashboardLoading() {
+  return (
+    <Layout title="Dashboard">
+      <div className="stats" aria-label="Loading dashboard statistics" aria-busy="true">
+        {Array.from({ length: 4 }, (_, index) => <SkeletonCard key={index} lines={2} />)}
+      </div>
+      <div className="singleGrid">
+        <section className="card websites">
+          <SkeletonList rows={3} />
+        </section>
+      </div>
+      <div className="bottom four" aria-label="Loading dashboard panels" aria-busy="true">
+        {Array.from({ length: 4 }, (_, index) => <SkeletonCard key={index} lines={4} />)}
+      </div>
+      <SkeletonCard lines={2} className="quick" />
+    </Layout>
+  )
+}
+
 function ClientDashboard({ account, website }) {
   const actions = clientActions(account)
   const domain = liveUrl(website?.domain)
@@ -139,11 +178,13 @@ function ClientDashboard({ account, website }) {
 
 export function DashboardPage({ client = false }) {
   const account = getAccountFromPath()
-  const { websites } = useWebsites()
-  const { clients } = useClients(!client)
+  const { websites, status: websiteStatus } = useWebsites()
+  const { clients, status: clientStatus } = useClients(!client)
   const website = findClientWebsite(websites, account)
 
+  if (client && websiteStatus === 'Loading') return <ClientDashboardLoading />
   if (client) return <ClientDashboard account={account} website={website} />
+  if (websiteStatus === 'Loading' || clientStatus === 'Loading') return <OwnerDashboardLoading />
 
   const stats = ownerStats(websites, clients)
 
