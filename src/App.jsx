@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { AccessDenied } from './components/UI.jsx'
+import { AccessDenied, SkeletonCard } from './components/UI.jsx'
 import { canAccessOwner, getAccountFromPath, refreshSession } from './services/auth.js'
 import { canAccessClientWorkspace } from './services/workspacePolicy.js'
 
@@ -68,7 +68,7 @@ function Workspace({ client = false, type }) {
 }
 
 function PageLoading() {
-  return <main className="routeLoading" aria-live="polite"><div className="card"><strong>Loading workspace…</strong></div></main>
+  return <main className="routeLoading"><SkeletonCard lines={4} className="routeLoadingCard" /></main>
 }
 
 export default function App() {
