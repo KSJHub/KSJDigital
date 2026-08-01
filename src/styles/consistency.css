@@ -228,6 +228,13 @@ button:hover {
   border-color: #43618a;
 }
 
+button:disabled,
+button[aria-busy='true'] {
+  cursor: not-allowed;
+  transform: none;
+  opacity: 0.72;
+}
+
 .card {
   transition:
     border-color 0.16s ease,
@@ -236,6 +243,96 @@ button:hover {
 
 .card:hover {
   border-color: #2b3b56;
+}
+
+.asyncStatus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid #2a3952;
+  border-radius: 12px;
+  background: #0b111d;
+  color: var(--ksj-muted);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.asyncStatus > span:first-child {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #172237;
+  color: #dce7fb;
+  flex: 0 0 auto;
+}
+
+.asyncStatus-loading,
+.asyncStatus-saving {
+  border-color: #315b91;
+  color: #c8ddff;
+}
+
+.asyncStatus-success {
+  border-color: #247a55;
+  background: #092117;
+  color: var(--ksj-green);
+}
+
+.asyncStatus-error {
+  border-color: #9a3340;
+  background: #2a0d13;
+  color: #ff9aa5;
+}
+
+.loadingButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 112px;
+  min-height: 44px;
+}
+
+.loadingButton > span:first-child:not(:last-child) {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  flex: 0 0 auto;
+}
+
+.loadingButton-loading > span:first-child {
+  animation: ksjAsyncPulse 0.9s ease-in-out infinite alternate;
+}
+
+.loadingButton-success {
+  border-color: #247a55 !important;
+  background: #0d5f3b !important;
+  color: #fff;
+}
+
+@keyframes ksjAsyncPulse {
+  from {
+    opacity: 0.45;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loadingButton-loading > span:first-child {
+    animation: none;
+  }
 }
 
 @media (max-width: 1350px) {
