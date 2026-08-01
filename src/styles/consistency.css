@@ -318,6 +318,116 @@ button[aria-busy='true'] {
   color: #fff;
 }
 
+.skeletonBlock {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  border-radius: 9px;
+  background: #172235;
+}
+
+.skeletonBlock::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(118, 158, 219, 0.18), transparent);
+  animation: ksjSkeletonShimmer 1.35s ease-in-out infinite;
+}
+
+.skeletonCard,
+.skeletonList,
+.skeletonTable,
+.skeletonForm {
+  pointer-events: none;
+  user-select: none;
+}
+
+.skeletonCard {
+  display: grid;
+  gap: 14px;
+  min-height: 180px;
+  padding: var(--ksj-card-pad);
+}
+
+.skeletonTitle {
+  width: min(48%, 260px);
+  height: 24px;
+  margin-bottom: 8px;
+}
+
+.skeletonLine {
+  height: 13px;
+  min-width: 36px;
+}
+
+.skeletonList {
+  display: grid;
+  gap: 12px;
+}
+
+.skeletonListRow {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  min-height: 68px;
+  padding: 12px 14px;
+  border: 1px solid #1e2a3c;
+  border-radius: 12px;
+  background: #08101b;
+}
+
+.skeletonListRow > div {
+  display: grid;
+  gap: 9px;
+}
+
+.skeletonAvatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+}
+
+.skeletonTable {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid #1e2a3c;
+  border-radius: 14px;
+  background: #08101b;
+}
+
+.skeletonTableRow {
+  display: grid;
+  grid-template-columns: repeat(var(--skeleton-columns, 4), minmax(80px, 1fr));
+  gap: 18px;
+  align-items: center;
+  min-height: 58px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #1b2637;
+}
+
+.skeletonTableRow:last-child {
+  border-bottom: 0;
+}
+
+.skeletonForm {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.skeletonFormField {
+  display: grid;
+  gap: 10px;
+}
+
+.skeletonInput {
+  width: 100%;
+  height: 46px;
+  border-radius: 12px;
+}
+
 @keyframes ksjAsyncPulse {
   from {
     opacity: 0.45;
@@ -329,8 +439,15 @@ button[aria-busy='true'] {
   }
 }
 
+@keyframes ksjSkeletonShimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .loadingButton-loading > span:first-child {
+  .loadingButton-loading > span:first-child,
+  .skeletonBlock::after {
     animation: none;
   }
 }
@@ -408,6 +525,10 @@ button[aria-busy='true'] {
 
   .mediaToolbar .search {
     min-width: 100%;
+  }
+
+  .skeletonTable {
+    overflow-x: auto;
   }
 }
 
@@ -488,5 +609,9 @@ button[aria-busy='true'] {
 
   .mockHero {
     padding: 70px 18px;
+  }
+
+  .skeletonForm {
+    grid-template-columns: 1fr;
   }
 }
