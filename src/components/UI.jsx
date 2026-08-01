@@ -13,6 +13,40 @@ function clientActionAllowed(account, label) {
   return true
 }
 
+function asyncStateDetails(state = 'idle') {
+  if (state === 'loading') return { icon: '…', label: 'Loading', live: 'polite' }
+  if (state === 'saving') return { icon: '…', label: 'Saving', live: 'polite' }
+  if (state === 'success') return { icon: '✓', label: 'Saved', live: 'polite' }
+  if (state === 'error') return { icon: '!', label: 'Action failed', live: 'assertive' }
+  return { icon: '', label: '', live: 'polite' }
+}
+
+export function AsyncStatus({ state = 'idle', message = '', className = '' }) {
+  if (state === 'idle' && !message) return null
+  const details = asyncStateDetails(state)
+  const text = message || details.label
+
+  return (
+    <span className={`asyncStatus asyncStatus-${state}${className ? ` ${className}` : ''}`} role={state === 'error' ? 'alert' : 'status'} aria-live={details.live} aria-atomic="true">
+      {details.icon && <span aria-hidden="true">{details.icon}</span>}
+      <span>{text}</span>
+    </span>
+  )
+}
+
+export function LoadingButton({ loading = false, success = false, loadingLabel = 'Working…', successLabel = 'Done', children, disabled = false, className = '', ...props }) {
+  const state = loading ? 'loading' : success ? 'success' : 'idle'
+  const label = loading ? loadingLabel : success ? successLabel : children
+
+  return (
+    <button {...props} className={`loadingButton loadingButton-${state}${className ? ` ${className}` : ''}`} disabled={disabled || loading} aria-busy={loading || undefined}>
+      {loading && <span aria-hidden="true">…</span>}
+      {success && <span aria-hidden="true">✓</span>}
+      <span>{label}</span>
+    </button>
+  )
+}
+
 export function Stat({ item }) {
   return (
     <div className="card stat">
