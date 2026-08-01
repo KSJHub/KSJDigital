@@ -47,6 +47,62 @@ export function LoadingButton({ loading = false, success = false, loadingLabel =
   )
 }
 
+function SkeletonLine({ width = '100%', className = '' }) {
+  return <span className={`skeletonBlock skeletonLine${className ? ` ${className}` : ''}`} style={{ width }} aria-hidden="true" />
+}
+
+export function SkeletonCard({ lines = 3, className = '' }) {
+  const count = Math.max(1, Math.min(8, Number(lines) || 3))
+  return (
+    <section className={`card skeletonCard${className ? ` ${className}` : ''}`} aria-label="Loading content" aria-busy="true">
+      <span className="skeletonBlock skeletonTitle" aria-hidden="true" />
+      {Array.from({ length: count }, (_, index) => <SkeletonLine key={index} width={index === count - 1 ? '68%' : '100%'} />)}
+    </section>
+  )
+}
+
+export function SkeletonList({ rows = 4, className = '' }) {
+  const count = Math.max(1, Math.min(12, Number(rows) || 4))
+  return (
+    <div className={`skeletonList${className ? ` ${className}` : ''}`} aria-label="Loading list" aria-busy="true">
+      {Array.from({ length: count }, (_, index) => (
+        <div className="skeletonListRow" key={index}>
+          <span className="skeletonBlock skeletonAvatar" aria-hidden="true" />
+          <div><SkeletonLine width="76%" /><SkeletonLine width="48%" /></div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function SkeletonTable({ rows = 5, columns = 4, className = '' }) {
+  const rowCount = Math.max(1, Math.min(12, Number(rows) || 5))
+  const columnCount = Math.max(1, Math.min(8, Number(columns) || 4))
+  return (
+    <div className={`skeletonTable${className ? ` ${className}` : ''}`} aria-label="Loading table" aria-busy="true">
+      {Array.from({ length: rowCount }, (_, rowIndex) => (
+        <div className="skeletonTableRow" style={{ '--skeleton-columns': columnCount }} key={rowIndex}>
+          {Array.from({ length: columnCount }, (_, columnIndex) => <SkeletonLine key={columnIndex} width={columnIndex === columnCount - 1 ? '72%' : '100%'} />)}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function SkeletonForm({ fields = 4, className = '' }) {
+  const count = Math.max(1, Math.min(10, Number(fields) || 4))
+  return (
+    <div className={`skeletonForm${className ? ` ${className}` : ''}`} aria-label="Loading form" aria-busy="true">
+      {Array.from({ length: count }, (_, index) => (
+        <label className="skeletonFormField" key={index}>
+          <SkeletonLine width="34%" />
+          <span className="skeletonBlock skeletonInput" aria-hidden="true" />
+        </label>
+      ))}
+    </div>
+  )
+}
+
 export function Stat({ item }) {
   return (
     <div className="card stat">
