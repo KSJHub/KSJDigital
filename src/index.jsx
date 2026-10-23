@@ -39,6 +39,7 @@ import './styles/form-builder.css'
 import './styles/operations.css'
 import './styles/release-centre.css'
 import './styles/consistency.css'
+import './styles/design-system.css'
 
 applyDesignConfig()
 
