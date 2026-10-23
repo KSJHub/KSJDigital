@@ -1,6 +1,7 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
+import { applyDesignConfig } from './design/DesignConfig.js'
 import './styles.css'
 import './styles/public-site.css'
 import './styles/client-portal.css'
@@ -38,5 +39,7 @@ import './styles/form-builder.css'
 import './styles/operations.css'
 import './styles/release-centre.css'
 import './styles/consistency.css'
+
+applyDesignConfig()
 
 createRoot(document.getElementById('root')).render(<App />)
