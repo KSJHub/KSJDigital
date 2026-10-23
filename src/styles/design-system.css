@@ -1,0 +1,29 @@
+/* Central design token consumers. All values originate in DesignConfig.js. */
+body { background: var(--ksj-bg); color: var(--ksj-text); font-family: var(--ksj-font-body); }
+.publicSite { background: radial-gradient(circle at 14% 12%, color-mix(in srgb, var(--ksj-primary) 20%, transparent), transparent 40%), var(--ksj-bg); color: var(--ksj-text); font-family: var(--ksj-font-body); }
+.publicHeader { min-height: var(--ksj-header-height); border-color: var(--ksj-border); background: color-mix(in srgb, var(--ksj-bg) 94%, transparent); }
+.publicHeader nav button, .publicHeader nav a { color: var(--ksj-muted); }
+.publicHero, .publicPills, .publicSection { max-width: var(--ksj-content-width); }
+.publicHero h1 { font-family: var(--ksj-font-heading); font-size: var(--ksj-font-hero); }
+.publicSection > h2, .publicContact h2 { font-family: var(--ksj-font-heading); font-size: var(--ksj-font-h2); }
+.publicEyebrow, .publicPlatformCard article > span { color: var(--ksj-accent); }
+.publicHeroCopy > p, .publicServiceGrid p, .publicPlatformCard p, .publicContact p { color: var(--ksj-muted); }
+.publicPlatformCard, .publicServiceGrid article, .publicContact, .publicContactForm { border-color: var(--ksj-border); border-radius: var(--ksj-radius); }
+.publicPlatformCard, .publicServiceGrid article { background: var(--ksj-surface); }
+.publicPlatformCard article { background: var(--ksj-surface-raised); border-color: var(--ksj-border); }
+.publicContact { background: linear-gradient(135deg, var(--ksj-surface-raised), var(--ksj-surface)); }
+.publicActions button, .publicContact a, .publicContactForm button { background: var(--ksj-primary); border-color: var(--ksj-primary); }
+.publicActions button.secondary, .publicContactForm button.secondary { background: transparent; border-color: var(--ksj-border); }
+.publicServiceGrid article, .publicPlatformCard { transition: transform .2s ease, border-color .2s ease; }
+@media (hover:hover) { .publicServiceGrid article:hover { transform: translateY(-3px); border-color: var(--ksj-primary); } }
+.publicSite :is(button,a,input,textarea,select):focus-visible { outline: 2px solid var(--ksj-accent); outline-offset: 3px; }
+@media (max-width: 600px) {
+  .publicHero h1 { font-size: clamp(2.4rem, 10vw, 3.3rem); overflow-wrap: anywhere; }
+  .publicHeader nav { width: 100%; }
+  .publicHeader nav button, .publicHeader nav a { min-height: 44px; }
+  .publicContact { padding: 1.2rem; }
+  .publicServiceGrid article { min-width: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .publicSite *, .publicSite *::before, .publicSite *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
